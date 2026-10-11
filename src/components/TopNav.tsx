@@ -52,7 +52,6 @@ import {
   AlertTriangle,
   Sparkles,
   ChevronsRight,
-  Zap,
   FilePlus2,
   Workflow,
   BadgeCheck,
@@ -241,6 +240,8 @@ export default function TopNav() {
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [priorityTasks, setPriorityTasks] = useState<Array<{ id: string; title: string; prioridad: string; due_date: string | null }>>([]);
+  const [priorityTaskCount, setPriorityTaskCount] = useState(0);
 
   // Sidebar state from shared context
   const { sidebarOpen, setSidebarOpen } = useSidebar();
@@ -270,6 +271,24 @@ export default function TopNav() {
   } = useWorkspace();
   const { user, userProfile, signOut } = useAuth();
   const userId = user?.id ?? '';
+  useEffect(() => {
+    if (!userId || !activeWorkspace?.id) { const reset = window.setTimeout(() => { setPriorityTasks([]); setPriorityTaskCount(0); }, 0); return () => window.clearTimeout(reset); }
+    let active = true;
+    const refresh = async () => {
+      const { data, count, error } = await createClient().from('tareas')
+        .select('id,title,prioridad,due_date', { count: 'exact' })
+        .eq('workspace_id', activeWorkspace.id).eq('assigned_to', userId)
+        .in('prioridad', ['critica', 'alta'])
+        .not('estado', 'in', '(completada,cancelada,rechazada)')
+        .order('due_date', { ascending: true, nullsFirst: false }).limit(8);
+      if (active && !error) { setPriorityTasks(data || []); setPriorityTaskCount(count || 0); }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    const onFocus = () => { void refresh(); };
+    window.addEventListener('focus', onFocus);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, [activeWorkspace?.id, userId]);
   const { isDark, toggleTheme } = useTheme();
   const { isModuleActive, loading: modulesLoading } = useAppModules();
   const router = useRouter();
@@ -1269,89 +1288,20 @@ export default function TopNav() {
               )}
             </div>
 
-            {/* 2. Acciones rápidas */}
+            {/* 2. Tareas prioritarias */}
             <div ref={quickActionsRef} className="relative hidden flex-shrink-0 md:block">
-              <button
-                title="Acciones rápidas"
-                aria-label="Acciones rápidas"
-                aria-expanded={quickActionsOpen}
-                onClick={() => {
-                  setQuickActionsOpen((open) => !open);
-                  setBellOpen(false);
-                  setAvatarOpen(false);
-                }}
-                className={`flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${
-                  quickActionsOpen
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'
-                }`}
-              >
-                <Zap className="h-5 w-5" />
+              <button title="Tareas prioritarias" aria-label="Tareas prioritarias" aria-expanded={quickActionsOpen}
+                onClick={() => { setQuickActionsOpen(open => !open); setBellOpen(false); setAvatarOpen(false); }}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${quickActionsOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}>
+                <CheckSquare className="h-5 w-5" />
+                {priorityTaskCount > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{priorityTaskCount > 99 ? '99+' : priorityTaskCount}</span>}
               </button>
-
-              {quickActionsOpen && (
-                <div className="absolute right-0 top-12 z-50 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.14)]">
-                  <div className="border-b border-slate-200 px-4 py-3">
-                    <p className="text-sm font-600 text-slate-950">Acciones rápidas</p>
-                    <p className="mt-0.5 text-xs text-slate-500">Inicia una tarea frecuente.</p>
-                  </div>
-                  <div className="p-1.5">
-                    {[
-                      {
-                        label: 'Crear documento',
-                        description: 'Iniciar un nuevo flujo',
-                        href: '/crear-documento',
-                        icon: FilePlus2,
-                      },
-                      {
-                        label: 'Crear desde plantilla',
-                        description: 'Usar un formato guardado',
-                        href: '/plantillas',
-                        icon: LayoutTemplate,
-                      },
-                      {
-                        label: 'Mis contactos',
-                        description: 'Consultar participantes',
-                        href: '/contactos',
-                        icon: Users,
-                      },
-                      {
-                        label: 'Tareas pendientes',
-                        description: 'Revisar acciones por completar',
-                        href: '/mis-tareas',
-                        icon: CheckSquare,
-                      },
-                    ].map((action) => {
-                      const ActionIcon = action.icon;
-                      return (
-                        <button
-                          key={action.href}
-                          type="button"
-                          onClick={() => {
-                            setQuickActionsOpen(false);
-                            router.push(action.href);
-                          }}
-                          className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
-                        >
-                          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                            <ActionIcon size={16} />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-600 text-slate-900">
-                              {action.label}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-slate-500">
-                              {action.description}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {quickActionsOpen && <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.14)]">
+                <div className="border-b border-slate-200 px-4 py-3"><p className="text-sm font-semibold text-slate-950">Tareas prioritarias</p><p className="mt-0.5 text-xs text-slate-500">Asignadas a ti en este espacio.</p></div>
+                <div className="max-h-80 overflow-y-auto p-1.5">{priorityTasks.length === 0 ? <p className="px-3 py-6 text-center text-sm text-slate-500">No tienes tareas de alta prioridad.</p> : priorityTasks.map(task => <button key={task.id} onClick={() => { setQuickActionsOpen(false); router.push(`/mis-tareas?task=${task.id}`); }} className="flex w-full items-start gap-2 rounded-md px-3 py-2.5 text-left hover:bg-slate-50"><span className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${task.prioridad === 'critica' ? 'bg-red-500' : 'bg-amber-500'}`} /><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-900">{task.title}</span><span className="text-xs text-slate-500">{task.prioridad === 'critica' ? 'Crítica' : 'Alta'}{task.due_date ? ` · ${new Date(task.due_date).toLocaleDateString('es-MX')}` : ''}</span></span></button>)}</div>
+                <button onClick={() => { setQuickActionsOpen(false); router.push('/mis-tareas'); }} className="w-full border-t border-slate-200 px-4 py-3 text-left text-sm font-semibold text-primary hover:bg-slate-50">Ver todas las tareas</button>
+              </div>}
             </div>
-
             {/* 3. Centro de ayuda */}
             <button
               title="Centro de ayuda"

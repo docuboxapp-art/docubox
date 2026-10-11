@@ -18,6 +18,9 @@ function fixture({
   user = { id: 'user-1', email: 'ana@example.com', email_confirmed_at: '2026-10-09' },
   prior = null,
   codeExists = true,
+  mobileStatus = 'completed',
+  mobileFormId = formId,
+  captureApproved = true,
 } = {}) {
   const inserted = [];
   const form = {
@@ -58,6 +61,18 @@ function fixture({
           inserted.push(row);
           return { error: null };
         } };
+      if (table === 'mobile_upload_sessions') return chain({ data: {
+        id: 'mobile-session-1', user_id: user?.id, status: mobileStatus,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        metadata: {
+          mode: 'public_form_liveness', form_id: mobileFormId, capture_log_id: 'capture-1',
+          identity_match: true, captured_at: '2026-10-09T12:00:00Z',
+          provider: { liveness_passed: true, provider_reference: 'verified-1' },
+        },
+      }, error: null });
+      if (table === 'id_capture_logs') return chain({ data: {
+        id: 'capture-1', nubarium_aprobado: captureApproved,
+      }, error: null });
       throw new Error(`Unexpected table: ${table}`);
     },
   };
@@ -70,13 +85,13 @@ function fixture({
     if (name === '@supabase/supabase-js') return { createClient: () => service };
     if (name === './public-access-code')
       return { normalizePublicCode: (value) => String(value).replaceAll('-', ''), publicCodeLookup: () => 'lookup', isValidPublicCode: () => true, matchesStoredPublicCode: () => true };
-    if (name === '@/lib/identity/capture-crypto')
-      return { captureEncryptionKey: () => null, normalizeImageBase64: (value) => value, validImageBase64: () => true };
+    if (name === '@/lib/security/capability-token')
+      return { hashCapabilityToken: (value) => `hash:${value}` };
     throw new Error(`Unexpected import: ${name}`);
   }, exports);
   const request = {
     headers: new Headers({ Authorization: 'Bearer verified-user-token' }),
-    json: async () => ({ code: publicCode, selfie: 'selfie-data' }),
+    json: async () => ({ code: publicCode, mobileSessionToken: 'a'.repeat(64) }),
   };
   return { exports, request, inserted };
 }
@@ -244,6 +259,25 @@ test('the launcher activates a code on a private-capable published form', async 
   assert.match(deliveredBatch[1].html, /ABCDEFGH/);
   assert.match(deliveredBatch[0].html, /Hola,<\/p>/);
   assert.doesNotMatch(deliveredBatch[0].html, /Hola <strong>Participante<\/strong>/);
+});
+
+test('a public form requires an approved mobile capture linked to that form', async () => {
+  for (const options of [
+    { mobileStatus: 'pending' },
+    { mobileFormId: '22222222-2222-4222-8222-222222222222' },
+    { captureApproved: false },
+  ]) {
+    const current = fixture(options);
+    assert.equal((await current.exports.claimPublicForm(current.request, formId)).status, 422);
+    assert.equal(current.inserted.length, 0);
+  }
+});
+
+test('a selfie submitted without a completed mobile session cannot open the form', async () => {
+  const current = fixture();
+  current.request.json = async () => ({ code: publicCode, selfie: 'selfie-data' });
+  assert.equal((await current.exports.claimPublicForm(current.request, formId)).status, 400);
+  assert.equal(current.inserted.length, 0);
 });
 
 test('an invalid recipient email cannot activate a public code', async () => {

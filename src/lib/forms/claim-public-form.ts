@@ -1,57 +1,17 @@
 import 'server-only';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { isValidPublicCode, matchesStoredPublicCode, normalizePublicCode, publicCodeLookup } from './public-access-code';
+import { createClient } from '@supabase/supabase-js';
 import {
-  captureEncryptionKey,
-  decryptCapture,
-  normalizeImageBase64,
-  validImageBase64,
-} from '@/lib/identity/capture-crypto';
+  isValidPublicCode,
+  matchesStoredPublicCode,
+  normalizePublicCode,
+  publicCodeLookup,
+} from './public-access-code';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
 
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' };
 const reply = (error: string, status: number) => NextResponse.json({ error }, { status, headers });
-
-async function storedIdentityFront(service: SupabaseClient, userId: string) {
-  const key = captureEncryptionKey();
-  if (!key) return null;
-  const { data: capture } = await service
-    .from('id_capture_logs')
-    .select('anverso_b64')
-    .eq('user_id', userId)
-    .not('anverso_b64', 'is', null)
-    .order('captured_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (capture?.anverso_b64) {
-    try {
-      return decryptCapture(capture.anverso_b64, key);
-    } catch {
-      /* Try enrollment. */
-    }
-  }
-  const { data: enrollment } = await service
-    .from('enrollment_results')
-    .select('enrollment_token_id')
-    .eq('user_id', userId)
-    .eq('status', 'completed')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!enrollment?.enrollment_token_id) return null;
-  const { data: token } = await service
-    .from('enrollment_tokens')
-    .select('anverso_encrypted')
-    .eq('id', enrollment.enrollment_token_id)
-    .maybeSingle();
-  if (!token?.anverso_encrypted) return null;
-  try {
-    return decryptCapture(token.anverso_encrypted, key);
-  } catch {
-    return null;
-  }
-}
 
 export async function claimPublicForm(request: NextRequest, expectedFormId?: string) {
   const jwt = request.headers
@@ -74,9 +34,10 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
 
   const body = await request.json().catch(() => ({}));
   const code = normalizePublicCode(body.code);
-  const selfie = normalizeImageBase64(body.selfie);
+  const mobileSessionToken = String(body.mobileSessionToken || '').trim();
   if (!isValidPublicCode(code)) return reply('Ingresa un código de acceso válido.', 400);
-  if (!validImageBase64(selfie)) return reply('Captura una selfie para la prueba de vida.', 400);
+  if (!/^[a-f0-9]{64}$/i.test(mobileSessionToken))
+    return reply('Completa la prueba de vida desde el móvil.', 400);
   const lookup = publicCodeLookup(code);
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const ipHash = createHash('sha256').update(ip).digest('hex');
@@ -149,49 +110,47 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
   if (priorError) return reply('No se pudo comprobar el acceso previo.', 503);
   if (prior?.used_at) return reply('Ya respondiste este formulario.', 409);
 
-  const gatewayUrl = process.env.IDENTITY_VERIFICATION_GATEWAY_URL;
-  const gatewayToken = process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN;
-  if (!gatewayUrl || !gatewayToken)
-    return reply('La prueba de vida no está disponible en este momento.', 503);
-  const identityFront = await storedIdentityFront(service, user.id);
-  let verification: Record<string, unknown>;
-  try {
-    const provider = await fetch(gatewayUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gatewayToken}` },
-      body: JSON.stringify({
-        operation: identityFront ? 'VERIFY_IDENTITY_AND_LIVENESS' : 'VERIFY_LIVENESS',
-        correlation_id: randomUUID(),
-        selfie_base64: selfie,
-        ...(identityFront
-          ? { document_front_base64: identityFront, document_back_base64: identityFront }
-          : {}),
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    verification = provider.ok ? await provider.json() : {};
-  } catch {
-    return reply('No se pudo verificar la prueba de vida. Inténtalo de nuevo.', 502);
-  }
-  const liveness = verification.liveness as { passed?: boolean } | undefined;
-  const documentValidation = verification.document_validation as { valid?: boolean } | undefined;
-  const faceValidation = verification.face_validation as
-    { match?: boolean; score?: number } | undefined;
-  const matchedIdentity =
-    !identityFront ||
-    (documentValidation?.valid === true &&
-      faceValidation?.match === true &&
-      Number(faceValidation.score || 0) >= Number(process.env.IDENTITY_FACE_MATCH_THRESHOLD || 80));
-  if (verification.status !== 'VALID' || liveness?.passed !== true || !matchedIdentity)
-    return reply('La prueba de vida no fue aprobada. Repite la captura.', 422);
-  const verifiedAt = new Date().toISOString();
-  const reference = String(verification.verification_id || '').slice(0, 200) || null;
+  const sessionHash = hashCapabilityToken(mobileSessionToken);
+  const { data: mobileSession, error: mobileError } = await service
+    .from('mobile_upload_sessions')
+    .select('id,user_id,status,expires_at,metadata')
+    .eq('token_hash', sessionHash)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (mobileError) return reply('No se pudo comprobar la prueba de vida.', 503);
+  const mobileMetadata = mobileSession?.metadata as Record<string, unknown> | undefined;
+  const captureLogId = String(mobileMetadata?.capture_log_id || '');
+  const providerAudit = mobileMetadata?.provider as Record<string, unknown> | undefined;
+  if (
+    mobileSession?.status !== 'completed' ||
+    new Date(mobileSession.expires_at).getTime() <= Date.now() ||
+    mobileMetadata?.mode !== 'public_form_liveness' ||
+    mobileMetadata.form_id !== form.id ||
+    mobileMetadata.identity_match !== true ||
+    providerAudit?.liveness_passed !== true ||
+    !captureLogId
+  )
+    return reply('La prueba de vida móvil no está aprobada o expiró. Repítela.', 422);
+  const { data: captureLog, error: captureError } = await service
+    .from('id_capture_logs')
+    .select('id,nubarium_aprobado')
+    .eq('id', captureLogId)
+    .eq('session_token', sessionHash)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (captureError || captureLog?.nubarium_aprobado !== true)
+    return reply('No se pudo comprobar la evidencia de identidad.', 422);
+  const verifiedAt = String(mobileMetadata.captured_at || new Date().toISOString());
+  const reference = String(providerAudit.provider_reference || '').slice(0, 200) || null;
   if (prior && (!prior.expires_at || new Date(prior.expires_at).getTime() > Date.now())) {
     const { error } = await service
       .from('form_tokens')
-      .update({ liveness_verified_at: verifiedAt, liveness_reference: reference,
+      .update({
+        liveness_verified_at: verifiedAt,
+        liveness_reference: reference,
         launch_prefill: invitee?.launch_prefill || {},
-        ...(invitee?.recipient_name ? { recipient_name: invitee.recipient_name } : {}) })
+        ...(invitee?.recipient_name ? { recipient_name: invitee.recipient_name } : {}),
+      })
       .eq('token', prior.token)
       .eq('recipient_user_id', user.id)
       .eq('access_mode', 'public');

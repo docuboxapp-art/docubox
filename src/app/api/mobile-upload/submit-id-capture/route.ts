@@ -19,6 +19,7 @@ async function storedDocumentFront(
     .from('id_capture_logs')
     .select('anverso_b64')
     .eq('user_id', userId)
+    .eq('nubarium_aprobado', true)
     .not('anverso_b64', 'is', null)
     .order('captured_at', { ascending: false })
     .limit(1)
@@ -92,7 +93,14 @@ export async function POST(request: NextRequest) {
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
       .maybeSingle();
-    if (!session?.user_id || !session.metadata?.document_id) {
+    const documentId =
+      typeof session?.metadata?.document_id === 'string' ? session.metadata.document_id : null;
+    const formId =
+      session?.metadata?.mode === 'public_form_liveness' &&
+      typeof session.metadata.form_id === 'string'
+        ? session.metadata.form_id
+        : null;
+    if (!session?.user_id || (!documentId && !formId)) {
       return NextResponse.json({ error: 'Sesion invalida o expirada.' }, { status: 404 });
     }
 
@@ -172,7 +180,7 @@ export async function POST(request: NextRequest) {
       .insert({
         session_token: tokenHash,
         user_id: session.user_id,
-        document_id: session.metadata.document_id,
+        document_id: documentId,
         has_enrollment: session.metadata.has_enrollment === true,
         nubarium_similitud: faceScore,
         nubarium_aprobado: identityMatch,
@@ -189,7 +197,7 @@ export async function POST(request: NextRequest) {
         nombre_extracted: fields.nombre_completo || fields.nombre || null,
         curp_match: curpMatch,
         curp_profile: profileCurp,
-        document_id_ref: session.metadata.document_id,
+        document_id_ref: documentId,
         encryption_version: 'AES-256-GCM-V1',
       })
       .select('id')
@@ -204,7 +212,7 @@ export async function POST(request: NextRequest) {
     const nextStatus = identityMatch ? 'completed' : 'identity_failed';
     const resultMetadata = {
       ...(session.metadata || {}),
-      mode: 'id_capture',
+      mode: formId ? 'public_form_liveness' : 'id_capture',
       captured_at: new Date().toISOString(),
       provider: providerAudit,
       nubarium_similitud: faceScore,
@@ -236,16 +244,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await supabase.rpc('append_legal_evidence_event', {
-      p_document_id: session.metadata.document_id,
-      p_event_type: 'IDENTITY_LIVENESS_VERIFIED',
-      p_event_category: 'IDENTITY',
-      p_event_result: identityMatch ? 'SUCCESS' : 'FAILED',
-      p_actor_id: session.user_id,
-      p_actor_type: 'PARTICIPANT',
-      p_payload: providerAudit,
-      p_idempotency_key: `identity-capture:${captureLog.id}`,
-    });
+    if (documentId) {
+      await supabase.rpc('append_legal_evidence_event', {
+        p_document_id: documentId,
+        p_event_type: 'IDENTITY_LIVENESS_VERIFIED',
+        p_event_category: 'IDENTITY',
+        p_event_result: identityMatch ? 'SUCCESS' : 'FAILED',
+        p_actor_id: session.user_id,
+        p_actor_type: 'PARTICIPANT',
+        p_payload: providerAudit,
+        p_idempotency_key: `identity-capture:${captureLog.id}`,
+      });
+    }
 
     return NextResponse.json(
       {

@@ -1311,62 +1311,12 @@ export default function CapturaIdMovilPage() {
           return;
         }
 
-        const sessionUserId: string | null = session.profile ? 'capability-profile' : null;
-
-        // Load user profile using session user_id (does not require auth session)
-        if (sessionUserId) {
-          const profile = session.profile;
-
-          if (profile) {
-            setUserProfile({
-              curp: profile.curp || undefined,
-              nombre: profile.full_name || undefined,
-              email: profile.email || undefined,
-            });
-          }
-
-          // ── Check for previously stored identification ──────────────────
-          let storedAnverso: string | null = null;
-          let storedCurp: string | null = null;
-          let storedNombre: string | null = null;
-
-          try {
-            const storedIdRes = await fetch('/api/mobile-upload/check-stored-id', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token }),
-            });
-            if (storedIdRes.ok) {
-              const storedIdData = await storedIdRes.json();
-              if (storedIdData.hasStoredId && storedIdData.anverso_b64) {
-                storedAnverso = storedIdData.anverso_b64;
-                storedCurp = storedIdData.curp_extracted || null;
-                storedNombre = storedIdData.nombre_extracted || null;
-              }
-            }
-          } catch {
-            // Non-blocking — if check fails, proceed with full ID capture flow
-          }
-
-          // If we found a stored identification, preload it and show intro (not skip it)
-          if (storedAnverso) {
-            const anversoDataUrl = storedAnverso.startsWith('data:')
-              ? storedAnverso
-              : `data:image/jpeg;base64,${storedAnverso}`;
-
-            setCaptureData(d => ({
-              ...d,
-              tipoId: 'INE',
-              anverso: anversoDataUrl,
-              reverso: anversoDataUrl,
-              curp: storedCurp || d.curp,
-              nombre: storedNombre || d.nombre,
-            }));
-            setUsingStoredId(true);
-            // Show intro screen first (with message that ID is not needed)
-            setScreen('intro');
-            return;
-          }
+        if (session.profile) {
+          setUserProfile({
+            curp: session.profile.curp || undefined,
+            nombre: session.profile.full_name || undefined,
+            email: session.profile.email || undefined,
+          });
         } else {
           const { data: { user } } = await supabase.auth.getUser();
           if (user) {
@@ -1386,6 +1336,42 @@ export default function CapturaIdMovilPage() {
               setUserProfile({ email: user.email || undefined });
             }
           }
+        }
+
+        // A registered user may have verified identification even without a profile row.
+        let storedAnverso: string | null = null;
+        let storedCurp: string | null = null;
+        let storedNombre: string | null = null;
+        try {
+          const storedIdRes = await fetch('/api/mobile-upload/check-stored-id', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          if (storedIdRes.ok) {
+            const storedIdData = await storedIdRes.json();
+            if (storedIdData.hasStoredId && storedIdData.anverso_b64) {
+              storedAnverso = storedIdData.anverso_b64;
+              storedCurp = storedIdData.curp_extracted || null;
+              storedNombre = storedIdData.nombre_extracted || null;
+            }
+          }
+        } catch {
+          // Proceed with full identification capture when the lookup is unavailable.
+        }
+        if (storedAnverso) {
+          const anversoDataUrl = storedAnverso.startsWith('data:')
+            ? storedAnverso
+            : `data:image/jpeg;base64,${storedAnverso}`;
+          setCaptureData(d => ({
+            ...d,
+            tipoId: 'INE',
+            anverso: anversoDataUrl,
+            reverso: anversoDataUrl,
+            curp: storedCurp || d.curp,
+            nombre: storedNombre || d.nombre,
+          }));
+          setUsingStoredId(true);
         }
 
         setScreen('intro');

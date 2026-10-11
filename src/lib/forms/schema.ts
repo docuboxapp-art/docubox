@@ -66,6 +66,7 @@ export interface FieldPdfConfig {
   show: boolean;
   sectionId?: string;
   label?: string;
+  labelExplicit?: boolean;
   order?: number;
   pageBreakBefore?: boolean;
 }
@@ -353,7 +354,8 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
           pdf: {
             show: field.pdf?.show ?? true,
             sectionId: field.pdf?.sectionId || field.sectionId || sections[0].id,
-            label: field.pdf?.label || field.label,
+            label: getPdfFieldLabel(field),
+            labelExplicit: field.pdf?.labelExplicit === true,
             order: field.pdf?.order ?? index,
             pageBreakBefore: field.pdf?.pageBreakBefore ?? false,
           },
@@ -424,6 +426,14 @@ export function getFieldTypeLabel(type: FieldType): string {
     imagen_estatica: 'Imagen estática', columnas: 'Columnas',
   };
   return labels[type];
+}
+
+export function getPdfFieldLabel(field: Pick<FormField, 'type' | 'label' | 'pdf'>): string {
+  const pdfLabel = field.pdf?.label?.trim();
+  if (!pdfLabel || (field.pdf?.labelExplicit !== true && pdfLabel === getFieldTypeLabel(field.type) && field.label !== pdfLabel)) {
+    return field.label;
+  }
+  return pdfLabel;
 }
 
 export function getSignatureTypeLabel(type: SignatureType): string {

@@ -28,6 +28,9 @@ import {
 } from '@/lib/evidence-v2/orchestrator';
 import { isEvidenceV2Enabled } from '@/lib/evidence-v2/feature-flags';
 
+export const runtime = 'nodejs';
+export const maxDuration = 300;
+
 function normalize(value: unknown) {
   return String(value || '')
     .trim()
@@ -224,8 +227,70 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ documentId: string }> }
 ) {
+  if (request.nextUrl.searchParams.get('background') !== '1') {
+    return sealSignaturesNow(request, context);
+  }
+  if ((request.headers.get('content-type') || '').includes('multipart/form-data')) {
+    return NextResponse.json({ error: 'La materialización de plantillas requiere el proceso normal.' }, { status: 400 });
+  }
+
+  const user = await authenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
+  const { documentId } = await context.params;
+  const service = createServiceClient();
+  const lookup = await service
+    .from('documentos')
+    .select('id,owner_id,estado,participantes,source_form_response_id,file_type')
+    .eq('id', documentId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (lookup.error) return NextResponse.json({ error: 'No se pudo consultar el documento.' }, { status: 500 });
+  const document = lookup.data;
+  if (!document) return NextResponse.json({ error: 'Documento no encontrado.' }, { status: 404 });
+  if (!document.source_form_response_id || document.file_type !== 'application/pdf') {
+    return NextResponse.json({ error: 'Esta operación en segundo plano solo está disponible para formularios PDF.' }, { status: 400 });
+  }
+  if (document.estado !== 'completado') {
+    return NextResponse.json({ error: 'El documento aún no está listo para certificar.' }, { status: 409 });
+  }
+  const owner = document.owner_id === user.id;
+  const participant = isParticipant(document.participantes, user.id, normalize(user.email));
+  if (!owner && !participant) {
+    return NextResponse.json({ error: 'No tienes permiso para generar esta versión.' }, { status: 403 });
+  }
+
+  const backgroundRequest = new NextRequest(request.url, {
+    method: 'POST',
+    headers: { 'x-request-id': request.headers.get('x-request-id') || crypto.randomUUID() },
+  });
+  after(async () => {
+    const result = await sealSignaturesNow(
+      backgroundRequest,
+      { params: Promise.resolve({ documentId }) },
+      user
+    );
+    if (!result.ok) {
+      const payload = await result.json().catch(() => ({}));
+      console.error('[seal-signatures] La certificación en segundo plano quedó pendiente.', {
+        documentId,
+        status: result.status,
+        code: payload?.code || 'FINAL_DOCUMENT_FAILED',
+      });
+    }
+  });
+  return NextResponse.json(
+    { accepted: true, certification_pending: true },
+    { status: 202, headers: { 'Cache-Control': 'private, no-store' } }
+  );
+}
+
+async function sealSignaturesNow(
+  request: NextRequest,
+  context: { params: Promise<{ documentId: string }> },
+  authenticatedSigner?: Awaited<ReturnType<typeof authenticatedUser>>
+) {
   try {
-    const user = await authenticatedUser(request);
+    const user = authenticatedSigner ?? await authenticatedUser(request);
     if (!user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
 
     let suppliedTemplatePdf: Uint8Array | null = null;

@@ -3,7 +3,7 @@
 import React from 'react';
 import { GitBranch, Plus, Trash2, X } from 'lucide-react';
 import { useFormBuilder, type FormField } from '@/contexts/FormBuilderContext';
-import { getFieldTypeLabel } from '@/lib/forms/schema';
+import { getFieldTypeLabel, getPdfFieldLabel } from '@/lib/forms/schema';
 import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
 
 import {
@@ -60,7 +60,9 @@ export default function FieldProperties() {
                     pdf: {
                       ...selectedField.pdf,
                       show: selectedField.pdf?.show ?? true,
-                      label: selectedField.pdf?.label || value,
+                      label: selectedField.pdf?.labelExplicit !== true && getPdfFieldLabel(selectedField) === selectedField.label
+                        ? value
+                        : selectedField.pdf?.label,
                     },
                   })
                 }
@@ -320,13 +322,14 @@ export default function FieldProperties() {
               />
               <Input
                 label="Etiqueta en PDF"
-                value={selectedField.pdf?.label || selectedField.label}
+                value={getPdfFieldLabel(selectedField)}
                 onChange={(value) =>
                   update({
                     pdf: {
                       ...selectedField.pdf,
                       show: selectedField.pdf?.show ?? true,
                       label: value,
+                      labelExplicit: value.trim().length > 0,
                     },
                   })
                 }

@@ -1281,6 +1281,46 @@ declare global {
   }
 }
 
+let signingPdfJsLoadPromise: Promise<void> | null = null;
+
+function ensureSigningPdfJsLoaded(): Promise<void> {
+  const workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+    return Promise.resolve();
+  }
+  if (!signingPdfJsLoadPromise) {
+    signingPdfJsLoadPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.async = true;
+      const timeout = window.setTimeout(() => {
+        script.remove();
+        reject(new Error('El visor de PDF tardó demasiado en cargar.'));
+      }, 12000);
+      script.onload = () => {
+        window.clearTimeout(timeout);
+        if (!window.pdfjsLib) {
+          reject(new Error('No se pudo iniciar el visor de PDF.'));
+          return;
+        }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+        resolve();
+      };
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        script.remove();
+        reject(new Error('No se pudo cargar el visor de PDF. Comprueba tu conexión.'));
+      };
+      document.head.appendChild(script);
+    }).catch((error) => {
+      signingPdfJsLoadPromise = null;
+      throw error;
+    });
+  }
+  return signingPdfJsLoadPromise;
+}
+
 function PdfCanvas({
   fileUrl,
   page,
@@ -1303,20 +1343,6 @@ function PdfCanvas({
   const [accessCodeError, setAccessCodeError] = useState('');
   const [verifyingAccessCode, setVerifyingAccessCode] = useState(false);
 
-  useEffect(() => {
-    if (window.pdfjsLib) return;
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.async = true;
-    script.onload = () => {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      }
-    };
-    document.head.appendChild(script);
-  }, []);
-
   const renderPage = useCallback(async () => {
     if (!canvasRef.current) return;
     setRendering(true);
@@ -1324,41 +1350,38 @@ function PdfCanvas({
     setErrorMessage('');
     setRequiresAccessCode(false);
     try {
-      let attempts = 0;
-      while (!window.pdfjsLib && attempts < 50) {
-        await new Promise((r) => setTimeout(r, 100));
-        attempts++;
-      }
-      if (!window.pdfjsLib) throw new Error('No se pudo iniciar el visor de PDF.');
       if (!pdfDocRef.current || pdfDocRef.current._url !== fileUrl) {
-        const {
-          data: { session },
-        } = await createClient().auth.getSession();
-        if (!session?.access_token) {
-          throw new Error('Tu sesión no está disponible. Vuelve a iniciar sesión.');
-        }
-        const response = await fetch(fileUrl, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          credentials: 'same-origin',
-          cache: 'no-store',
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          const loadError = new Error(
-            payload?.error || `No se pudo abrir el documento (${response.status}).`
-          ) as Error & { status?: number; code?: string };
-          loadError.status = response.status;
-          loadError.code = payload?.code;
-          throw loadError;
-        }
-        if (
-          !(response.headers.get('content-type') || '')
-            .toLowerCase()
-            .includes('application/pdf')
-        ) {
-          throw new Error('El archivo entregado no es un PDF válido.');
-        }
-        const bytes = new Uint8Array(await response.arrayBuffer());
+        const bytesPromise = (async () => {
+          const {
+            data: { session },
+          } = await createClient().auth.getSession();
+          if (!session?.access_token) {
+            throw new Error('Tu sesión no está disponible. Vuelve a iniciar sesión.');
+          }
+          const response = await fetch(fileUrl, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            credentials: 'same-origin',
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            const loadError = new Error(
+              payload?.error || `No se pudo abrir el documento (${response.status}).`
+            ) as Error & { status?: number; code?: string };
+            loadError.status = response.status;
+            loadError.code = payload?.code;
+            throw loadError;
+          }
+          if (
+            !(response.headers.get('content-type') || '')
+              .toLowerCase()
+              .includes('application/pdf')
+          ) {
+            throw new Error('El archivo entregado no es un PDF válido.');
+          }
+          return new Uint8Array(await response.arrayBuffer());
+        })();
+        const [, bytes] = await Promise.all([ensureSigningPdfJsLoaded(), bytesPromise]);
         if (!bytes.byteLength) throw new Error('El archivo PDF está vacío.');
         const loadingTask = window.pdfjsLib.getDocument({
           data: bytes,
@@ -1369,6 +1392,8 @@ function PdfCanvas({
         pdfDoc._url = fileUrl;
         pdfDocRef.current = pdfDoc;
         onTotalPages(pdfDoc.numPages);
+      } else {
+        await ensureSigningPdfJsLoaded();
       }
       const pdfDoc = pdfDocRef.current;
       const pageNum = Math.max(1, Math.min(page, pdfDoc.numPages));
@@ -1385,11 +1410,18 @@ function PdfCanvas({
       if (!canvas) return;
       const scale = zoom / 100;
       const viewport = pdfPage.getViewport({ scale });
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      const outputScale = 2;
+      canvas.width = Math.ceil(viewport.width * outputScale);
+      canvas.height = Math.ceil(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      const renderTask = pdfPage.render({ canvasContext: ctx, viewport });
+      const renderTask = pdfPage.render({
+        canvasContext: ctx,
+        viewport,
+        transform: [outputScale, 0, 0, outputScale, 0, 0],
+      });
       renderTaskRef.current = renderTask;
       await renderTask.promise;
       renderTaskRef.current = null;
@@ -6470,16 +6502,22 @@ export default function FirmarDocumentoPage() {
         file_url: `/api/documentos/${encodeURIComponent(data.id)}/viewer-file?variant=original`,
       };
       setDocument(loadedDocument);
+      if (data.source_form_response_id) {
+        setZoom(120);
+        setDocModalZoom(120);
+      }
       const { data: sessionData } = await createClient().auth.getSession();
       const authorizationHeaders: Record<string, string> = sessionData.session?.access_token
         ? { Authorization: `Bearer ${sessionData.session.access_token}` }
         : {};
-      const resolvedTemplate = await loadTemplateDocumentSource({
-        documentId: data.id,
-        fileType: data.file_type,
-        fileUrl: loadedDocument.file_url,
-        headers: authorizationHeaders,
-      }).catch(() => null);
+      const resolvedTemplate = data.source_form_response_id
+        ? null
+        : await loadTemplateDocumentSource({
+            documentId: data.id,
+            fileType: data.file_type,
+            fileUrl: loadedDocument.file_url,
+            headers: authorizationHeaders,
+          }).catch(() => null);
       setTemplateDocument(resolvedTemplate);
 
       let savedServerValues: Record<string, string> = {};
@@ -7785,7 +7823,9 @@ export default function FirmarDocumentoPage() {
           }
 
           setSubmissionPhase('certificando_pdf');
-          const sealResponse = await fetch(`/api/documentos/${document.id}/seal-signatures`, {
+          const backgroundSeal = isFormResponseDocument && !sealBody;
+          const certificationStartedAt = Date.now();
+          const sealResponse = await fetch(`/api/documentos/${document.id}/seal-signatures${backgroundSeal ? '?background=1' : ''}`, {
             method: 'POST',
             headers: authorizationHeaders,
             body: sealBody,
@@ -7800,17 +7840,23 @@ export default function FirmarDocumentoPage() {
             }
             throw new Error(payload?.error || `FINAL_CERTIFICATION_FAILED_${sealResponse.status}`);
           }
-          void fetch(`/api/documentos/${document.id}/evidence`, {
-            method: 'POST',
-            headers: authorizationHeaders,
-            keepalive: true,
-          }).then(async (response) => {
-            if (response.ok) return;
-            const payload = await response.json().catch(() => ({}));
-            console.warn('[evidence-finalization] La emisión automática quedó pendiente:', payload.code || response.status);
-          }).catch((error) => {
-            console.warn('[evidence-finalization] No se pudo iniciar la finalización automática:', error);
-          });
+          if (sealResponse.status === 202) {
+            setFinalPdfPending(true);
+            const remaining = 3500 - (Date.now() - certificationStartedAt);
+            if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+          } else {
+            void fetch(`/api/documentos/${document.id}/evidence`, {
+              method: 'POST',
+              headers: authorizationHeaders,
+              keepalive: true,
+            }).then(async (response) => {
+              if (response.ok) return;
+              const payload = await response.json().catch(() => ({}));
+              console.warn('[evidence-finalization] La emisión automática quedó pendiente:', payload.code || response.status);
+            }).catch((error) => {
+              console.warn('[evidence-finalization] No se pudo iniciar la finalización automática:', error);
+            });
+          }
         } catch (artifactError) {
           setFinalPdfPending(true);
           console.error(
@@ -8576,7 +8622,7 @@ export default function FirmarDocumentoPage() {
                       className={`text-xl font-semibold mb-1 ${isDark ? 'text-gray-100' : 'text-foreground'}`}
                     >
                       {myRole === 'firmante'
-                        ? isFormResponseDocument ? '¡Formulario firmado!' : '¡Documento firmado!'
+                        ? isFormResponseDocument ? '¡Firma del formulario registrada!' : '¡Documento firmado!'
                         : myRole === 'testigo'
                           ? '¡Testimonio registrado!'
                           : '¡Aprobación registrada!'}
@@ -8584,7 +8630,9 @@ export default function FirmarDocumentoPage() {
                     <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
                       {myRole === 'firmante'
                         ? isFormResponseDocument
-                          ? 'Tus respuestas quedaron firmadas y la estampa se colocó en el PDF final.'
+                          ? finalPdfPending
+                            ? 'La certificación del PDF continúa en segundo plano. Podrás descargarlo desde el visor cuando termine.'
+                            : 'Tus respuestas quedaron firmadas y la estampa se colocó en el PDF final.'
                           : 'Tu firma ha sido registrada exitosamente.'
                         : myRole === 'testigo'
                           ? 'Tu participación como testigo quedó registrada.'
@@ -9070,7 +9118,9 @@ export default function FirmarDocumentoPage() {
                       Documentos disponibles
                     </h3>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-muted-foreground'}`}>
-                      Descarga el documento original y tu constancia de participación.
+                      {isFormResponseDocument && finalPdfPending
+                        ? 'El PDF estará disponible cuando termine la certificación. Puedes consultar el estado en el visor.'
+                        : 'Descarga el documento original y tu constancia de participación.'}
                     </p>
                   </div>
 
@@ -9117,7 +9167,7 @@ export default function FirmarDocumentoPage() {
                       {document.file_url ? (
                         <button
                           onClick={downloadOriginalDocument}
-                          disabled={downloadingOriginal}
+                          disabled={downloadingOriginal || Boolean(isFormResponseDocument && finalPdfPending)}
                           className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-border text-foreground hover:bg-muted'}`}
                         >
                           {downloadingOriginal ? (
@@ -9125,7 +9175,9 @@ export default function FirmarDocumentoPage() {
                           ) : (
                             <Download size={14} />
                           )}
-                          Descargar documento original
+                          {isFormResponseDocument && finalPdfPending
+                            ? 'Disponible al finalizar la certificación'
+                            : 'Descargar documento original'}
                         </button>
                       ) : (
                         <div
@@ -9944,10 +9996,11 @@ export default function FirmarDocumentoPage() {
               <button
                 onClick={() => setShowDocModal(false)}
                 className="flex items-center gap-1.5 text-sm font-medium text-foreground bg-white border border-border rounded-full px-3 py-1.5 shadow-sm hover:shadow-md transition-all"
-                title="Cerrar"
+                title={isFormResponseDocument ? 'Volver al proceso de firma' : 'Cerrar vista ampliada'}
+                aria-label={isFormResponseDocument ? 'Volver al proceso de firma' : 'Cerrar vista ampliada'}
               >
                 <Maximize2 size={14} className="rotate-180" />
-                Salir
+                {isFormResponseDocument ? 'Volver a la firma' : 'Cerrar'}
               </button>
             </div>
           </div>
@@ -10111,18 +10164,20 @@ export default function FirmarDocumentoPage() {
                   </div>
                 </div>
 
-                {/* Overlay: Ver documento completo — top-right */}
+                {/* Overlay: expanded document preview — top-right */}
                 <div className="absolute top-4 right-4 z-20 pointer-events-auto">
                   <button
+                    type="button"
                     onClick={() => {
                       setDocModalPage(currentPage);
                       setDocModalZoom(zoom);
                       setShowDocModal(true);
                     }}
+                    aria-label={isFormResponseDocument ? 'Ampliar vista previa del PDF del formulario' : 'Ver documento completo'}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground bg-white border border-border rounded-full shadow-sm hover:shadow-md transition-all"
                   >
                     <Maximize2 size={14} className="text-foreground" />
-                    {isFormResponseDocument ? 'Ver PDF del formulario' : 'Ver documento completo'}
+                    {isFormResponseDocument ? 'Ampliar vista previa' : 'Ver documento completo'}
                   </button>
                 </div>
 
@@ -13132,7 +13187,9 @@ export default function FirmarDocumentoPage() {
                       ? 'Registrando tu firma...'
                       : submissionPhase === 'preparando_pdf'
                         ? 'Tu firma ya quedó registrada. Estamos preparando el PDF final.'
-                        : 'Tu firma ya quedó registrada. Estamos certificando el PDF final; puede tardar uno o dos minutos. Mantén esta página abierta.'}
+                        : isFormResponseDocument
+                          ? 'Tu firma ya quedó registrada. La certificación continuará en segundo plano; podrás consultar su estado en el visor.'
+                          : 'Tu firma ya quedó registrada. Estamos certificando el PDF final; puede tardar uno o dos minutos. Mantén esta página abierta.'}
                   </span>
                 </div>
               )}

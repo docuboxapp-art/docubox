@@ -662,7 +662,9 @@ function DocumentSourceIcon({
   size: number;
   className?: string;
 }) {
-  if (document.sourceFormResponseId) return <FileText size={size} className={className} aria-label="Creado desde un formulario" />;
+  if (document.sourceFormResponseId) {
+    return <ClipboardList size={size} className={className} aria-label="Creado desde un formulario" />;
+  }
   if (document.sourceTemplateId) {
     return (
       <span

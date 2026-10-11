@@ -18,8 +18,8 @@ import {
   RefreshCw,
   Clock,
   Share2,
-  Maximize2,
-  Minimize2,
+  Fullscreen,
+  Shrink,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { autographSignatureCapabilities } from '@/lib/signatures/autographSignatureCapabilities';
@@ -4195,11 +4195,13 @@ export default function AutographSignatureFlow({
               <button
                 type="button"
                 onClick={() => setPadExpanded((expanded) => !expanded)}
-                title={padExpanded ? 'Reducir firma' : 'Expandir firma'}
-                aria-label={padExpanded ? 'Reducir firma' : 'Expandir firma'}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                title={padExpanded ? 'Reducir el área para dibujar' : 'Ampliar el área para dibujar'}
+                aria-label={padExpanded ? 'Reducir el área para dibujar la firma' : 'Ampliar el área para dibujar la firma'}
+                aria-expanded={padExpanded}
+                className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`}
               >
-                {padExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                {padExpanded ? <Shrink size={16} aria-hidden="true" /> : <Fullscreen size={16} aria-hidden="true" />}
+                <span>{padExpanded ? 'Reducir área' : 'Ampliar área'}</span>
               </button>
             </div>
           </div>

@@ -46,6 +46,7 @@ const PUBLIC_PREFIXES = [
 // Bearer token itself before the browser has completed its session handoff.
 const SESSION_POLICY_BOOTSTRAP_API_ROUTES = new Set(['/api/auth/totp/check']);
 const KIOSK_COOKIE_NAME = 'docubox_kiosk_session';
+const SESSION_RETRY_COOKIE_NAME = 'docubox_session_check_retry';
 const KIOSK_AUTH_API_ROUTES = new Set([
   '/api/auth/check-login-options',
   '/api/auth/send-login-otp',
@@ -269,8 +270,11 @@ const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt
 const TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set(['PGRST002']);
 const TRANSIENT_SESSION_HTTP_STATUSES = new Set([0, 502, 503, 504]);
 const SESSION_POLICY_RETRY_DELAY_MS = 350;
+const SESSION_POLICY_SCHEMA_RETRY_DELAY_MS = 1_200;
 const SESSION_VALIDATION_TIMEOUT_MS = 8_000;
+const SESSION_POLICY_FAILURE_BACKOFF_MS = 2_000;
 const inFlightSessionPolicyValidations = new Map<string, Promise<SessionPolicyValidationResult>>();
+const sessionPolicyFailureUntil = new Map<string, number>();
 
 function normalizeSessionPolicyError(error: unknown): SessionPolicyError {
   if (!error || typeof error !== 'object') return { message: String(error) };
@@ -378,8 +382,8 @@ function isTransientSessionPolicyError(error: SessionPolicyError | null) {
   );
 }
 
-function waitForSessionPolicyRetry() {
-  return new Promise<void>((resolve) => setTimeout(resolve, SESSION_POLICY_RETRY_DELAY_MS));
+function waitForSessionPolicyRetry(delayMs = SESSION_POLICY_RETRY_DELAY_MS) {
+  return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
 function unauthenticatedResponse(
@@ -448,7 +452,11 @@ function expiredSessionResponse(
   return expiredResponse;
 }
 
-function unavailableSessionPolicyResponse(response: NextResponse, isApiRequest: boolean) {
+function unavailableSessionPolicyResponse(
+  request: NextRequest,
+  response: NextResponse,
+  isApiRequest: boolean
+) {
   if (isApiRequest) {
     return NextResponse.json(
       {
@@ -458,6 +466,8 @@ function unavailableSessionPolicyResponse(response: NextResponse, isApiRequest: 
       { status: 503 }
     );
   }
+
+  const autoRetry = !request.cookies.has(SESSION_RETRY_COOKIE_NAME);
 
   const unavailableResponse = new NextResponse(
     `<!doctype html>
@@ -481,10 +491,11 @@ function unavailableSessionPolicyResponse(response: NextResponse, isApiRequest: 
     <main>
       <section>
         <h1>No fue posible verificar la sesión</h1>
-        <p>Tu sesión continúa activa. La conexión tardó más de lo esperado. Intenta nuevamente.</p>
+        <p>Tu sesión continúa activa. La conexión tardó más de lo esperado. ${autoRetry ? 'Intentaremos de nuevo en 5 segundos.' : 'Intenta nuevamente.'}</p>
         <a href="">Reintentar</a>
       </section>
     </main>
+    ${autoRetry ? '<script>setTimeout(function () { window.location.reload(); }, 5000);</script>' : ''}
   </body>
 </html>`,
     {
@@ -498,6 +509,14 @@ function unavailableSessionPolicyResponse(response: NextResponse, isApiRequest: 
   );
   for (const cookie of response.cookies.getAll()) {
     unavailableResponse.cookies.set(cookie);
+  }
+  if (autoRetry) {
+    unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, '1', {
+      path: '/',
+      maxAge: 30,
+      sameSite: 'lax',
+      httpOnly: true,
+    });
   }
   return unavailableResponse;
 }
@@ -629,7 +648,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorStatus: claimsError.status,
     });
     return withMiddlewareTiming(
-      unavailableSessionPolicyResponse(response, isApiRequest),
+      unavailableSessionPolicyResponse(request, response, isApiRequest),
       startedAt,
       { claimsMs }
     );
@@ -637,6 +656,16 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 
   let policyData: unknown = null;
   let policyError: SessionPolicyError | null = null;
+  const sessionId = getSessionIdFromClaims(claimsData);
+  const failureUntil = sessionId ? sessionPolicyFailureUntil.get(sessionId) : undefined;
+  if (failureUntil && failureUntil > Date.now()) {
+    return withMiddlewareTiming(
+      unavailableSessionPolicyResponse(request, response, isApiRequest),
+      startedAt,
+      { claimsMs }
+    );
+  }
+  if (sessionId) sessionPolicyFailureUntil.delete(sessionId);
   const sessionPolicyStartedAt = performance.now();
   try {
     const validatePolicy = async (): Promise<SessionPolicyValidationResult> => {
@@ -645,16 +674,22 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       });
       if (isTransientSessionPolicyError(result.error)) {
         // PostgREST can briefly return PGRST002 while rebuilding its schema cache.
-        // Retry once only; a persistent failure still blocks protected traffic.
+        // A persistent failure still blocks protected traffic.
         await waitForSessionPolicyRetry();
         result = await supabase.rpc('enforce_docubox_session_policy', {
           p_record_user_activity: false,
         });
+        if (result.error?.code === 'PGRST002') {
+          // Give a schema-cache reload one more short window to finish.
+          await waitForSessionPolicyRetry(SESSION_POLICY_SCHEMA_RETRY_DELAY_MS);
+          result = await supabase.rpc('enforce_docubox_session_policy', {
+            p_record_user_activity: false,
+          });
+        }
       }
       return { data: result.data, error: result.error };
     };
 
-    const sessionId = getSessionIdFromClaims(claimsData);
     let validation = sessionId ? inFlightSessionPolicyValidations.get(sessionId) : undefined;
     if (!validation) {
       validation = validatePolicy();
@@ -686,6 +721,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
         { claimsMs, sessionPolicyMs }
       );
     }
+    if (sessionId) {
+      if (sessionPolicyFailureUntil.size >= 1_000) sessionPolicyFailureUntil.clear();
+      sessionPolicyFailureUntil.set(sessionId, Date.now() + SESSION_POLICY_FAILURE_BACKOFF_MS);
+    }
     console.error('[session-policy] Middleware validation unavailable', {
       policyErrorCode: policyError.code,
       policyErrorMessage: policyError.message,
@@ -693,7 +732,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       policyErrorStatus: policyError.status,
     });
     return withMiddlewareTiming(
-      unavailableSessionPolicyResponse(response, isApiRequest),
+      unavailableSessionPolicyResponse(request, response, isApiRequest),
       startedAt,
       { claimsMs, sessionPolicyMs }
     );
@@ -737,6 +776,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   }
 
   response.headers.set('Cache-Control', 'private, no-store');
+  if (request.cookies.has(SESSION_RETRY_COOKIE_NAME)) {
+    response.cookies.set(SESSION_RETRY_COOKIE_NAME, '', { path: '/', maxAge: 0 });
+  }
   return withMiddlewareTiming(response, startedAt, { claimsMs, sessionPolicyMs });
 }
 

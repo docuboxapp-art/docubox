@@ -1,31 +1,42 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Clock, Calendar, ArrowRight, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, Paperclip, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, MoreHorizontal, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, ToggleLeft, ToggleRight, Save,  } from 'lucide-react';
+import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, Save, ChevronDown, ChevronUp } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import NewTaskWizard from './components/NewTaskWizard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
   | 'firmar_documento' | 'revisar_documento' | 'aprobar_documento'
   | 'subir_anexo'| 'validar_identidad' | 'corregir_datos' | 'resolver_comentario' |'confirmar_lectura' | 'descargar_constancia' | 'validar_efirma'
-  | 'obtener_nom151' | 'cerrar_expediente';
+  | 'obtener_nom151' | 'cerrar_expediente' | 'retomar_borrador' | 'revisar_vencimiento'
+  | 'responder_formulario' | 'seguimiento_formulario' | 'revisar_expediente';
 
 type Priority = 'critica' | 'alta' | 'media' | 'baja';
 type TaskStatus =
-  | 'nueva' | 'pendiente' | 'en_proceso' | 'bloqueada' | 'en_revision' |'vencida' | 'escalada' | 'completada' | 'cancelada' | 'rechazada';
+  | 'nueva' | 'programada' | 'pendiente' | 'en_proceso' | 'bloqueada' | 'en_revision' |'vencida' | 'escalada' | 'completada' | 'cancelada' | 'rechazada';
 type ViewMode = 'lista' | 'kanban' | 'calendario' | 'documento';
 
 interface ChecklistItem { id: string; text: string; done: boolean; position?: number; }
 interface Comment { id: string; author: string; avatar: string; text: string; date: string; }
 interface ActivityEntry { id: string; action: string; user: string; date: string; icon: React.ElementType; color: string; }
-interface Attachment { id: string; name: string; size: string; type: string; storage_path?: string; }
 interface Dependency { id: string; taskId: string; title: string; status: TaskStatus; }
 
 interface Task {
   id: string;
+  assignedTo: string | null;
+  createdBy: string | null;
+  workspaceId: string;
+  sourceType: string | null;
+  sourceId: string | null;
+  origin: 'manual' | 'sistema';
+  workKind: 'accion' | 'actividad';
+  resolutionNote: string | null;
   title: string;
   description: string;
   type: TaskType;
@@ -49,29 +60,8 @@ interface Task {
   checklist: ChecklistItem[];
   comments: Comment[];
   activity: ActivityEntry[];
-  attachments: Attachment[];
   dependencies: Dependency[];
   mainAction: string;
-}
-
-interface AutomationRule {
-  id: string;
-  nombre: string;
-  descripcion: string;
-  activa: boolean;
-  trigger_type: string;
-  action_type: string;
-  trigger_config: Record<string, any>;
-  action_config: Record<string, any>;
-  prioridad: number;
-  ejecutada_count: number;
-  created_at: string;
-}
-
-interface DocumentOption {
-  id: string;
-  nombre: string;
-  tipo?: string;
 }
 
 // ─── Config Maps ──────────────────────────────────────────────────────────────
@@ -88,6 +78,11 @@ const TASK_TYPE_CONFIG: Record<TaskType, { label: string; icon: React.ElementTyp
   validar_efirma:      { label: 'Validar e.firma SAT',  icon: Shield,         color: 'text-indigo-600', bg: 'bg-indigo-50',  border: 'border-indigo-200' },
   obtener_nom151:      { label: 'Obtener NOM-151',      icon: Star,           color: 'text-violet-600', bg: 'bg-violet-50',  border: 'border-violet-200' },
   cerrar_expediente:   { label: 'Cerrar expediente',    icon: FolderOpen,     color: 'text-emerald-600',bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  retomar_borrador:   { label: 'Continuar borrador', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
+  revisar_vencimiento: { label: 'Revisar vencimiento', icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
+  responder_formulario: { label: 'Responder formulario', icon: ClipboardCheck, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+  seguimiento_formulario: { label: 'Seguimiento de formulario', icon: ClipboardCheck, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+  revisar_expediente: { label: 'Revisar expediente', icon: FolderOpen, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
 const PRIORITY_CONFIG: Record<Priority, { label: string; className: string; dot: string }> = {
@@ -99,6 +94,7 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; className: string; dot:
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; className: string; dot: string }> = {
   nueva:       { label: 'Nueva',       className: 'text-blue-700 bg-blue-50 border border-blue-200',       dot: 'bg-blue-500' },
+  programada:  { label: 'Programada',  className: 'text-indigo-700 bg-indigo-50 border border-indigo-200', dot: 'bg-indigo-500' },
   pendiente:   { label: 'Pendiente',   className: 'text-amber-700 bg-amber-50 border border-amber-200',    dot: 'bg-amber-400' },
   en_proceso:  { label: 'En progreso', className: 'text-cyan-700 bg-cyan-50 border border-cyan-200',       dot: 'bg-cyan-500' },
   bloqueada:   { label: 'Bloqueada',   className: 'text-red-700 bg-red-50 border border-red-200',          dot: 'bg-red-500' },
@@ -116,31 +112,20 @@ const RISK_CONFIG: Record<'alto' | 'medio' | 'bajo', { label: string; className:
   bajo:  { label: 'Bajo',  className: 'text-green-600 bg-green-50 border border-green-200' },
 };
 
-const TRIGGER_LABELS: Record<string, string> = {
-  tarea_vencida: 'Tarea vencida', firma_fallida: 'Firma fallida',
-  prerequisito_incompleto: 'Prerequisito incompleto', plazo_proximo: 'Plazo próximo',
-  estado_cambiado: 'Estado cambiado', tarea_creada: 'Tarea creada',
-  tarea_completada: 'Tarea completada', documento_rechazado: 'Documento rechazado',
-};
-
-const ACTION_LABELS: Record<string, string> = {
-  escalar_tarea: 'Escalar tarea', notificar_firmante: 'Notificar firmante',
-  bloquear_operacion: 'Bloquear operación', generar_tarea_reintento: 'Generar tarea de reintento',
-  enviar_recordatorio: 'Enviar recordatorio', cambiar_estado: 'Cambiar estado',
-  asignar_responsable: 'Asignar responsable', crear_tarea: 'Crear tarea',
-};
-
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const DAYS_SHORT = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(dateStr: string) {
+  if (!dateStr) return 'Sin fecha';
   return new Date(dateStr).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function formatTime(dateStr: string) {
+  if (!dateStr) return '';
   return new Date(dateStr).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 }
 function getDueBadge(task: Task) {
+  if (!task.dueDate) return { text: 'Sin fecha', urgent: false };
   if (task.isOverdue || task.status === 'vencida') return { text: 'Vencida', urgent: true };
   const diff = new Date(task.dueDate).getTime() - Date.now();
   const days = Math.ceil(diff / 86400000);
@@ -158,16 +143,36 @@ const ICON_MAP: Record<string, React.ElementType> = {
   UserCheck, Send, RefreshCw, FolderOpen, MessageSquare, FileText,
 };
 
+function taskGuidance(task: Task) {
+  if (task.type === 'retomar_borrador') return 'Abre el borrador, complétalo y guárdalo. El sistema cerrará esta acción cuando el documento avance o deje de estar inactivo.';
+  if (task.type === 'revisar_vencimiento') return 'Revisa el plazo en el documento vinculado y realiza las acciones necesarias antes de la fecha límite.';
+  if (task.type === 'seguimiento_formulario') return 'Abre el lanzamiento para revisar la invitación pendiente y dar seguimiento a su destinatario.';
+  if (task.type === 'revisar_expediente') return 'Abre el expediente, revisa su fecha objetivo y atiende los pendientes de cierre.';
+  if (task.type === 'subir_anexo') return 'Abre el recurso vinculado y completa el anexo o requisito faltante.';
+  if (task.type === 'firmar_documento') return 'Abre el documento y continúa con el proceso de firma habilitado para ti.';
+  if (task.type === 'aprobar_documento') return 'Abre el recurso, revisa su contenido y registra la aprobación en el flujo correspondiente.';
+  if (task.type === 'validar_identidad') return 'Abre el recurso y continúa con la verificación de identidad indicada en el proceso.';
+  return 'Abre el recurso vinculado para completar la acción y registra el seguimiento en esta tarea.';
+}
+
 function mapRowToTask(row: any): Task {
   return {
     id: row.id,
+    assignedTo: row.assigned_to || null,
+    createdBy: row.created_by || null,
+    workspaceId: row.workspace_id,
+    sourceType: row.source_type || null,
+    sourceId: row.source_id || null,
+    origin: row.origin === 'sistema' ? 'sistema' : 'manual',
+    workKind: row.work_kind === 'actividad' ? 'actividad' : 'accion',
+    resolutionNote: row.resolution_note || null,
     title: row.title,
     description: row.description || '',
     type: row.tipo as TaskType,
     priority: row.prioridad as Priority,
-    status: row.estado as TaskStatus,
+    status: row.estado === 'pendiente' && row.due_date && new Date(row.due_date).getTime() > Date.now() + 3 * 86400000 ? 'programada' : row.estado as TaskStatus,
     risk: row.riesgo as 'alto' | 'medio' | 'bajo',
-    dueDate: row.due_date || new Date().toISOString(),
+    dueDate: row.due_date || '',
     createdAt: row.created_at,
     sla: row.sla || '',
     responsible: row.responsible_name || '',
@@ -177,14 +182,13 @@ function mapRowToTask(row: any): Task {
     documentId: row.document_id || '',
     expedienteId: row.expediente_id || '',
     expedienteName: row.expediente_name || '',
-    isOverdue: row.is_overdue || false,
+    isOverdue: Boolean(row.due_date && new Date(row.due_date).getTime() < Date.now() && !['completada','cancelada','rechazada'].includes(row.estado)),
     isBlocked: row.is_blocked || false,
     isCritical: row.is_critical || false,
     tags: row.tags || [],
     checklist: (row.checklist || []) as ChecklistItem[],
     comments: (row.comments || []) as Comment[],
     activity: ((row.activity || []) as any[]).map((a: any) => ({ ...a, icon: ICON_MAP[a.icon] || Plus })),
-    attachments: (row.attachments || []) as Attachment[],
     dependencies: (row.dependencies || []) as Dependency[],
     mainAction: row.main_action || 'Ver tarea',
   };
@@ -200,30 +204,35 @@ function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm
 
 // ─── Metrics Dashboard ────────────────────────────────────────────────────────
 function TaskMetrics({ tasks }: { tasks: Task[] }) {
-  const total = tasks.length;
-  const vencidas = tasks.filter(t => t.isOverdue || t.status === 'vencida').length;
-  const criticas = tasks.filter(t => t.priority === 'critica' || t.isCritical).length;
-  const bloqueadas = tasks.filter(t => t.isBlocked || t.status === 'bloqueada').length;
-  const firmas = tasks.filter(t => t.type === 'firmar_documento' || t.type === 'validar_efirma').length;
-  const anexos = tasks.filter(t => t.type === 'subir_anexo').length;
-  const aprobaciones = tasks.filter(t => t.type === 'aprobar_documento').length;
+  const [open, setOpen] = useState(true);
+  const [now] = useState(() => Date.now());
+  const active = tasks.filter(t => !['completada', 'cancelada', 'rechazada'].includes(t.status));
+  const total = active.length;
+  const vencidas = active.filter(t => t.isOverdue || t.status === 'vencida').length;
+  const criticas = active.filter(t => t.priority === 'critica' || t.priority === 'alta' || t.isCritical).length;
+  const bloqueadas = active.filter(t => t.isBlocked || t.status === 'bloqueada').length;
+  const upcoming = active.filter(t => t.dueDate && !t.isOverdue && new Date(t.dueDate).getTime() <= now + 3 * 86400000).length;
 
   const metrics = [
     { label: 'Total pendientes',  value: total,       icon: CheckSquare,   color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-100' },
     { label: 'Vencidas',          value: vencidas,    icon: AlertTriangle, color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-100' },
-    { label: 'Críticas',          value: criticas,    icon: Flame,         color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
+    { label: 'Alta prioridad',    value: criticas,    icon: Flame,         color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
     { label: 'Bloqueadas',        value: bloqueadas,  icon: Lock,          color: 'text-rose-600',   bg: 'bg-rose-50',   border: 'border-rose-100' },
-    { label: 'Firmas pendientes', value: firmas,      icon: FileSignature, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
-    { label: 'Anexos faltantes',  value: anexos,      icon: Paperclip,     color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-100' },
-    { label: 'Aprobaciones',      value: aprobaciones,icon: ClipboardCheck,color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-100' },
+    { label: 'Próximas a vencer', value: upcoming, icon: CalendarDays, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
   ];
 
   return (
-    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+    <section className="mb-4 rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-3 text-left">
+        <span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de tareas</span><span className="text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{total} pendientes</span>
+        {open ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+      </button>
+      {open && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
       {metrics.map((m) => {
         const MIcon = m.icon;
         return (
-          <div key={m.label} className={`flex min-h-[96px] flex-col justify-between rounded-lg border ${m.border} bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300`}>
+          <div key={m.label} className={`flex min-h-[86px] flex-col justify-between rounded-lg border ${m.border} bg-white p-3`}>
             <div className="flex items-center justify-between">
               <span className={`flex h-8 w-8 items-center justify-center rounded-md ${m.bg}`}>
                 <MIcon size={15} className={m.color} />
@@ -234,746 +243,50 @@ function TaskMetrics({ tasks }: { tasks: Task[] }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// ─── New Task Lateral Drawer (45% width) ──────────────────────────────────────
-interface NewTaskDrawerProps {
-  onClose: () => void;
-  onCreated: () => void;
-  workspaceId: string | null;
-  userId: string | null;
-  userName?: string;
-}
-
-function NewTaskDrawer({ onClose, onCreated, workspaceId, userId, userName }: NewTaskDrawerProps) {
-  const supabase = createClient();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<DocumentOption[]>([]);
-  const [visible, setVisible] = useState(false);
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    tipo: 'firmar_documento' as TaskType,
-    prioridad: 'media' as Priority,
-    riesgo: 'bajo' as 'alto' | 'medio' | 'bajo',
-    due_date: '',
-    sla: '48h',
-    document_id: '',
-    document_name: '',
-    expediente_name: '',
-    responsible_name: '',
-    estado: 'nueva' as TaskStatus,
-  });
-
-  useEffect(() => {
-    setVisible(true);
-    if (!workspaceId) return;
-    supabase
-      .from('documentos')
-      .select('id, nombre, tipo_documento')
-      .eq('workspace_id', workspaceId)
-      .not('estado', 'in', '(cancelado,archivado)')
-      .order('created_at', { ascending: false })
-      .limit(50)
-      .then(({ data }) => {
-        if (data) setDocuments(data.map((d: any) => ({ id: d.id, nombre: d.nombre, tipo: d.tipo_documento })));
-      });
-  }, [workspaceId]);
-
-  const handleClose = () => {
-    setVisible(false);
-    setTimeout(onClose, 250);
-  };
-
-  const handleDocumentChange = (docId: string) => {
-    const doc = documents.find(d => d.id === docId);
-    setForm(f => ({ ...f, document_id: docId, document_name: doc?.nombre || '' }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.title.trim()) { setError('El título es requerido.'); return; }
-    if (!workspaceId || !userId) { setError('No hay workspace activo.'); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      const { data: inserted, error: insertError } = await supabase.from('tareas').insert({
-        title: form.title.trim(),
-        description: form.description.trim(),
-        tipo: form.tipo,
-        prioridad: form.prioridad,
-        riesgo: form.riesgo,
-        estado: form.estado,
-        due_date: form.due_date || null,
-        sla: form.sla,
-        document_id: form.document_id || null,
-        document_name: form.document_name,
-        expediente_name: form.expediente_name,
-        responsible_name: form.responsible_name,
-        responsible_avatar: form.responsible_name.slice(0, 2).toUpperCase() || 'TA',
-        creator_name: userName || '',
-        creator_user_id: userId,
-        workspace_id: workspaceId,
-        is_overdue: false,
-        is_blocked: false,
-        is_critical: form.prioridad === 'critica',
-        tags: [],
-        checklist: [],
-        comments: [],
-        activity: [{ id: 'a1', action: `Tarea creada por ${userName || 'usuario'}`, user: userName || 'Sistema', date: new Date().toISOString(), icon: 'Plus', color: 'text-blue-500' }],
-        attachments: [],
-        dependencies: [],
-        main_action: 'Ver tarea',
-      }).select().single();
-
-      if (insertError) throw insertError;
-
-      // Insert initial history entry
-      if (inserted) {
-        await supabase.from('task_history').insert({
-          tarea_id: inserted.id,
-          workspace_id: workspaceId,
-          action: `Tarea creada por ${userName || 'usuario'}`,
-          actor_id: userId,
-          actor_name: userName || 'Sistema',
-          icon_name: 'Plus',
-          color: 'text-blue-500',
-        });
-      }
-
-      onCreated();
-      handleClose();
-    } catch (err: any) {
-      setError(err.message || 'Error al crear la tarea.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex">
-      <div
-        className={`flex-1 bg-black/30 backdrop-blur-sm transition-opacity duration-250 ${visible ? 'opacity-100' : 'opacity-0'}`}
-        onClick={handleClose}
-      />
-      <div
-        className={`bg-white shadow-2xl flex flex-col overflow-hidden transition-transform duration-250 ${visible ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ width: '45%', minWidth: 380, maxWidth: 720 }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-white flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-              <Plus size={16} className="text-primary" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Nueva tarea</h2>
-              <p className="text-xs text-muted-foreground">Completa los campos para crear la tarea</p>
-            </div>
-          </div>
-          <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              <AlertCircle size={14} className="flex-shrink-0" />
-              {error}
-            </div>
-          )}
-
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">Título <span className="text-red-500">*</span></label>
-            <input
-              value={form.title}
-              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Ej: Firmar contrato de servicios"
-              className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">Descripción</label>
-            <textarea
-              value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              placeholder="Describe la tarea..."
-              rows={3}
-              className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
-            />
-          </div>
-
-          {/* Type + Priority */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Tipo de tarea</label>
-              <select
-                value={form.tipo}
-                onChange={e => setForm(f => ({ ...f, tipo: e.target.value as TaskType }))}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              >
-                {Object.entries(TASK_TYPE_CONFIG).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Prioridad</label>
-              <select
-                value={form.prioridad}
-                onChange={e => setForm(f => ({ ...f, prioridad: e.target.value as Priority }))}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              >
-                <option value="baja">Baja</option>
-                <option value="media">Media</option>
-                <option value="alta">Alta</option>
-                <option value="critica">Crítica</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Estado + Riesgo */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Estado inicial</label>
-              <select
-                value={form.estado}
-                onChange={e => setForm(f => ({ ...f, estado: e.target.value as TaskStatus }))}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              >
-                <option value="nueva">Nueva</option>
-                <option value="pendiente">Pendiente</option>
-                <option value="en_proceso">En progreso</option>
-                <option value="en_revision">En revisión</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Nivel de riesgo</label>
-              <div className="flex gap-2">
-                {(['bajo', 'medio', 'alto'] as const).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, riesgo: r }))}
-                    className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                      form.riesgo === r ? RISK_CONFIG[r].className : 'border-border text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    {RISK_CONFIG[r].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Document */}
-          <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">
-              <FileText size={13} className="inline mr-1" />
-              Documento asociado
-            </label>
-            {documents.length > 0 ? (
-              <select
-                value={form.document_id}
-                onChange={e => handleDocumentChange(e.target.value)}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              >
-                <option value="">— Sin documento —</option>
-                {documents.map(d => (
-                  <option key={d.id} value={d.id}>{d.nombre}{d.tipo ? ` (${d.tipo})` : ''}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={form.document_name}
-                onChange={e => setForm(f => ({ ...f, document_name: e.target.value }))}
-                placeholder="Nombre del documento"
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-              />
-            )}
-          </div>
-
-          {/* Expediente */}
-          <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">
-              <FolderOpen size={13} className="inline mr-1" />
-              Expediente (opcional)
-            </label>
-            <input
-              value={form.expediente_name}
-              onChange={e => setForm(f => ({ ...f, expediente_name: e.target.value }))}
-              placeholder="Nombre del expediente"
-              className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-          </div>
-
-          {/* Due date + SLA */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Fecha límite</label>
-              <input
-                type="datetime-local"
-                value={form.due_date}
-                onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">SLA</label>
-              <select
-                value={form.sla}
-                onChange={e => setForm(f => ({ ...f, sla: e.target.value }))}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              >
-                <option value="2h">2 horas</option>
-                <option value="4h">4 horas</option>
-                <option value="8h">8 horas</option>
-                <option value="24h">24 horas</option>
-                <option value="48h">48 horas</option>
-                <option value="72h">72 horas</option>
-                <option value="7d">7 días</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Responsible */}
-          <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">Responsable</label>
-            <input
-              value={form.responsible_name}
-              onChange={e => setForm(f => ({ ...f, responsible_name: e.target.value }))}
-              placeholder="Nombre del responsable"
-              className="w-full text-sm border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-          </div>
-        </form>
-
-        {/* Footer actions */}
-        <div className="flex gap-3 px-6 py-4 border-t border-border bg-white flex-shrink-0">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSubmit as any}
-            disabled={saving}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={14} />}
-            {saving ? 'Guardando...' : 'Crear tarea'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Automation Rule Modal ────────────────────────────────────────────────────
-const TRIGGER_OPTIONS = [
-  { value: 'tarea_vencida', label: 'Tarea vencida' },
-  { value: 'firma_fallida', label: 'Firma fallida' },
-  { value: 'prerequisito_incompleto', label: 'Prerequisito incompleto' },
-  { value: 'plazo_proximo', label: 'Plazo próximo' },
-  { value: 'estado_cambiado', label: 'Estado cambiado' },
-  { value: 'tarea_creada', label: 'Tarea creada' },
-  { value: 'tarea_completada', label: 'Tarea completada' },
-  { value: 'documento_rechazado', label: 'Documento rechazado' },
-];
-
-const ACTION_OPTIONS = [
-  { value: 'escalar_tarea', label: 'Escalar tarea' },
-  { value: 'notificar_firmante', label: 'Notificar firmante' },
-  { value: 'bloquear_operacion', label: 'Bloquear operación' },
-  { value: 'generar_tarea_reintento', label: 'Generar tarea de reintento' },
-  { value: 'enviar_recordatorio', label: 'Enviar recordatorio' },
-  { value: 'cambiar_estado', label: 'Cambiar estado' },
-  { value: 'asignar_responsable', label: 'Asignar responsable' },
-  { value: 'crear_tarea', label: 'Crear tarea' },
-];
-
-interface AutomationModalProps {
-  rule?: AutomationRule | null;
-  onClose: () => void;
-  onSaved: () => void;
-  workspaceId: string | null;
-  userId: string | null;
-}
-
-function AutomationModal({ rule, onClose, onSaved, workspaceId, userId }: AutomationModalProps) {
-  const supabase = createClient();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    nombre: rule?.nombre || '',
-    descripcion: rule?.descripcion || '',
-    activa: rule?.activa ?? true,
-    trigger_type: rule?.trigger_type || 'tarea_vencida',
-    action_type: rule?.action_type || 'escalar_tarea',
-    prioridad: rule?.prioridad ?? 0,
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.nombre.trim()) { setError('El nombre es requerido.'); return; }
-    if (!workspaceId || !userId) { setError('No hay workspace activo.'); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      if (rule) {
-        const { error: updateError } = await supabase.from('automation_rules').update({
-          nombre: form.nombre.trim(),
-          descripcion: form.descripcion.trim(),
-          activa: form.activa,
-          trigger_type: form.trigger_type,
-          action_type: form.action_type,
-          prioridad: form.prioridad,
-        }).eq('id', rule.id);
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase.from('automation_rules').insert({
-          nombre: form.nombre.trim(),
-          descripcion: form.descripcion.trim(),
-          activa: form.activa,
-          trigger_type: form.trigger_type,
-          action_type: form.action_type,
-          trigger_config: {},
-          action_config: {},
-          prioridad: form.prioridad,
-          workspace_id: workspaceId,
-          created_by: userId,
-        });
-        if (insertError) throw insertError;
-      }
-      onSaved();
-      onClose();
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar la automatización.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-semibold text-foreground">{rule ? 'Editar automatización' : 'Nueva automatización'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-          <div>
-            <label className="block text-xs font-semibold text-foreground mb-1.5">Nombre *</label>
-            <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Nombre de la regla" className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-foreground mb-1.5">Descripción</label>
-            <textarea value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} rows={2} className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">Disparador</label>
-              <select value={form.trigger_type} onChange={e => setForm(f => ({ ...f, trigger_type: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-                {TRIGGER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">Acción</label>
-              <select value={form.action_type} onChange={e => setForm(f => ({ ...f, action_type: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-                {ACTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-semibold text-foreground">Estado:</label>
-            <button type="button" onClick={() => setForm(f => ({ ...f, activa: !f.activa }))} className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${form.activa ? 'bg-green-50 text-green-700 border-green-200' : 'bg-muted text-muted-foreground border-border'}`}>
-              {form.activa ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-              {form.activa ? 'Activa' : 'Inactiva'}
-            </button>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-              {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={14} />}
-              {saving ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
-function DeleteConfirmModal({ title, onConfirm, onCancel, loading }: { title: string; onConfirm: () => void; onCancel: () => void; loading: boolean }) {
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center"><Trash2 size={18} className="text-red-500" /></div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Eliminar automatización</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Esta acción no se puede deshacer</p>
-          </div>
-        </div>
-        <p className="text-sm text-foreground mb-5">¿Eliminar <span className="font-semibold">"{title}"</span>?</p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
-          <button onClick={onConfirm} disabled={loading} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Trash2 size={14} />}
-            Eliminar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Automation Rules Panel ───────────────────────────────────────────────────
-function AutomationRulesPanel({ workspaceId, userId }: { workspaceId: string | null; userId: string | null }) {
-  const supabase = createClient();
-  const [rules, setRules] = useState<AutomationRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editRule, setEditRule] = useState<AutomationRule | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AutomationRule | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchRules = useCallback(async () => {
-    if (!workspaceId) { setLoading(false); return; }
-    setLoading(true);
-    const { data } = await supabase.from('automation_rules').select('*').eq('workspace_id', workspaceId).order('prioridad', { ascending: true });
-    setRules(data || []);
-    setLoading(false);
-  }, [workspaceId]);
-
-  useEffect(() => { fetchRules(); }, [fetchRules]);
-
-  const handleToggle = async (rule: AutomationRule) => {
-    await supabase.from('automation_rules').update({ activa: !rule.activa }).eq('id', rule.id);
-    setRules(prev => prev.map(r => r.id === rule.id ? { ...r, activa: !r.activa } : r));
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    await supabase.from('automation_rules').delete().eq('id', deleteTarget.id);
-    setRules(prev => prev.filter(r => r.id !== deleteTarget.id));
-    setDeleteTarget(null);
-    setDeleting(false);
-  };
-
-  const TRIGGER_ICON_MAP: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
-    tarea_vencida: { icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-50' },
-    firma_fallida: { icon: XCircle, color: 'text-rose-500', bg: 'bg-rose-50' },
-    prerequisito_incompleto: { icon: Lock, color: 'text-orange-500', bg: 'bg-orange-50' },
-    plazo_proximo: { icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
-    estado_cambiado: { icon: RefreshCw, color: 'text-blue-500', bg: 'bg-blue-50' },
-    tarea_creada: { icon: Plus, color: 'text-green-500', bg: 'bg-green-50' },
-    tarea_completada: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
-    documento_rechazado: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50' },
-  };
-
-  return (
-    <div className="bg-white border border-border rounded-xl p-4 mb-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Cpu size={15} className="text-primary" />
-        <span className="text-sm font-semibold text-foreground">Automatizaciones</span>
-        <span className="ml-1 text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">{rules.filter(r => r.activa).length} activas</span>
-        <button onClick={() => { setEditRule(null); setShowModal(true); }} className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors">
-          <Plus size={12} />Nueva
-        </button>
-      </div>
-      {loading ? (
-        <div className="flex items-center justify-center py-6"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
-      ) : rules.length === 0 ? (
-        <div className="text-center py-6 text-muted-foreground">
-          <Cpu size={24} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">Sin automatizaciones configuradas</p>
-          <button onClick={() => { setEditRule(null); setShowModal(true); }} className="mt-2 text-xs text-primary hover:underline">Crear la primera</button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {rules.map(rule => {
-            const triggerInfo = TRIGGER_ICON_MAP[rule.trigger_type] || { icon: Zap, color: 'text-primary', bg: 'bg-primary/10' };
-            const TIcon = triggerInfo.icon;
-            return (
-              <div key={rule.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${rule.activa ? 'border-border bg-white' : 'border-dashed border-border/60 bg-muted/20 opacity-60'}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${triggerInfo.bg}`}><TIcon size={14} className={triggerInfo.color} /></div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-semibold text-foreground truncate">{rule.nombre}</p>
-                    {rule.activa ? <span className="text-[9px] font-semibold text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">Activa</span> : <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded-full">Inactiva</span>}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[10px] text-muted-foreground">{TRIGGER_LABELS[rule.trigger_type] || rule.trigger_type}</span>
-                    <ArrowRight size={9} className="text-muted-foreground/50" />
-                    <span className="text-[10px] text-muted-foreground">{ACTION_LABELS[rule.action_type] || rule.action_type}</span>
-                    {rule.ejecutada_count > 0 && <span className="text-[9px] text-muted-foreground/60">· {rule.ejecutada_count}x</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => handleToggle(rule)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                    {rule.activa ? <ToggleRight size={14} className="text-green-600" /> : <ToggleLeft size={14} />}
-                  </button>
-                  <button onClick={() => { setEditRule(rule); setShowModal(true); }} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => setDeleteTarget(rule)} className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {showModal && <AutomationModal rule={editRule} onClose={() => { setShowModal(false); setEditRule(null); }} onSaved={fetchRules} workspaceId={workspaceId} userId={userId} />}
-      {deleteTarget && <DeleteConfirmModal title={deleteTarget.nombre} onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} loading={deleting} />}
-    </div>
+      </div>}
+    </section>
   );
 }
 
 // ─── Task Card ────────────────────────────────────────────────────────────────
-function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
-  const typeInfo = TASK_TYPE_CONFIG[task.type];
-  const priorityInfo = PRIORITY_CONFIG[task.priority];
-  const statusInfo = STATUS_CONFIG[task.status];
-  const riskInfo = RISK_CONFIG[task.risk];
-  const dueInfo = getDueBadge(task);
-  const TypeIcon = typeInfo.icon;
-  const done = task.checklist.filter(c => c.done).length;
-  const total = task.checklist.length;
+function TaskListRow({ task, onClick }: { task: Task; onClick: () => void }) {
+  const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
+  const Icon = type.icon;
+  return <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/30">
+    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${type.bg} ${type.border}`}><Icon size={18} className={type.color} /></span>
+    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-950">{task.title}</span><span className="mt-0.5 block truncate text-xs text-slate-500">{type.label}{task.documentName ? ` · ${task.documentName}` : task.expedienteName ? ` · ${task.expedienteName}` : ''}</span></span>
+    {task.origin === 'sistema' && <span className="hidden rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 sm:inline-flex">Sistema</span>}
+    <span className={`hidden rounded-full px-2 py-0.5 text-xs sm:inline-flex ${STATUS_CONFIG[task.status].className}`}>{STATUS_CONFIG[task.status].label}</span>
+    <span className={`hidden text-xs font-medium md:inline-flex ${task.isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{getDueBadge(task).text}</span>
+    <ChevronRight size={17} className="shrink-0 text-slate-400" />
+  </button>;
+}
 
-  return (
-    <div
-      onClick={onClick}
-      className={`group cursor-pointer rounded-lg border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors ${
-        task.isOverdue ? 'border-red-200 hover:border-red-300' : task.isBlocked ? 'border-orange-200 hover:border-orange-300' : 'border-slate-200/90 hover:border-primary/30'
-      }`}
-    >
-      {(task.isCritical || task.isOverdue || task.isBlocked) && (
-        <div className={`h-0.5 rounded-t-lg ${task.isOverdue ? 'bg-red-500' : task.isBlocked ? 'bg-orange-500' : 'bg-amber-400'}`} />
-      )}
-      <div className="p-4">
-        <div className="flex items-start gap-3">
-          <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${typeInfo.bg} border ${typeInfo.border}`}>
-            <TypeIcon size={15} className={typeInfo.color} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <span className="text-[10px] font-mono text-muted-foreground/60">{task.id.slice(0,8).toUpperCase()}</span>
-                  {task.isCritical && <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">CRÍTICA</span>}
-                  {task.isBlocked && <span className="text-[9px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><Lock size={8}/>BLOQUEADA</span>}
-                </div>
-                <h3 className="line-clamp-2 text-sm font-600 leading-tight text-slate-900 transition-colors group-hover:text-primary">{task.title}</h3>
-              </div>
-              <button onClick={e => e.stopPropagation()} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" title="Mas opciones">
-                <MoreHorizontal size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 mt-2.5">
-          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${priorityInfo.className}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${priorityInfo.dot}`} />{priorityInfo.label}
-          </span>
-          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusInfo.className}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />{statusInfo.label}
-          </span>
-          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${riskInfo.className}`}>
-            Riesgo {riskInfo.label}
-          </span>
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-600">
-            <Clock size={9} />SLA {task.sla}
-          </span>
-        </div>
-
-        <div className="mt-3 space-y-1.5 rounded-md bg-slate-50/70 px-3 py-2">
-          {task.documentName && (
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <FileText size={10} className="flex-shrink-0" />
-              <span className="truncate font-medium text-foreground/70">{task.documentName}</span>
-            </div>
-          )}
-          {task.expedienteName && (
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <FolderOpen size={10} className="flex-shrink-0" />
-              <span className="truncate">{task.expedienteName}</span>
-            </div>
-          )}
-          {task.responsible && (
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Avatar initials={task.responsibleAvatar} size="xs" />
-              <span className="truncate">{task.responsible}</span>
-            </div>
-          )}
-        </div>
-
-        {total > 0 && (
-          <div className="mt-2.5">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-muted-foreground">Checklist</span>
-              <span className="text-[10px] font-semibold text-foreground">{done}/{total}</span>
-            </div>
-            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${total > 0 ? (done/total)*100 : 0}%` }} />
-            </div>
-          </div>
-        )}
-
-        {task.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2.5">
-            {task.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="text-[9px] font-semibold text-primary/70 bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">{tag}</span>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-          <div className={`flex items-center gap-1 text-[11px] font-semibold ${dueInfo.urgent ? 'text-red-600' : 'text-muted-foreground'}`}>
-            <Calendar size={10} />
-            <span>{dueInfo.text}</span>
-            {dueInfo.urgent && <AlertTriangle size={10} />}
-          </div>
-          <button
-            onClick={e => e.stopPropagation()}
-            className="flex h-8 items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-600 text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"
-          >
-            {task.mainAction}<ArrowRight size={10} />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
+  const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
+  const Icon = type.icon;
+  return <button type="button" onClick={onClick} className="flex min-h-[170px] w-full flex-col rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/20">
+    <span className="flex w-full items-start gap-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${type.bg} ${type.border}`}><Icon size={17} className={type.color} /></span><span className="min-w-0 flex-1"><span className="block text-xs text-slate-500">{type.label}</span><span className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">{task.title}</span></span></span>
+    <span className="mt-3 line-clamp-1 text-xs text-slate-500">{task.documentName || task.expedienteName || (task.origin === 'sistema' ? 'Generada por el sistema' : 'Actividad del espacio')}</span>
+    <span className="mt-auto flex w-full items-center justify-between border-t border-slate-100 pt-3"><span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUS_CONFIG[task.status].className}`}>{STATUS_CONFIG[task.status].label}</span><span className={`text-xs ${task.isOverdue ? 'font-semibold text-red-600' : 'text-slate-500'}`}>{getDueBadge(task).text}</span></span>
+  </button>;
 }
 
 // ─── Task Detail Drawer (45% lateral) ────────────────────────────────────────
-type DrawerTab = 'info' | 'checklist' | 'comentarios' | 'adjuntos' | 'historial' | 'dependencias';
+type DrawerTab = 'info' | 'checklist' | 'comentarios' | 'historial' | 'dependencias';
 
-function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, userName }: {
+function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, userName, canReassign }: {
   task: Task;
   onClose: () => void;
   onTaskUpdated: (taskId: string) => void;
   workspaceId: string | null;
   userId: string | null;
   userName?: string;
+  canReassign: boolean;
 }) {
   const supabase = createClient();
+  const router = useRouter();
   const [tab, setTab] = useState<DrawerTab>('info');
-  const [visible, setVisible] = useState(false);
 
   // Checklist state
   const [checklist, setChecklist] = useState<ChecklistItem[]>(task.checklist);
@@ -985,14 +298,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
   const [newComment, setNewComment] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
 
-  // Attachments state
-  const [attachments, setAttachments] = useState<Attachment[]>(task.attachments);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // History state
   const [history, setHistory] = useState<ActivityEntry[]>(task.activity);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Dependencies state
   const [dependencies, setDependencies] = useState<Dependency[]>(task.dependencies);
@@ -1013,14 +320,72 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     responsible_name: task.responsible,
   });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  const [newAssignee, setNewAssignee] = useState(task.assignedTo || '');
+  const [sourceInfo, setSourceInfo] = useState<{ name: string; status: string } | null>(null);
 
   const typeInfo = TASK_TYPE_CONFIG[task.type];
   const priorityInfo = PRIORITY_CONFIG[task.priority];
   const statusInfo = STATUS_CONFIG[task.status];
   const TypeIcon = typeInfo.icon;
   const doneCount = checklist.filter(c => c.done).length;
+  const canManageTask = Boolean(canReassign || (userId && task.createdBy === userId));
+  const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
 
-  useEffect(() => { setVisible(true); }, []);
+  useEffect(() => {
+    if (!workspaceId) return;
+    if (task.sourceType === 'form_token' && task.sourceId) {
+      supabase.from('form_tokens').select('template_id,used_at,expires_at').eq('id', task.sourceId).maybeSingle()
+        .then(async ({ data: token }) => {
+          if (!token) return;
+          const { data: form } = await supabase.from('form_templates').select('name,status').eq('id', token.template_id).maybeSingle();
+          if (form) setSourceInfo({ name: form.name, status: token.used_at ? 'Respondida' : token.expires_at && new Date(token.expires_at) < new Date() ? 'Vencida' : 'Invitación pendiente' });
+        });
+    }
+    const sourceTable = task.sourceType === 'document' || task.sourceType === 'participant_requirement' ? 'documentos'
+      : task.sourceType === 'case_file' ? 'case_files'
+      : task.sourceType === 'form_template' || task.sourceType === 'form_token' ? 'form_templates'
+      : task.sourceType === 'template' ? 'plantillas' : null;
+    const sourceId = sourceTable === 'documentos' ? task.documentId
+      : sourceTable === 'case_files' ? task.expedienteId : task.sourceType === 'form_template' || task.sourceType === 'template' ? task.sourceId : null;
+    if (sourceTable && sourceId) {
+      const nameField = sourceTable === 'case_files' ? 'title' : ['form_templates', 'plantillas'].includes(sourceTable) ? 'name' : 'nombre';
+      const stateField = ['case_files', 'form_templates', 'plantillas'].includes(sourceTable) ? 'status' : 'estado';
+      supabase.from(sourceTable).select(`id,${nameField},${stateField}`).eq('id', sourceId).maybeSingle()
+        .then(({ data }) => { if (data) { const row = data as Record<string, unknown>; setSourceInfo({ name: String(row[nameField] || ''), status: String(row[stateField] || '') }); } });
+    }
+    if (canReassign) {
+      supabase.from('workspace_members').select('user_id,user_profiles!workspace_members_user_id_fkey(full_name,email)').eq('workspace_id', workspaceId).eq('status', 'active')
+        .then(({ data }) => setMembers((data || []).map((member: any) => ({ id: member.user_id, name: member.user_profiles?.full_name || member.user_profiles?.email || 'Usuario' }))));
+    }
+  }, [workspaceId, task.sourceType, task.sourceId, task.documentId, task.expedienteId, canReassign]);
+
+  const runAction = async (action: 'open' | 'start' | 'complete' | 'cancel' | 'remind' | 'reassign') => {
+    if (!workspaceId) return;
+    setActionBusy(true); setActionError('');
+    const session = await supabase.auth.getSession();
+    const jwt = session.data.session?.access_token;
+    if (!jwt) { setActionError('Tu sesión expiró.'); setActionBusy(false); return; }
+    const response = await fetch(`/api/tareas/${task.id}/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ workspaceId, action, reason: action === 'cancel' ? cancelReason : undefined,
+        assigneeId: action === 'reassign' ? newAssignee : undefined }),
+    });
+    const result = await response.json();
+    if (!response.ok) { setActionError(result.error || 'No se pudo realizar la acción.'); setActionBusy(false); return; }
+    if (action === 'open' && result.href) { router.push(result.href); return; }
+    setReassignOpen(false); setCancelOpen(false); setCancelReason('');
+    onTaskUpdated(task.id);
+    const { data: latestHistory } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
+    if (latestHistory) setHistory(latestHistory.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
+      date: entry.created_at, icon: ICON_MAP[entry.icon_name] || Plus, color: entry.color })));
+    setActionBusy(false);
+  };
 
   // Load relational data from dedicated tables
   useEffect(() => {
@@ -1033,10 +398,6 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     // Load comments from dedicated table
     supabase.from('task_comments').select('*').eq('tarea_id', task.id).order('created_at', { ascending: true })
       .then(({ data }) => { if (data && data.length > 0) setComments(data.map((r: any) => ({ id: r.id, author: r.author_name, avatar: r.author_avatar, text: r.text, date: r.created_at }))); });
-
-    // Load attachments from dedicated table
-    supabase.from('task_attachments').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false })
-      .then(({ data }) => { if (data && data.length > 0) setAttachments(data.map((r: any) => ({ id: r.id, name: r.name, size: r.size, type: r.file_type, storage_path: r.storage_path }))); });
 
     // Load history from dedicated table
     supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false })
@@ -1067,8 +428,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
   }, [task.id, workspaceId]);
 
   const handleClose = () => {
-    setVisible(false);
-    setTimeout(onClose, 250);
+    onClose();
   };
 
   // ── Checklist operations ──
@@ -1076,15 +436,9 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     const item = checklist.find(c => c.id === itemId);
     if (!item) return;
     const newDone = !item.done;
-    setChecklist(prev => prev.map(c => c.id === itemId ? { ...c, done: newDone } : c));
-
-    // Try dedicated table first, fallback to JSONB
     const { error } = await supabase.from('task_checklist_items').update({ done: newDone }).eq('id', itemId);
-    if (error) {
-      // Fallback: update JSONB in tareas
-      const updated = checklist.map(c => c.id === itemId ? { ...c, done: newDone } : c);
-      await supabase.from('tareas').update({ checklist: updated }).eq('id', task.id);
-    }
+    if (error) { setActionError(error.message); return; }
+    setChecklist(prev => prev.map(c => c.id === itemId ? { ...c, done: newDone } : c));
     await addHistoryEntry(`Checklist: "${item.text}" marcado como ${newDone ? 'completado' : 'pendiente'}`, 'CheckCircle2', 'text-green-500');
   };
 
@@ -1092,29 +446,19 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     if (!newCheckItem.trim() || !workspaceId) return;
     setAddingCheck(true);
     const newItem = { id: crypto.randomUUID(), text: newCheckItem.trim(), done: false, position: checklist.length };
-    setChecklist(prev => [...prev, newItem]);
-    setNewCheckItem('');
-
-    // Try dedicated table
     const { error } = await supabase.from('task_checklist_items').insert({
       id: newItem.id, tarea_id: task.id, workspace_id: workspaceId,
       text: newItem.text, done: false, position: newItem.position, created_by: userId,
     });
-    if (error) {
-      // Fallback: update JSONB
-      const updated = [...checklist, newItem];
-      await supabase.from('tareas').update({ checklist: updated }).eq('id', task.id);
-    }
+    if (error) setActionError(error.message);
+    else { setChecklist(prev => [...prev, newItem]); setNewCheckItem(''); }
     setAddingCheck(false);
   };
 
   const handleDeleteCheckItem = async (itemId: string) => {
-    setChecklist(prev => prev.filter(c => c.id !== itemId));
     const { error } = await supabase.from('task_checklist_items').delete().eq('id', itemId);
-    if (error) {
-      const updated = checklist.filter(c => c.id !== itemId);
-      await supabase.from('tareas').update({ checklist: updated }).eq('id', task.id);
-    }
+    if (error) setActionError(error.message);
+    else setChecklist(prev => prev.filter(c => c.id !== itemId));
   };
 
   // ── Comment operations ──
@@ -1123,64 +467,19 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     setSendingComment(true);
     const avatar = (userName || 'YO').slice(0, 2).toUpperCase();
     const newC: Comment = { id: crypto.randomUUID(), author: userName || 'Yo', avatar, text: newComment.trim(), date: new Date().toISOString() };
-    setComments(prev => [...prev, newC]);
-    setNewComment('');
-
     const { error } = await supabase.from('task_comments').insert({
       id: newC.id, tarea_id: task.id, workspace_id: workspaceId,
       author_id: userId, author_name: newC.author, author_avatar: avatar, text: newC.text,
     });
-    if (error) {
-      const updated = [...comments, newC];
-      await supabase.from('tareas').update({ comments: updated }).eq('id', task.id);
-    }
-    await addHistoryEntry(`Comentario agregado por ${userName || 'usuario'}`, 'MessageSquare', 'text-blue-500');
+    if (error) setActionError(error.message);
+    else { setComments(prev => [...prev, newC]); setNewComment(''); await addHistoryEntry(`Comentario agregado por ${userName || 'usuario'}`, 'MessageSquare', 'text-blue-500'); }
     setSendingComment(false);
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    setComments(prev => prev.filter(c => c.id !== commentId));
     const { error } = await supabase.from('task_comments').delete().eq('id', commentId);
-    if (error) {
-      const updated = comments.filter(c => c.id !== commentId);
-      await supabase.from('tareas').update({ comments: updated }).eq('id', task.id);
-    }
-  };
-
-  // ── Attachment operations ──
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !workspaceId || !userId) return;
-    setUploadingFile(true);
-
-    const newAtt: Attachment = {
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: `${(file.size / 1024).toFixed(0)} KB`,
-      type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-    };
-    setAttachments(prev => [...prev, newAtt]);
-
-    const { error } = await supabase.from('task_attachments').insert({
-      id: newAtt.id, tarea_id: task.id, workspace_id: workspaceId,
-      name: newAtt.name, size: newAtt.size, file_type: newAtt.type, uploaded_by: userId,
-    });
-    if (error) {
-      const updated = [...attachments, newAtt];
-      await supabase.from('tareas').update({ attachments: updated }).eq('id', task.id);
-    }
-    await addHistoryEntry(`Adjunto "${file.name}" subido`, 'Paperclip', 'text-amber-500');
-    setUploadingFile(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleDeleteAttachment = async (attId: string) => {
-    setAttachments(prev => prev.filter(a => a.id !== attId));
-    const { error } = await supabase.from('task_attachments').delete().eq('id', attId);
-    if (error) {
-      const updated = attachments.filter(a => a.id !== attId);
-      await supabase.from('tareas').update({ attachments: updated }).eq('id', task.id);
-    }
+    if (error) setActionError(error.message);
+    else setComments(prev => prev.filter(c => c.id !== commentId));
   };
 
   // ── History helper ──
@@ -1202,50 +501,37 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     setAddingDep(true);
 
     const newDep: Dependency = { id: selectedDepTask, taskId: selectedDepTask.slice(0, 8).toUpperCase(), title: depTask.title, status: depTask.status };
-    setDependencies(prev => [...prev, newDep]);
-    setSelectedDepTask('');
-
     const { error } = await supabase.from('task_dependencies').insert({
       tarea_id: task.id, depends_on_id: selectedDepTask, workspace_id: workspaceId,
     });
-    if (error) {
-      const updated = [...dependencies, newDep];
-      await supabase.from('tareas').update({ dependencies: updated }).eq('id', task.id);
-    }
-    await addHistoryEntry(`Dependencia agregada: "${depTask.title}"`, 'Link2', 'text-purple-500');
+    if (error) setActionError(error.message);
+    else { setDependencies(prev => [...prev, newDep]); setSelectedDepTask(''); await addHistoryEntry(`Dependencia agregada: "${depTask.title}"`, 'Link2', 'text-purple-500'); }
     setAddingDep(false);
   };
 
   const handleRemoveDependency = async (depId: string) => {
-    setDependencies(prev => prev.filter(d => d.id !== depId));
     const { error } = await supabase.from('task_dependencies').delete().eq('tarea_id', task.id).eq('depends_on_id', depId);
-    if (error) {
-      const updated = dependencies.filter(d => d.id !== depId);
-      await supabase.from('tareas').update({ dependencies: updated }).eq('id', task.id);
-    }
+    if (error) setActionError(error.message);
+    else setDependencies(prev => prev.filter(d => d.id !== depId));
   };
 
   // ── Edit task ──
   const handleSaveEdit = async () => {
     setSavingEdit(true);
-    const { error } = await supabase.from('tareas').update({
-      title: editForm.title.trim(),
-      description: editForm.description.trim(),
-      prioridad: editForm.prioridad,
-      estado: editForm.estado,
-      riesgo: editForm.riesgo,
-      due_date: editForm.due_date || null,
-      sla: editForm.sla,
-      responsible_name: editForm.responsible_name,
-      responsible_avatar: editForm.responsible_name.slice(0, 2).toUpperCase(),
-      is_critical: editForm.prioridad === 'critica',
-    }).eq('id', task.id);
-
-    if (!error) {
-      await addHistoryEntry(`Tarea editada por ${userName || 'usuario'}`, 'Edit2', 'text-blue-500');
+    setActionError('');
+    const session = await supabase.auth.getSession();
+    const jwt = session.data.session?.access_token;
+    if (!jwt || !workspaceId) { setActionError('Tu sesión expiró.'); setSavingEdit(false); return; }
+    const response = await fetch(`/api/tareas/${task.id}/action`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ workspaceId, action: 'edit', title: editForm.title,
+        description: editForm.description, priority: editForm.prioridad,
+        dueDate: editForm.due_date ? new Date(editForm.due_date).toISOString() : null }) });
+    const result = await response.json();
+    if (response.ok) {
       onTaskUpdated(task.id);
       setEditMode(false);
-    }
+    } else setActionError(result.error || 'No se pudo guardar la actividad.');
     setSavingEdit(false);
   };
 
@@ -1253,23 +539,15 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     { id: 'info',         label: 'General',     icon: FileText },
     { id: 'checklist',    label: 'Checklist',   icon: CheckSquare, count: checklist.length },
     { id: 'comentarios',  label: 'Comentarios', icon: MessageSquare, count: comments.length },
-    { id: 'adjuntos',     label: 'Adjuntos',    icon: Paperclip, count: attachments.length },
     { id: 'historial',    label: 'Historial',   icon: History },
     { id: 'dependencias', label: 'Dependencias',icon: Link2, count: dependencies.length },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div
-        className={`flex-1 bg-black/30 backdrop-blur-sm transition-opacity duration-250 ${visible ? 'opacity-100' : 'opacity-0'}`}
-        onClick={handleClose}
-      />
-      <div
-        className={`bg-white shadow-2xl flex flex-col overflow-hidden transition-transform duration-250 ${visible ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ width: '45%', minWidth: 380, maxWidth: 720 }}
-      >
+    <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-[#f6f8fb]">
+      <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col overflow-hidden bg-white shadow-xl">
         {/* Header */}
-        <div className="flex items-start gap-3 px-5 py-4 border-b border-border bg-white flex-shrink-0">
+        <div className="flex items-start gap-3 border-b border-border bg-white px-5 py-4 sm:px-8">
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${typeInfo.bg} border ${typeInfo.border}`}>
             <TypeIcon size={17} className={typeInfo.color} />
           </div>
@@ -1282,21 +560,21 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
             <h2 className="text-sm font-semibold text-foreground leading-snug">{task.title}</h2>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button
+            {canManageTask && task.origin === 'manual' && !['completada','cancelada','rechazada'].includes(task.status) && <button
               onClick={() => setEditMode(v => !v)}
               className={`p-1.5 rounded-lg transition-colors ${editMode ? 'bg-primary text-white' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
               title="Editar tarea"
             >
               <Edit2 size={14} />
-            </button>
-            <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-              <X size={16} />
+            </button>}
+            <button onClick={handleClose} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50">
+              <X size={16} />Cerrar
             </button>
           </div>
         </div>
 
         {/* Tabs — matching mis-participaciones style: text-sm, px-4 py-2 */}
-        <div className="flex overflow-x-auto border-b border-border bg-white px-2 gap-0 flex-shrink-0">
+        <div className="flex overflow-x-auto border-b border-border bg-white px-5 gap-0 sm:px-8">
           {tabs.map(t => {
             const TIcon = t.icon;
             return (
@@ -1320,7 +598,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto bg-[#f6f8fb] p-5 sm:p-8"><div className="mx-auto max-w-5xl space-y-5 rounded-lg border border-slate-200 bg-white p-5 sm:p-8">
+          {actionError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
           {/* ── Info / Edit ── */}
           {tab === 'info' && (
@@ -1337,40 +616,15 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1.5">Estado</label>
-                      <select value={editForm.estado} onChange={e => setEditForm(f => ({ ...f, estado: e.target.value as TaskStatus }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-                        {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
                       <label className="block text-xs font-semibold text-foreground mb-1.5">Prioridad</label>
                       <select value={editForm.prioridad} onChange={e => setEditForm(f => ({ ...f, prioridad: e.target.value as Priority }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
                         {Object.entries(PRIORITY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1.5">Riesgo</label>
-                      <select value={editForm.riesgo} onChange={e => setEditForm(f => ({ ...f, riesgo: e.target.value as 'alto' | 'medio' | 'bajo' }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-                        <option value="bajo">Bajo</option>
-                        <option value="medio">Medio</option>
-                        <option value="alto">Alto</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1.5">SLA</label>
-                      <select value={editForm.sla} onChange={e => setEditForm(f => ({ ...f, sla: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-                        <option value="2h">2 horas</option><option value="4h">4 horas</option><option value="8h">8 horas</option>
-                        <option value="24h">24 horas</option><option value="48h">48 horas</option><option value="72h">72 horas</option><option value="7d">7 días</option>
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-foreground mb-1.5">Fecha límite</label>
                     <input type="datetime-local" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-foreground mb-1.5">Responsable</label>
-                    <input value={editForm.responsible_name} onChange={e => setEditForm(f => ({ ...f, responsible_name: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => setEditMode(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
@@ -1382,23 +636,27 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                 </div>
               ) : (
                 <>
+                  <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad'} · {task.origin === 'sistema' ? 'Generada por el sistema' : 'Creada manualmente'}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">{task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
+                  </div>
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Descripción</p>
                     <p className="text-sm text-foreground leading-relaxed">{task.description || 'Sin descripción.'}</p>
                   </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Qué sigue</p><p className="mt-1 text-sm text-slate-700">{taskGuidance(task)}</p></div>
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       { label: 'Tipo de tarea',  value: typeInfo.label },
                       { label: 'Estado',         value: statusInfo.label },
                       { label: 'Prioridad',      value: priorityInfo.label },
                       { label: 'Riesgo',         value: RISK_CONFIG[task.risk].label },
-                      { label: 'SLA',            value: task.sla },
                       { label: 'Fecha límite',   value: formatDate(task.dueDate) },
                       { label: 'Responsable',    value: task.responsible || '—' },
                       { label: 'Creador',        value: task.creator || '—' },
-                      { label: 'Documento',      value: task.documentName || '—' },
-                      { label: 'Expediente',     value: task.expedienteName || '—' },
-                    ].map(item => (
+                      { label: 'Recurso vinculado', value: sourceInfo?.name || task.documentName || task.expedienteName || '—' },
+                      { label: 'Estado del recurso', value: sourceInfo?.status || 'Consulta el recurso para ver su estado actual' },
+                    ].filter(item => Boolean(item.value)).map(item => (
                       <div key={item.label} className="bg-muted/30 rounded-lg p-2.5">
                         <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">{item.label}</p>
                         <p className="text-xs font-semibold text-foreground truncate" title={item.value}>{item.value}</p>
@@ -1415,23 +673,24 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                       </div>
                     </div>
                   )}
-                  <div>
+                  {task.resolutionNote && <div className="rounded-md border border-green-200 bg-green-50 p-3"><p className="text-xs font-semibold text-green-800">Motivo de cierre</p><p className="mt-1 text-sm text-green-900">{task.resolutionNote}</p></div>}
+                  {canActTask ? <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Acciones</p>
                     <div className="flex flex-wrap gap-2">
-                      <button className="flex items-center gap-1.5 text-xs font-semibold bg-primary text-white px-3 py-2 rounded-lg hover:bg-primary/90 transition-colors">
-                        <Play size={12} />{task.mainAction}
+                      <button onClick={() => runAction('open')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">
+                        <Play size={14} />Abrir recurso vinculado
                       </button>
-                      <button className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-border text-foreground px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-                        <Users size={12} />Reasignar
-                      </button>
-                      <button className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-border text-foreground px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-                        <Bell size={12} />Recordatorio
-                      </button>
-                      <button className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-red-200 text-red-600 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors">
-                        <XCircle size={12} />Cancelar
-                      </button>
+                      {!['completada','cancelada','rechazada'].includes(task.status) && <>
+                        {['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50">Iniciar seguimiento</button>}
+                        {task.origin === 'manual' && <button onClick={() => runAction('complete')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-green-200 px-3 py-2 text-sm text-green-700 disabled:opacity-50"><CheckCircle2 size={14} />Completar</button>}
+                        {canReassign && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"><Users size={14} />Reasignar</button>}
+                        <button onClick={() => runAction('remind')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"><Bell size={14} />Recordatorio</button>
+                        {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm text-red-600"><XCircle size={14} />Cancelar</button>}
+                      </>}
                     </div>
-                  </div>
+                    {reassignOpen && <div className="mt-3 flex max-w-lg gap-2"><select aria-label="Nuevo responsable" value={newAssignee} onChange={event => setNewAssignee(event.target.value)} className="h-10 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="">Selecciona un integrante</option>{members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button onClick={() => runAction('reassign')} disabled={!newAssignee || actionBusy} className="rounded-md bg-blue-600 px-4 text-sm text-white disabled:opacity-50">Guardar</button></div>}
+                    {cancelOpen && <div className="mt-3 flex max-w-lg flex-col gap-2"><label className="text-sm text-slate-700">Motivo de cancelación<input value={cancelReason} onChange={event => setCancelReason(event.target.value)} minLength={5} maxLength={1000} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" placeholder="Explica por qué ya no se necesita" /></label><button onClick={() => runAction('cancel')} disabled={cancelReason.trim().length < 5 || actionBusy} className="self-start rounded-md bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50">Confirmar cancelación</button></div>}
+                  </div> : <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Esta tarea está asignada a otra persona. Puedes consultar su avance aquí.</p>}
                 </>
               )}
             </div>
@@ -1475,15 +734,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
               )}
               {checklist.map(item => (
                 <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group">
-                  <div
+                  <button type="button" aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
                     onClick={() => handleChecklistToggle(item.id)}
                     className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${item.done ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
                   >
                     {item.done && <CheckCircle2 size={10} className="text-white" />}
-                  </div>
+                  </button>
                   <span
-                    onClick={() => handleChecklistToggle(item.id)}
-                    className={`flex-1 text-sm transition-colors cursor-pointer ${item.done ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+                    className={`flex-1 text-sm transition-colors ${item.done ? 'line-through text-muted-foreground' : 'text-foreground'}`}
                   >
                     {item.text}
                   </span>
@@ -1543,46 +801,6 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* ── Adjuntos ── */}
-          {tab === 'adjuntos' && (
-            <div className="space-y-2">
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
-              {attachments.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Paperclip size={28} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">Sin adjuntos</p>
-                </div>
-              )}
-              {attachments.map(a => (
-                <div key={a.id} className="flex items-center gap-3 p-3 border border-border rounded-xl hover:bg-muted/20 transition-colors group">
-                  <div className="w-8 h-8 bg-red-50 border border-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <FileText size={14} className="text-red-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-foreground truncate">{a.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{a.type} · {a.size}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                      <Download size={13} />
-                    </button>
-                    <button onClick={() => handleDeleteAttachment(a.id)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingFile}
-                className="w-full mt-2 flex items-center justify-center gap-2 text-sm font-semibold text-primary border-2 border-dashed border-primary/30 hover:border-primary/60 hover:bg-primary/5 rounded-xl py-3 transition-colors disabled:opacity-50"
-              >
-                {uploadingFile ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Upload size={13} />}
-                {uploadingFile ? 'Subiendo...' : 'Subir adjunto'}
-              </button>
             </div>
           )}
 
@@ -1667,7 +885,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
               )}
             </div>
           )}
-        </div>
+        </div></div>
       </div>
     </div>
   );
@@ -1677,16 +895,21 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
 function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Task) => void }) {
   const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
     { id: 'nueva',       label: 'Nueva',       color: 'border-t-blue-500',   bg: 'bg-blue-50/40' },
+    { id: 'programada',  label: 'Programada',  color: 'border-t-indigo-500', bg: 'bg-indigo-50/30' },
     { id: 'pendiente',   label: 'Pendiente',   color: 'border-t-amber-400',  bg: 'bg-amber-50/30' },
     { id: 'en_proceso',  label: 'En progreso', color: 'border-t-cyan-500',   bg: 'bg-cyan-50/30' },
     { id: 'bloqueada',   label: 'Bloqueada',   color: 'border-t-red-500',    bg: 'bg-red-50/20' },
     { id: 'en_revision', label: 'En revisión', color: 'border-t-purple-500', bg: 'bg-purple-50/20' },
     { id: 'escalada',    label: 'Escalada',    color: 'border-t-orange-500', bg: 'bg-orange-50/20' },
+    { id: 'vencida',     label: 'Vencida',     color: 'border-t-red-600',    bg: 'bg-red-50/20' },
+    { id: 'completada',  label: 'Completada',  color: 'border-t-green-500',  bg: 'bg-green-50/20' },
+    { id: 'cancelada',   label: 'Cancelada',   color: 'border-t-slate-400',  bg: 'bg-slate-50/20' },
+    { id: 'rechazada',   label: 'Rechazada',   color: 'border-t-rose-500',   bg: 'bg-rose-50/20' },
   ];
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-3">
-      {columns.map(col => {
+      {columns.filter(col => col.id !== 'completada' && col.id !== 'cancelada' && col.id !== 'rechazada' || tasks.some(task => task.status === col.id)).map(col => {
         const colTasks = tasks.filter(t => t.status === col.id);
         return (
           <div key={col.id} className={`flex w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`} style={{ minHeight: 480 }}>
@@ -1705,7 +928,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
                 const TypeIcon = typeInfo.icon;
                 const dueInfo = getDueBadge(task);
                 return (
-                  <div key={task.id} onClick={() => onTaskClick(task)} className="cursor-pointer rounded-md border border-slate-200 bg-white p-3 transition-colors hover:border-primary/30 hover:bg-primary/[0.03]">
+                  <button key={task.id} type="button" onClick={() => onTaskClick(task)} className="w-full rounded-md border border-slate-200 bg-white p-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/[0.03]">
                     <div className="flex items-start gap-2 mb-2">
                       <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${typeInfo.bg}`}>
                         <TypeIcon size={11} className={typeInfo.color} />
@@ -1719,7 +942,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
                       </div>
                       <span className={`text-[10px] font-semibold ${dueInfo.urgent ? 'text-red-600' : 'text-muted-foreground'}`}>{dueInfo.text}</span>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1731,15 +954,10 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
 }
 
 // ─── Calendar View ────────────────────────────────────────────────────────────
-function CalendarView({ tasks }: { tasks: Task[] }) {
+function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Task) => void }) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
-  const [today, setToday] = useState(new Date());
-
-  useEffect(() => {
-    const n = new Date();
-    setToday(n); setYear(n.getFullYear()); setMonth(n.getMonth());
-  }, []);
+  const [today] = useState(() => new Date());
 
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
@@ -1782,7 +1000,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
                 <div className="space-y-0.5">
                   {dayTasks.slice(0, 2).map(t => {
                     const tc = TASK_TYPE_CONFIG[t.type];
-                    return <div key={t.id} className={`text-[9px] font-semibold truncate px-1 py-0.5 rounded ${tc.bg} ${tc.color}`}>{t.title}</div>;
+                    return <button key={t.id} onClick={() => onTaskClick(t)} title={t.title} className={`block w-full truncate rounded px-1 py-0.5 text-left text-[9px] font-semibold ${tc.bg} ${tc.color}`}>{t.title}</button>;
                   })}
                   {dayTasks.length > 2 && <span className="text-[9px] text-muted-foreground pl-1">+{dayTasks.length - 2}</span>}
                 </div>
@@ -1799,7 +1017,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
 function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Task) => void }) {
   const groups: Record<string, Task[]> = {};
   tasks.forEach(t => {
-    const key = t.documentId || 'sin-documento';
+    const key = t.sourceId || t.documentId || t.expedienteId || t.id;
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
   });
@@ -1807,7 +1025,7 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
   return (
     <div className="space-y-3">
       {Object.entries(groups).map(([docId, docTasks]) => {
-        const name = docTasks[0]?.documentName || 'Sin documento';
+        const name = docTasks[0]?.documentName || docTasks[0]?.expedienteName || docTasks[0]?.title || 'Recurso';
         return (
           <div key={docId} className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
@@ -1823,7 +1041,7 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
                 const statusInfo = STATUS_CONFIG[task.status];
                 const TypeIcon = typeInfo.icon;
                 return (
-                  <div key={task.id} onClick={() => onTaskClick(task)} className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/80">
+                  <button key={task.id} type="button" onClick={() => onTaskClick(task)} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/80">
                     <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${typeInfo.bg}`}>
                       <TypeIcon size={11} className={typeInfo.color} />
                     </div>
@@ -1833,7 +1051,7 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
                     </div>
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusInfo.className}`}>{statusInfo.label}</span>
                     <Avatar initials={task.responsibleAvatar} size="xs" />
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1849,23 +1067,23 @@ const QUICK_FILTERS = [
   { id: 'mis_tareas',       label: 'Mis tareas' },
   { id: 'asignadas_por_mi', label: 'Asignadas por mí' },
   { id: 'vencidas',         label: 'Vencidas' },
+  { id: 'programadas',      label: 'Programadas' },
   { id: 'bloqueadas',       label: 'Bloqueadas' },
-  { id: 'criticas',         label: 'Críticas' },
-  { id: 'firma',            label: 'Firma' },
-  { id: 'revision',         label: 'Revisión' },
-  { id: 'anexos',           label: 'Anexos' },
-  { id: 'aprobacion',       label: 'Aprobación' },
-  { id: 'validacion_id',    label: 'Validación ID' },
-  { id: 'efirma_sat',       label: 'e.firma SAT' },
+  { id: 'criticas',         label: 'Alta prioridad' },
+  { id: 'automaticas',      label: 'Del sistema' },
 ];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PendingTasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
+  const [listLayout, setListLayout] = useState<'rows' | 'grid'>('rows');
+  const [statusScope, setStatusScope] = useState<'active' | 'completada' | 'cancelada' | 'all'>('active');
+  const [kindScope, setKindScope] = useState<'all' | 'accion' | 'actividad'>('all');
+  const [typeScope, setTypeScope] = useState<string>('all');
+  const [sortMode, setSortMode] = useState<'due' | 'recent' | 'priority'>('due');
   const [search, setSearch] = useState('');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [showAutomations, setShowAutomations] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1873,9 +1091,9 @@ export default function PendingTasksPage() {
 
   const supabase = createClient();
   const { user } = useAuth();
-  const { workspaces } = useWorkspace();
+  const { activeWorkspace } = useWorkspace();
 
-  const activeWorkspaceId = workspaces?.[0]?.id ?? null;
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
   const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuario';
 
   const fetchTasks = useCallback(async () => {
@@ -1884,39 +1102,26 @@ export default function PendingTasksPage() {
     try {
       if (!user) { setTasks([]); setLoading(false); return; }
 
-      const wsIds = workspaces.map(w => w.id);
-
-      if (wsIds.length === 0) {
-        const { data: memberships } = await supabase.from('workspace_members').select('workspace_id').eq('user_id', user.id);
-        const memberWsIds = (memberships || []).map((m: any) => m.workspace_id);
-        if (memberWsIds.length === 0) { setTasks([]); setLoading(false); return; }
-
-        const { data, error: fetchError } = await supabase.from('tareas').select('*').in('workspace_id', memberWsIds).not('estado', 'in', '(completada,cancelada,rechazada)').order('created_at', { ascending: false });
-        if (fetchError) { setError('No se pudieron cargar las tareas.'); return; }
-        setTasks((data || []).map(mapRowToTask));
-      } else {
-        const { data, error: fetchError } = await supabase.from('tareas').select('*').in('workspace_id', wsIds).not('estado', 'in', '(completada,cancelada,rechazada)').order('created_at', { ascending: false });
-        if (fetchError) {
-          setError(fetchError.code?.startsWith('42') ? 'Error de configuración: ' + fetchError.message : 'No se pudieron cargar las tareas.');
-          return;
-        }
-        setTasks((data || []).map(mapRowToTask));
-      }
+      if (!activeWorkspaceId) { setTasks([]); return; }
+      const { data, error: fetchError } = await supabase.from('tareas').select('*')
+        .eq('workspace_id', activeWorkspaceId).order('created_at', { ascending: false }).limit(500);
+      if (fetchError) { setError(fetchError.message); return; }
+      setTasks((data || []).map(mapRowToTask));
     } catch {
       setError('Error inesperado al cargar las tareas.');
     } finally {
       setLoading(false);
     }
-  }, [user, workspaces]);
+  }, [user?.id, activeWorkspaceId]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => { const timer = window.setTimeout(() => { void fetchTasks(); }, 0); return () => window.clearTimeout(timer); }, [fetchTasks]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || selectedTask || tasks.length === 0) return;
     const taskId = new URLSearchParams(window.location.search).get('task');
     if (!taskId) return;
     const matchingTask = tasks.find((task) => task.id === taskId);
-    if (matchingTask) setSelectedTask(matchingTask);
+    if (matchingTask) { const timer = window.setTimeout(() => setSelectedTask(matchingTask), 0); return () => window.clearTimeout(timer); }
   }, [selectedTask, tasks]);
 
   const handleTaskUpdated = useCallback((taskId: string) => {
@@ -1938,31 +1143,30 @@ export default function PendingTasksPage() {
       const q = search.toLowerCase();
       if (!task.title.toLowerCase().includes(q) && !task.documentName.toLowerCase().includes(q) && !task.expedienteName.toLowerCase().includes(q)) return false;
     }
-    if (activeFilters.includes('mis_tareas') && user) {
-      const isResponsible = task.responsible === user.email || task.responsible === userName;
-      if (!isResponsible) return false;
-    }
-    if (activeFilters.includes('asignadas_por_mi') && user) {
-      const isCreator = task.creator === user.email || task.creator === userName;
-      if (!isCreator) return false;
-    }
+    if (statusScope === 'active' && ['completada','cancelada','rechazada'].includes(task.status)) return false;
+    if (statusScope === 'completada' && task.status !== 'completada') return false;
+    if (statusScope === 'cancelada' && !['cancelada','rechazada'].includes(task.status)) return false;
+    if (kindScope !== 'all' && task.workKind !== kindScope) return false;
+    if (typeScope !== 'all' && task.type !== typeScope) return false;
+    if (activeFilters.includes('mis_tareas') && task.assignedTo !== user?.id) return false;
+    if (activeFilters.includes('asignadas_por_mi') && task.createdBy !== user?.id) return false;
     if (activeFilters.includes('vencidas') && !task.isOverdue && task.status !== 'vencida') return false;
+    if (activeFilters.includes('programadas') && task.status !== 'programada') return false;
     if (activeFilters.includes('bloqueadas') && !task.isBlocked && task.status !== 'bloqueada') return false;
-    if (activeFilters.includes('criticas') && !task.isCritical && task.priority !== 'critica') return false;
-    if (activeFilters.includes('firma') && task.type !== 'firmar_documento' && task.type !== 'validar_efirma') return false;
-    if (activeFilters.includes('revision') && task.type !== 'revisar_documento') return false;
-    if (activeFilters.includes('anexos') && task.type !== 'subir_anexo') return false;
-    if (activeFilters.includes('aprobacion') && task.type !== 'aprobar_documento') return false;
-    if (activeFilters.includes('validacion_id') && task.type !== 'validar_identidad') return false;
-    if (activeFilters.includes('efirma_sat') && !task.tags.some(t => t.includes('e.firma'))) return false;
+    if (activeFilters.includes('criticas') && !task.isCritical && !['critica','alta'].includes(task.priority)) return false;
+    if (activeFilters.includes('automaticas') && task.origin !== 'sistema') return false;
     return true;
-  });
+  }).sort((a, b) => sortMode === 'recent'
+    ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    : sortMode === 'priority'
+      ? ['critica','alta','media','baja'].indexOf(a.priority) - ['critica','alta','media','baja'].indexOf(b.priority)
+      : (a.dueDate ? new Date(a.dueDate).getTime() : Infinity) - (b.dueDate ? new Date(b.dueDate).getTime() : Infinity));
 
   const views: { id: ViewMode; label: string; icon: React.ElementType }[] = [
     { id: 'lista',      label: 'Lista',      icon: List },
-    { id: 'kanban',     label: 'Kanban',     icon: LayoutGrid },
+    { id: 'kanban',     label: 'Tablero',    icon: LayoutGrid },
     { id: 'calendario', label: 'Calendario', icon: CalendarDays },
-    { id: 'documento',  label: 'Documento',  icon: FileText },
+    { id: 'documento',  label: 'Recurso',    icon: FolderOpen },
   ];
 
   return (
@@ -1981,14 +1185,9 @@ export default function PendingTasksPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAutomations(v => !v)}
-              className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-600 shadow-sm transition-colors ${
-                showAutomations ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
+            <Link href="/mis-tareas/automatizaciones" className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 shadow-sm hover:bg-slate-50">
               <Cpu size={15} />Automatizaciones
-            </button>
+            </Link>
             <button
               onClick={() => setShowNewTask(true)}
               className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
@@ -2000,11 +1199,6 @@ export default function PendingTasksPage() {
 
         {/* Metrics */}
         <TaskMetrics tasks={tasks} />
-
-        {/* Automations panel */}
-        {showAutomations && (
-          <AutomationRulesPanel workspaceId={activeWorkspaceId} userId={user?.id ?? null} />
-        )}
 
         {/* View Tabs + Search */}
         <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -2036,11 +1230,30 @@ export default function PendingTasksPage() {
               className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
             />
           </div>
+          {viewMode === 'lista' && <div className="flex h-9 items-center gap-1 rounded-md border border-slate-200 p-1" aria-label="Diseño de lista">
+            <button type="button" onClick={() => setListLayout('rows')} title="Vista de lista" aria-label="Vista de lista" aria-pressed={listLayout === 'rows'} className={`flex h-7 w-8 items-center justify-center rounded ${listLayout === 'rows' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-slate-700'}`}><List size={16} /></button>
+            <button type="button" onClick={() => setListLayout('grid')} title="Vista de cuadrícula" aria-label="Vista de cuadrícula" aria-pressed={listLayout === 'grid'} className={`flex h-7 w-8 items-center justify-center rounded ${listLayout === 'grid' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-slate-700'}`}><LayoutGrid size={16} /></button>
+          </div>}
           {!loading && filtered.length !== tasks.length && (
             <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">{filtered.length} de {tasks.length}</span>
           )}
         </div>
         </section>
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <select aria-label="Tipo de trabajo" value={kindScope} onChange={event => setKindScope(event.target.value as typeof kindScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+            <option value="all">Acciones y actividades</option><option value="accion">Acciones del proceso</option><option value="actividad">Actividades</option>
+          </select>
+          <select aria-label="Estado" value={statusScope} onChange={event => setStatusScope(event.target.value as typeof statusScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+            <option value="active">En curso</option><option value="completada">Completadas</option><option value="cancelada">Canceladas</option><option value="all">Todos los estados</option>
+          </select>
+          <select aria-label="Tipo de tarea" value={typeScope} onChange={event => setTypeScope(event.target.value)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+            <option value="all">Todos los tipos</option>{Object.entries(TASK_TYPE_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
+          </select>
+          <select aria-label="Ordenar tareas" value={sortMode} onChange={event => setSortMode(event.target.value as typeof sortMode)} className="ml-auto h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+            <option value="due">Próximo vencimiento</option><option value="recent">Más recientes</option><option value="priority">Prioridad</option>
+          </select>
+        </div>
 
         {/* Quick Filters */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -2103,15 +1316,15 @@ export default function PendingTasksPage() {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                  {filtered.map(task => (
-                    <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-                  ))}
+                <div className={listLayout === 'grid' ? 'grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3' : 'space-y-2'}>
+                  {filtered.map(task => listLayout === 'grid'
+                    ? <TaskGridCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
+                    : <TaskListRow key={task.id} task={task} onClick={() => setSelectedTask(task)} />)}
                 </div>
               )
             )}
             {viewMode === 'kanban' && <KanbanView tasks={filtered} onTaskClick={setSelectedTask} />}
-            {viewMode === 'calendario' && <CalendarView tasks={filtered} />}
+            {viewMode === 'calendario' && <CalendarView tasks={filtered} onTaskClick={setSelectedTask} />}
             {viewMode === 'documento' && <DocumentoView tasks={filtered} onTaskClick={setSelectedTask} />}
           </>
         )}
@@ -2124,7 +1337,7 @@ export default function PendingTasksPage() {
         </div>
       </div>
 
-      {/* Task Detail Drawer — 45% lateral */}
+      {/* Full-screen task detail */}
       {selectedTask && (
         <TaskDetailDrawer
           task={selectedTask}
@@ -2136,18 +1349,16 @@ export default function PendingTasksPage() {
           workspaceId={activeWorkspaceId}
           userId={user?.id ?? null}
           userName={userName}
+          canReassign={Boolean(activeWorkspace?.organizationEnabled && ['owner','admin'].includes(activeWorkspace.role))}
         />
       )}
 
-      {/* New Task Drawer — 45% lateral */}
-      {showNewTask && (
-        <NewTaskDrawer
-          onClose={() => setShowNewTask(false)}
-          onCreated={fetchTasks}
-          workspaceId={activeWorkspaceId}
-          userId={user?.id ?? null}
-          userName={userName}
-        />
+      {/* Guided task creation */}
+      {showNewTask && activeWorkspaceId && user?.id && (
+        <NewTaskWizard onClose={() => setShowNewTask(false)} onCreated={fetchTasks}
+          workspaceId={activeWorkspaceId} userId={user.id}
+          isPersonal={activeWorkspace?.workspaceType === 'personal'}
+          canAssign={Boolean(activeWorkspace?.organizationEnabled && ['owner','admin'].includes(activeWorkspace.role))} />
       )}
     </AppLayout>
   );

@@ -38,7 +38,7 @@ const runtime = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText.replaceAll('globalThis.Deno', 'Deno');
 
-async function generateFixture({ pageSize = 'a4', orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, fieldCount = 12, legalContent, declarationContent, includeSignature = false, requireSignature = false, returnLayout = false } = {}) {
+async function generateFixture({ pageSize = 'a4', orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, fieldCount = 12, legalContent, declarationContent, includeSignature = false, requireSignature = false, returnLayout = false, signatureLabel = 'Firma', signaturePdfLabel, fieldPdfLabel, fieldPdfLabelExplicit = false } = {}) {
   let handler;
   let savedBytes;
   let savedLayout;
@@ -46,12 +46,13 @@ async function generateFixture({ pageSize = 'a4', orientation = 'portrait', cove
     id: `field-${index}`, sectionId: 'section-general', label: `Campo ${index + 1}`,
     type: index === 5 ? 'textarea' : 'text',
   }));
+  if (fieldPdfLabel) fields[0].pdf = { label: fieldPdfLabel, labelExplicit: fieldPdfLabelExplicit };
   fields.push({ id: 'email', sectionId: 'section-general', label: 'Correo', type: 'email' });
   fields.push({ id: 'consent', sectionId: 'section-general', label: 'Autorizo el uso de datos', type: 'consentimiento' });
   if (legalContent) Object.assign(fields.at(-1), legalContent);
   if (declarationContent) fields.push({ id: 'declaration', sectionId: 'section-general', label: 'Declaración', type: 'declaration', ...declarationContent });
   fields.push({ id: 'attachment', sectionId: 'section-general', label: 'Anexo', type: 'documento' });
-  if (includeSignature) fields.push({ id: 'signature', sectionId: 'section-general', label: 'Firma', type: 'signature_block' });
+  if (includeSignature) fields.push({ id: 'signature', sectionId: 'section-general', label: signatureLabel, type: 'signature_block', pdf: signaturePdfLabel ? { label: signaturePdfLabel } : undefined });
   if (fieldPageBreak) fields[1].pdf = { pageBreakBefore: true };
   const row = {
     workspace_id: 'fixture',
@@ -127,10 +128,39 @@ test('un formulario firmable conserva un espacio de firma aunque su sección no 
   assert.equal(layout.placements[0].label, 'Firma');
 });
 
+test('el PDF muestra el nombre designado para el campo y reserva una estampa legible', async () => {
+  const pdfLabel = 'Firma del responsable del trámite';
+  const { pdf, layout } = await generateFixture({
+    includeSignature: true,
+    requireSignature: true,
+    returnLayout: true,
+    signatureLabel: 'Firma del participante',
+    signaturePdfLabel: pdfLabel,
+    flags: { showUnanswered: false },
+  });
+  assert.ok(contentOperators(pdf).includes(encodedText(pdfLabel)));
+  assert.equal(layout.placements[0].label, pdfLabel);
+  const page = pdf.getPage(layout.placements[0].page - 1);
+  const stampWidth = page.getWidth() * layout.placements[0].width / 100;
+  const stampHeight = page.getHeight() * layout.placements[0].height / 100;
+  assert.ok(Math.abs(stampWidth - 250) < 0.01);
+  assert.ok(Math.abs(stampHeight - 122) < 0.01);
+});
+
+test('un nombre de PDF genérico antiguo sigue el nombre del campo salvo que sea una elección explícita', async () => {
+  const legacy = await generateFixture({ fieldPdfLabel: 'Texto corto', fieldCount: 1 });
+  assert.ok(contentOperators(legacy).includes(encodedText('Campo 1')));
+  assert.ok(!contentOperators(legacy).includes(encodedText('Texto corto')));
+  const explicit = await generateFixture({ fieldPdfLabel: 'Texto corto', fieldPdfLabelExplicit: true, fieldCount: 1 });
+  assert.ok(contentOperators(explicit).includes(encodedText('Texto corto')));
+});
+
 test('la posición del formulario recibe la estampa elegida y el QR cuando el diseño lo incluye', async () => {
   const { bytes, layout } = await generateFixture({
     includeSignature: true, requireSignature: true, returnLayout: true,
     flags: { showUnanswered: false, showQr: false },
+    signatureLabel: 'Firma del participante',
+    signaturePdfLabel: 'Firma del responsable del trámite',
   });
   const buildDirectory = await mkdtemp(path.join(tmpdir(), 'docubox-form-stamp-'));
   try {

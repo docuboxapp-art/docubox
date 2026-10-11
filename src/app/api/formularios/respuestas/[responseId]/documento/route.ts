@@ -92,7 +92,7 @@ export async function POST(
     }
     const { data: form, error: formError } = await service
       .from('form_templates')
-      .select('name,created_by,workspace_id,description')
+      .select('name,created_by,workspace_id,description,settings')
       .eq('id', response.template_id)
       .single();
     if (formError || !form || form.workspace_id !== response.workspace_id)
@@ -211,7 +211,10 @@ export async function POST(
       file_type: 'application/pdf',
       file_hash_sha256: hash,
       nombre: `${form.name} · ${new Date(response.submitted_at).toLocaleDateString('es-MX')}`,
-      descripcion: form.description || 'Respuesta de formulario',
+      descripcion:
+        form.description?.trim() ||
+        (form.settings as { appearance?: { headerDescription?: string } } | null)?.appearance?.headerDescription?.trim() ||
+        null,
       participantes: [participant],
       campos_solicitados: signatureFields,
       ruta_guardado: 'raiz',

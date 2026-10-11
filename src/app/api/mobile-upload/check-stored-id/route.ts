@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       .from('id_capture_logs')
       .select('anverso_b64, curp_extracted, nombre_extracted')
       .eq('user_id', userId)
+      .eq('nubarium_aprobado', true)
       .not('anverso_b64', 'is', null)
       .order('captured_at', { ascending: false })
       .limit(1)
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
           { headers: { 'Cache-Control': 'no-store, private' } }
         );
       } catch {
-        return NextResponse.json({ hasStoredId: false });
+        // Try the completed enrollment if this older capture cannot be decrypted.
       }
     }
 

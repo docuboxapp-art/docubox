@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, KeyRound, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
 import { createClient } from '@/lib/supabase/client';
-import PublicFormSelfieModal from './PublicFormSelfieModal';
+import PublicFormMobileBiometricModal from './PublicFormMobileBiometricModal';
 
 export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const router = useRouter();
@@ -19,8 +19,8 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const [code, setCode] = useState('');
   const [codeVerified, setCodeVerified] = useState(false);
   const [checkingCode, setCheckingCode] = useState(false);
-  const [selfieOpen, setSelfieOpen] = useState(false);
-  const [selfieError, setSelfieError] = useState('');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileError, setMobileError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [needsLogin, setNeedsLogin] = useState(false);
@@ -50,45 +50,48 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
 
   const changeIdentity = () => {
     setCodeVerified(false);
-    setSelfieOpen(false);
+    setMobileOpen(false);
     setIdentitySelected(false);
   };
 
-  const checkEmail = useCallback(async (address: string) => {
-    const normalized = address.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-      setError('Ingresa un correo electrónico válido.');
-      return;
-    }
-    setCheckingEmail(true);
-    setError('');
-    try {
-      const response = await fetch('/api/auth/check-login-options', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ email: normalized }),
-      });
-      if (!response.ok) throw new Error('No se pudo consultar la cuenta. Inténtalo de nuevo.');
-      const result: { found?: boolean } = await response.json();
-      if (!result.found) {
-        router.push(
-          `/formulario-publico/registro?${new URLSearchParams({
-            ...(formId ? { formId } : {}),
-            email: normalized,
-          })}`
-        );
+  const checkEmail = useCallback(
+    async (address: string) => {
+      const normalized = address.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+        setError('Ingresa un correo electrónico válido.');
         return;
       }
-      setEmail(normalized);
-      setNeedsLogin(sessionEmail !== normalized);
-      setIdentitySelected(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo consultar la cuenta.');
-    } finally {
-      setCheckingEmail(false);
-    }
-  }, [formId, router, sessionEmail]);
+      setCheckingEmail(true);
+      setError('');
+      try {
+        const response = await fetch('/api/auth/check-login-options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ email: normalized }),
+        });
+        if (!response.ok) throw new Error('No se pudo consultar la cuenta. Inténtalo de nuevo.');
+        const result: { found?: boolean } = await response.json();
+        if (!result.found) {
+          router.push(
+            `/formulario-publico/registro?${new URLSearchParams({
+              ...(formId ? { formId } : {}),
+              email: normalized,
+            })}`
+          );
+          return;
+        }
+        setEmail(normalized);
+        setNeedsLogin(sessionEmail !== normalized);
+        setIdentitySelected(true);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'No se pudo consultar la cuenta.');
+      } finally {
+        setCheckingEmail(false);
+      }
+    },
+    [formId, router, sessionEmail]
+  );
 
   useEffect(() => {
     if (authChecking || autoCheckedEmail.current || !invitedEmail.trim()) return;
@@ -109,7 +112,9 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     setCheckingCode(true);
     setError('');
     try {
-      const { data: { session } } = await createClient().auth.getSession();
+      const {
+        data: { session },
+      } = await createClient().auth.getSession();
       if (!session || session.user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
         setNeedsLogin(true);
         setError('Inicia sesión con el correo que acreditaste para continuar.');
@@ -118,11 +123,15 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
       const response = await fetch('/api/formularios/publico/verificar-codigo', {
         method: 'POST',
         cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ code, formId }),
       });
       const result = await response.json();
-      if (!response.ok || result.valid !== true) throw new Error(result.error || 'El código no es válido.');
+      if (!response.ok || result.valid !== true)
+        throw new Error(result.error || 'El código no es válido.');
       setCodeVerified(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo comprobar el código.');
@@ -131,14 +140,16 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     }
   };
 
-  const submit = async (selfie: string) => {
+  const submit = async (mobileSessionToken: string) => {
     if (!codeVerified) return;
     setBusy(true);
-    setSelfieError('');
+    setMobileError('');
     try {
-      const { data: { session } } = await createClient().auth.getSession();
+      const {
+        data: { session },
+      } = await createClient().auth.getSession();
       if (!session || session.user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
-        setSelfieError('Inicia sesión con el correo que acreditaste para continuar.');
+        setMobileError('Inicia sesión con el correo que acreditaste para continuar.');
         return;
       }
       const response = await fetch(
@@ -152,7 +163,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ code, selfie }),
+          body: JSON.stringify({ code, mobileSessionToken }),
         }
       );
       const result = await response.json();
@@ -160,7 +171,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
         throw new Error(result.error || 'No se pudo abrir el formulario.');
       router.replace(result.url);
     } catch (cause) {
-      setSelfieError(cause instanceof Error ? cause.message : 'No se pudo abrir el formulario.');
+      setMobileError(cause instanceof Error ? cause.message : 'No se pudo abrir el formulario.');
     } finally {
       setBusy(false);
     }
@@ -220,8 +231,8 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
               <CheckCircle2 size={17} /> Ya existe una cuenta con este correo.
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Comprueba el código recibido por separado. Cuando sea correcto, podrás tomar la foto
-              para la prueba de vida.
+              Comprueba el código recibido por separado. Cuando sea correcto, continúa con la
+              captura móvil de identidad y prueba de vida.
             </p>
             <label className="mt-5 block text-sm font-medium text-slate-700">
               Código de acceso
@@ -229,14 +240,21 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 autoComplete="off"
                 value={code}
                 disabled={checkingCode || codeVerified}
-                onChange={(event) => { setCode(event.target.value.toUpperCase()); setCodeVerified(false); setError(''); }}
+                onChange={(event) => {
+                  setCode(event.target.value.toUpperCase());
+                  setCodeVerified(false);
+                  setError('');
+                }}
                 placeholder="8 caracteres"
                 className="mt-2 w-full rounded-md border border-slate-200 px-3 py-3 font-mono text-sm uppercase outline-none focus:border-primary disabled:bg-slate-50"
               />
             </label>
             {codeVerified ? (
-              <p role="status" className="mt-4 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
-                <CheckCircle2 size={17} /> Código correcto. Ya puedes continuar a la foto.
+              <p
+                role="status"
+                className="mt-4 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700"
+              >
+                <CheckCircle2 size={17} /> Código correcto. Ya puedes continuar a la captura móvil.
               </p>
             ) : (
               <button
@@ -248,8 +266,30 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 {checkingCode && <Loader2 size={16} className="animate-spin" />} Comprobar código
               </button>
             )}
-            {codeVerified && <button type="button" onClick={() => { setSelfieError(''); setSelfieOpen(true); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-medium text-white"><ShieldCheck size={16} /> Tomar foto y acceder</button>}
-            {codeVerified && <button type="button" onClick={() => { setCodeVerified(false); setCode(''); }} className="mt-3 w-full text-sm text-primary">Usar otro código</button>}
+            {codeVerified && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileError('');
+                  setMobileOpen(true);
+                }}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-medium text-white"
+              >
+                <ShieldCheck size={16} /> Verificar en móvil y acceder
+              </button>
+            )}
+            {codeVerified && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCodeVerified(false);
+                  setCode('');
+                }}
+                className="mt-3 w-full text-sm text-primary"
+              >
+                Usar otro código
+              </button>
+            )}
           </>
         ) : null}
         {error && (
@@ -258,7 +298,16 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
           </p>
         )}
       </section>
-      {selfieOpen && <PublicFormSelfieModal busy={busy} error={selfieError} onClose={() => setSelfieOpen(false)} onCapture={submit} />}
+      {mobileOpen && (
+        <PublicFormMobileBiometricModal
+          formId={formId}
+          code={code}
+          busy={busy}
+          error={mobileError}
+          onClose={() => setMobileOpen(false)}
+          onVerified={submit}
+        />
+      )}
       {!identitySelected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <form

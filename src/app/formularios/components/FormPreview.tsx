@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { FileCheck2, Hash, QrCode, ShieldCheck } from 'lucide-react';
 import type { FormTemplate } from '@/contexts/FormBuilderContext';
 import type { SignatureType } from '@/lib/forms/schema';
-import { sampleValueForField } from '@/lib/forms/schema';
+import { getPdfFieldLabel, sampleValueForField } from '@/lib/forms/schema';
 import { formFontFamily } from '@/lib/typography/font-families';
 import { useFormTypography } from '@/hooks/useFormTypography';
 import { formatFormFieldValue, isFormFieldRequired, isFormFieldVisible } from '@/lib/forms/field-behavior';
@@ -146,7 +146,7 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
                 <dl className={`grid grid-cols-1 gap-x-8 gap-y-3 ${pdf.columns === 'two' ? 'sm:grid-cols-2' : ''}`}>
                   {fields.map((field) => (
                     <div key={field.id} className={`${pdf.columns === 'two' && ['textarea', 'fiscal_address', 'declaration', 'consentimiento', 'signature_block'].includes(field.type) ? 'sm:col-span-2' : ''} ${field.pdf?.pageBreakBefore ? 'border-t-2 border-dashed border-[#CBD5E1] pt-3 sm:col-span-2' : ''}`}>
-                      <dt className="text-[10px] font-medium uppercase text-[#64748B]">{field.pdf?.label || field.label}</dt>
+                      <dt className="text-[10px] font-medium uppercase text-[#64748B]">{getPdfFieldLabel(field)}</dt>
                       <dd className={field.type === 'signature_block' ? 'mt-1 flex h-20 items-center justify-center border border-[#CBD5E1] text-xs text-[#64748B]' : 'mt-1 border-b border-[#CBD5E1] pb-2 text-xs leading-5 text-[#1E293B]'}>
                         {field.type === 'signature_block' ? (signatureType ? `${signatureMethod} pendiente de confirmar` : 'Firma pendiente de confirmar') : isLegalField(field.type) ? <>
                           <p className="whitespace-pre-line text-[#475569]">{legalFieldContent(field)?.description}</p>

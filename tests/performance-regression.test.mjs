@@ -18,7 +18,7 @@ const sessionLockMigration = await read(
   '../supabase/migrations/20260908182213_optimize_session_policy_locking.sql'
 );
 const currentSessionPolicyMigration = await read(
-  '../supabase/migrations/20260924002434_super_admin_fifteen_minute_inactivity.sql'
+  '../supabase/migrations/20261011174204_session_inactivity_45_minutes.sql'
 );
 
 test('middleware performs no remote authentication without session material', () => {
@@ -50,7 +50,7 @@ test('invalid refresh material is cleared instead of retried', () => {
 test('current session policy keeps role-specific limits without serializing normal navigation', () => {
   assert.match(
     currentSessionPolicyMigration,
-    /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 1800 END/
+    /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 2700 END/
   );
   assert.match(
     currentSessionPolicyMigration,

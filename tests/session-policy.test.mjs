@@ -16,6 +16,9 @@ const thirtyMinuteTimeoutMigration = await read(
 const superAdminTimeoutMigration = await read(
   '../supabase/migrations/20260924002434_super_admin_fifteen_minute_inactivity.sql'
 );
+const fortyFiveMinuteTimeoutMigration = await read(
+  '../supabase/migrations/20261011174204_session_inactivity_45_minutes.sql'
+);
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const authContext = await read('../src/contexts/AuthContext.tsx');
 const middleware = await read('../src/middleware.ts');
@@ -53,6 +56,13 @@ test('super administrators expire after fifteen minutes while other users retain
   assert.match(superAdminTimeoutMigration, /inactividad \(30 minutos\)/);
   assert.match(superAdminTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
   assert.match(superAdminTimeoutMigration, /IF p_record_user_activity THEN/);
+});
+
+test('non-superadministrators now have forty-five minutes of inactivity', () => {
+  assert.match(fortyFiveMinuteTimeoutMigration, /v_inactivity_timeout_seconds := CASE WHEN v_is_super_admin THEN 900 ELSE 2700 END/);
+  assert.match(fortyFiveMinuteTimeoutMigration, /inactividad \(15 minutos\)/);
+  assert.match(fortyFiveMinuteTimeoutMigration, /inactividad \(45 minutos\)/);
+  assert.match(fortyFiveMinuteTimeoutMigration, /THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours'/);
 });
 
 test('only explicit human interactions can extend the inactivity window', () => {
@@ -121,14 +131,20 @@ test('temporary policy or permission errors do not erase an otherwise valid sess
   assert.match(middleware, /status: 503/);
   assert.match(middleware, /Retry-After': '5'/);
   assert.match(middleware, /<a href="">Reintentar<\/a>/);
-  assert.doesNotMatch(middleware, /window\.location\.reload/);
+  assert.match(middleware, /SESSION_RETRY_COOKIE_NAME/);
+  assert.match(middleware, /autoRetry = !request\.cookies\.has\(SESSION_RETRY_COOKIE_NAME\)/);
+  assert.match(middleware, /setTimeout\(function \(\) \{ window\.location\.reload\(\); \}, 5000\)/);
+  assert.match(middleware, /maxAge: 30/);
 });
 
-test('a transient PostgREST schema-cache miss receives one bounded retry', () => {
+test('a transient PostgREST schema-cache miss receives bounded retries', () => {
   assert.match(middleware, /TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set\(\['PGRST002'\]\)/);
   assert.match(middleware, /SESSION_POLICY_RETRY_DELAY_MS = 350/);
+  assert.match(middleware, /SESSION_POLICY_SCHEMA_RETRY_DELAY_MS = 1_200/);
   assert.match(middleware, /if \(isTransientSessionPolicyError\(result\.error\)\)/);
   assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
+  assert.match(middleware, /if \(result\.error\?\.code === 'PGRST002'\)/);
+  assert.match(middleware, /waitForSessionPolicyRetry\(SESSION_POLICY_SCHEMA_RETRY_DELAY_MS\)/);
   assert.match(middleware, /persistent failure still blocks protected traffic/);
 });
 
@@ -150,7 +166,7 @@ test('temporary auth gateway failures receive one bounded retry without trusting
     middleware,
     /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
   );
-  assert.match(middleware, /unavailableSessionPolicyResponse\(response, isApiRequest\)/);
+  assert.match(middleware, /unavailableSessionPolicyResponse\(request, response, isApiRequest\)/);
   assert.doesNotMatch(middleware, /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/);
 });
 

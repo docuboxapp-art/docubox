@@ -93,13 +93,44 @@ export async function GET(request: NextRequest) {
     }
 
     const documentIds = (data || []).map((document) => document.id);
-    const holdHistory = documentIds.length
-      ? await anonClient
-          .from('document_legal_holds')
-          .select('document_id,status')
-          .in('document_id', documentIds)
-      : { data: [], error: null };
+    const formResponseIds = [
+      ...new Set(
+        (data || [])
+          .map((document) => document.source_form_response_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      ),
+    ];
+    const [holdHistory, formSources] = await Promise.all([
+      documentIds.length
+        ? anonClient
+            .from('document_legal_holds')
+            .select('document_id,status')
+            .in('document_id', documentIds)
+        : Promise.resolve({ data: [], error: null }),
+      formResponseIds.length
+        ? anonClient
+            .from('form_responses')
+            .select('id,form_templates(description,settings)')
+            .in('id', formResponseIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
     if (holdHistory.error) throw holdHistory.error;
+    if (formSources.error) {
+      console.error('[listar-documentos] Form description query error:', formSources.error.message);
+    }
+    const formDescriptions = new Map<string, string | null>();
+    for (const source of formSources.data || []) {
+      const template = source.form_templates as {
+        description?: string | null;
+        settings?: { appearance?: { headerDescription?: string | null } } | null;
+      } | null;
+      formDescriptions.set(
+        source.id,
+        template?.description?.trim() ||
+          template?.settings?.appearance?.headerDescription?.trim() ||
+          null
+      );
+    }
     const holdSummary = new Map<string, { history: boolean; active: number }>();
     for (const hold of holdHistory.data || []) {
       const current = holdSummary.get(hold.document_id) || { history: false, active: 0 };
@@ -112,8 +143,15 @@ export async function GET(request: NextRequest) {
       const disposition = evaluateDocumentDisposition(document);
       const countdown = getTrashCountdown(document.restore_until);
       const legalHold = holdSummary.get(document.id);
+      const formResponseId = document.source_form_response_id;
+      const description = formResponseId
+        ? formDescriptions.has(String(formResponseId))
+          ? formDescriptions.get(String(formResponseId))
+          : document.descripcion === 'Respuesta de formulario' ? null : document.descripcion
+        : document.descripcion;
       return {
         ...document,
+        descripcion: description,
         can_trash: disposition.canTrash,
         can_cancel: disposition.canCancel,
         can_restore: disposition.canRestore,

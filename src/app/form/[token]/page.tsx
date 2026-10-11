@@ -256,18 +256,18 @@ export default function FormResponsePage() {
       <PublicTokenLayout token={token} luciaScope="public_form">
         <div className="min-h-screen bg-[#F1F1F5]" style={{ backgroundColor: template.settings.appearance.backgroundColor }}>
           <PublicHeader />
-          <main className="mx-auto max-w-[1000px] px-4 py-8">
+          <main className="mx-auto max-w-[1000px] px-4 py-8 pb-28">
             {template.settings.appearance.showProgressBar && <FormProgress progress={100} label="Respuestas completas · falta firmar" accentColor={template.settings.appearance.accentColor} />}
             <div className="mb-5 flex flex-col gap-3 rounded-md border border-[#EBEBF0] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
               <div><div className="flex items-center gap-2 text-sm font-semibold"><FileCheck2 size={16} className="text-[#1E6BFF]" /> Revisa tus respuestas antes de firmar</div><p className="mt-1 text-xs text-[#71717A]">Este mismo formulario se convertirá en PDF para la firma. No tendrás que llenar otro formulario.</p></div>
               <button type="button" onClick={() => setPageState('form')} className="flex h-9 items-center gap-2 rounded-md border border-[#EBEBF0] px-3 text-xs font-medium"><ArrowLeft size={13} /> Corregir respuestas</button>
             </div>
             <FormPreview template={template} mode="pdf" values={values} signatureType={remoteSchema.signatureType || 'click_sign'} />
-            <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border border-[#EBEBF0] bg-white p-3 shadow-lg">
-              <p className="hidden text-xs text-[#71717A] sm:block">Tus respuestas se guardarán antes de continuar con el consentimiento y la firma.</p>
-              <button type="button" onClick={submit} disabled={submitting} style={{ backgroundColor: template.settings.appearance.accentColor }} className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#1E6BFF] px-5 text-sm font-semibold text-white disabled:opacity-50">{submitting ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />} Guardar respuestas y continuar</button>
-            </div>
           </main>
+          <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-[#EBEBF0] bg-white px-4 py-3 shadow-sm sm:px-6">
+            <p className="hidden text-xs text-[#71717A] sm:block">Tus respuestas se guardarán antes de continuar con el consentimiento y la firma.</p>
+            <button type="button" onClick={submit} disabled={submitting} style={{ backgroundColor: template.settings.appearance.accentColor }} className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#1E6BFF] px-5 text-sm font-semibold text-white disabled:opacity-50">{submitting ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />} Guardar respuestas y continuar</button>
+          </div>
         </div>
       </PublicTokenLayout>
     );
@@ -327,9 +327,9 @@ function PublicHeader() {
   };
 
   return <header className="sticky top-0 z-40 border-b border-[#EBEBF0] bg-white/95 backdrop-blur">
-    <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
-      <AppLogo variant="dark" imageClassName="h-7 w-auto sm:h-8" />
-      <div className="flex items-center gap-2">
+    <div className="grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+      <AppLogo size={34} imageClassName="max-sm:w-24" />
+      <div className="col-start-3 flex items-center justify-end gap-2">
         <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Maximizar pantalla'} title={isFullscreen ? 'Salir de pantalla completa' : 'Maximizar pantalla'} className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#64748B] transition-colors hover:bg-[#F3F6FB] hover:text-[#1E6BFF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E6BFF]">
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
         </button>
@@ -356,13 +356,16 @@ function SigningHandoff({ documentId, responseId, onRetrySignature, preparingSig
       <div className="rounded-xl border border-[#DCE4F0] bg-white p-6 shadow-sm sm:p-8">
         <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={23} /></span>
         <h1 className="mt-5 text-xl font-semibold">Tus respuestas están guardadas</h1>
-        <p className="mt-2 text-sm leading-6 text-[#64748B]">Ahora firmarás el PDF generado con este mismo formulario. No necesitas llenar otro. Tu firma se colocará en el campo previsto.</p>
-        <ol className="mt-6 space-y-3 border-y border-[#E2E8F0] py-5 text-sm">
-          <li className="flex items-center gap-3 text-emerald-700"><CheckCircle2 size={18} /> Formulario enviado</li>
-          <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">2</span> Revisar y aceptar el consentimiento</li>
-          <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">3</span> Confirmar la firma y generar el PDF final</li>
-        </ol>
-        {documentId ? <a href={`/firmar-documento/${documentId}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-3 text-sm font-semibold text-white">Continuar a la firma <ChevronRight size={16} /></a>
+        <p className="mt-2 text-sm leading-6 text-[#64748B]">Al continuar, pasarás al proceso de firma del PDF generado con tus respuestas. No tendrás que llenar otro formulario.</p>
+        <div className="mt-6 border-y border-[#E2E8F0] py-5 text-sm">
+          <p className="flex items-center gap-3 text-emerald-700"><CheckCircle2 size={18} /> Formulario enviado</p>
+          <p className="mt-5 font-semibold text-[#334155]">Después, en el proceso de firma:</p>
+          <ol start={2} className="mt-3 space-y-3">
+            <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">2</span> Revisar el documento y aceptar el consentimiento</li>
+            <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">3</span> Confirmar la firma en el campo indicado</li>
+          </ol>
+        </div>
+        {documentId ? <a href={`/firmar-documento/${documentId}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-3 text-sm font-semibold text-white">Ir al proceso de firma <ChevronRight size={16} /></a>
           : responseId ? <button type="button" onClick={onRetrySignature} disabled={preparingSignature} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{preparingSignature && <Loader2 size={16} className="animate-spin" />} Preparar PDF para firmar</button>
           : <p className="mt-5 text-sm text-amber-700">No encontramos el documento para firma. Consulta tus documentos o solicita ayuda al remitente.</p>}
         {documentNotice && <p role="alert" className="mt-3 rounded-md bg-amber-50 p-3 text-xs text-amber-800">{documentNotice}</p>}

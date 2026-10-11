@@ -130,6 +130,30 @@ function responseAttachments(answers: Record<string, unknown>, fields: any[]) {
   });
 }
 
+const legacyDefaultPdfLabels: Record<string, string> = {
+  text: 'Texto corto', textarea: 'Texto largo', email: 'Correo', phone: 'Teléfono',
+  number: 'Número', date: 'Fecha', time: 'Hora', currency: 'Moneda', checkbox: 'Checkbox',
+  checkbox_group: 'Casillas', radio: 'Opción múltiple', select: 'Lista desplegable',
+  yes_no: 'Sí / No', estado_mx: 'Estado', rfc: 'RFC', curp: 'CURP', nss: 'NSS',
+  clave_elector: 'Clave de elector', business_name: 'Nombre o denominación social',
+  fiscal_address: 'Domicilio', person_first_name: 'Nombre',
+  person_last_name: 'Apellido paterno', person_second_last_name: 'Apellido materno',
+  consentimiento: 'Consentimiento', declaration: 'Declaración bajo protesta',
+  firma_efirma: 'e.firma SAT', firma_autografa: 'Firma autógrafa',
+  firma_click: 'Click & Sign', signature_block: 'Firma', iniciales: 'Iniciales',
+  imagen: 'Carga de imagen', documento: 'Carga de archivo', divider: 'Separador',
+  texto_bloque: 'Texto informativo', imagen_estatica: 'Imagen estática', columnas: 'Columnas',
+};
+
+function pdfFieldLabel(field: any): string {
+  const pdfLabel = String(field?.pdf?.label || '').trim();
+  const fieldLabel = String(field?.label || '').trim();
+  if (!pdfLabel || (field?.pdf?.labelExplicit !== true && pdfLabel === legacyDefaultPdfLabels[field?.type] && pdfLabel !== fieldLabel)) {
+    return fieldLabel || pdfLabel;
+  }
+  return pdfLabel;
+}
+
 function wrapText(text: string, maxChars: number): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
@@ -214,11 +238,13 @@ serve(async (req) => {
     let page = pdf.addPage([PAGE.width, PAGE.height]);
     let y = PAGE.height - PAGE.margin;
     const signaturePlacements: Array<{ id: string; label: string; page: number; x: number; y: number; width: number; height: number }> = [];
+    const signatureBoxHeight = 138;
+    const signatureStampHeight = 122;
 
     const addSignatureBox = (field: { id?: string; label?: string }, x: number, boxY: number, width: number) => {
-      page.drawRectangle({ x, y: boxY, width, height: 76, borderColor: rgb(0.78, 0.81, 0.86), borderWidth: 0.8 });
+      page.drawRectangle({ x, y: boxY, width, height: signatureBoxHeight, borderColor: rgb(0.78, 0.81, 0.86), borderWidth: 0.8 });
       const stampWidth = Math.min(width - 24, 250);
-      const stampHeight = 60;
+      const stampHeight = signatureStampHeight;
       const stampX = x + (width - stampWidth) / 2;
       const stampY = boxY + 8;
       signaturePlacements.push({
@@ -325,19 +351,22 @@ serve(async (req) => {
         const width = fullWidth ? PAGE.width - PAGE.margin * 2 : columnWidth;
         const answer = stringifyAnswer(responseRow.response_data?.[field.id] ?? responseRow.response_data?.[field.slug], field.type);
         const lines = wrapText(answer, Math.max(12, Math.floor(width / 6)));
-        const labels = wrapText(field.pdf?.label || field.label, Math.max(12, Math.floor(width / 5)));
+        const resolvedLabel = pdfFieldLabel(field);
+        const labels = wrapText(resolvedLabel, Math.max(12, Math.floor(width / 5)));
         const legal = legalFieldContent(field);
         const legalLines = legal ? wrapText(legal.description, Math.max(12, Math.floor(width / 5))) : [];
         const acceptanceLines = legal ? wrapText(legal.acceptanceLabel, Math.max(12, Math.floor(width / 5))) : [];
-        const height = field.type === 'signature_block' ? 112 : 22 + labels.length * 11 + legalLines.length * 11 + acceptanceLines.length * 11 + lines.length * 13;
+        const height = field.type === 'signature_block'
+          ? labels.length * 11 + signatureBoxHeight + 20
+          : 22 + labels.length * 11 + legalLines.length * 11 + acceptanceLines.length * 11 + lines.length * 13;
         if (!rightColumn) { ensureSpace(height); rowTop = y; rowBottom = y; }
         else if (rowTop - height < PAGE.margin + 30) { y = rowBottom; newPage(); rightColumn = false; rowTop = y; rowBottom = y; }
         const x = PAGE.margin + (rightColumn ? columnWidth + gap : 0);
         y = rowTop;
         for (const label of labels) { page.drawText(label, { x, y, size: 8, font: bold, color: rgb(0.44, 0.44, 0.48) }); y -= 11; }
         if (field.type === 'signature_block') {
-          y -= 82;
-          addSignatureBox(field, x, y, width);
+          y -= signatureBoxHeight + 6;
+          addSignatureBox({ id: field.id, label: resolvedLabel }, x, y, width);
         } else {
           for (const line of legalLines) { page.drawText(line, { x, y, size: 9, font: regular, color: rgb(0.34, 0.38, 0.45) }); y -= 11; }
           for (const line of acceptanceLines) { page.drawText(line, { x, y, size: 9, font: bold, color: rgb(0.15, 0.15, 0.17) }); y -= 11; }
@@ -355,10 +384,16 @@ serve(async (req) => {
 
     // The signing document must always have a target, even if its section was hidden in the PDF design.
     if (requiresSignature && signaturePlacements.length === 0) {
-      ensureSpace(145);
-      page.drawText('FIRMA DEL PARTICIPANTE', { x: PAGE.margin, y, size: 10, font: bold, color: primary });
-      y -= 100;
-      addSignatureBox({ label: 'Firma' }, PAGE.margin, y, PAGE.width - PAGE.margin * 2);
+      const signatureField = fields.find((field: any) => field.type === 'signature_block');
+      const signatureLabel = signatureField ? pdfFieldLabel(signatureField) : 'Firma';
+      const signatureLabelLines = wrapText(signatureLabel, Math.max(20, Math.floor((PAGE.width - PAGE.margin * 2) / 6)));
+      ensureSpace(signatureLabelLines.length * 14 + signatureBoxHeight + 16);
+      for (const line of signatureLabelLines) {
+        page.drawText(line, { x: PAGE.margin, y, size: 10, font: bold, color: primary });
+        y -= 14;
+      }
+      y -= signatureBoxHeight - 4;
+      addSignatureBox({ id: signatureField?.id, label: signatureLabel }, PAGE.margin, y, PAGE.width - PAGE.margin * 2);
       y -= 16;
     }
 
@@ -411,31 +446,31 @@ serve(async (req) => {
 
     if (pdfSchema.showEvidenceSheet !== false || pdfSchema.showQr !== false || pdfSchema.showHash !== false || pdfSchema.showAuditTrail !== false) {
       newPage();
-      page.drawText('EVIDENCIA E INTEGRIDAD', { x: PAGE.margin, y, size: 14, font: bold, color: primary });
+      page.drawText('EVIDENCIA DEL ENVÍO', { x: PAGE.margin, y, size: 14, font: bold, color: primary });
       y -= 30;
       const evidence = pdfSchema.showEvidenceSheet !== false ? [
         ['ID de respuesta', response_id],
         ...(pdfSchema.showFolio !== false ? [['Folio', folio]] : []),
-        ['Fecha y hora', responseRow.submitted_at || new Date().toISOString()],
-        ['User agent', responseRow.user_agent || 'No disponible'],
+        ['Fecha y hora de envío (UTC)', responseRow.submitted_at || new Date().toISOString()],
+        ['Navegador y dispositivo', responseRow.user_agent || 'No disponible'],
       ] : [];
       if (pdfSchema.showEvidenceSheet !== false && pdfSchema.showIp !== false) evidence.push(['IP', responseRow.ip_address || 'No disponible']);
       for (const [label, value] of evidence) {
         ensureSpace(35);
-        page.drawText(label, { x: PAGE.margin, y, size: 8, font: bold, color: rgb(0.44, 0.44, 0.48) }); y -= 13;
-        for (const line of wrapText(String(value), 82)) { ensureSpace(14); page.drawText(line, { x: PAGE.margin, y, size: 9, font: regular, color: rgb(0.15, 0.15, 0.17) }); y -= 12; }
+        page.drawText(label, { x: PAGE.margin, y, size: 9, font: bold, color: rgb(0.44, 0.44, 0.48) }); y -= 14;
+        for (const line of wrapText(String(value), 76)) { ensureSpace(15); page.drawText(line, { x: PAGE.margin, y, size: 10, font: regular, color: rgb(0.15, 0.15, 0.17) }); y -= 14; }
         y -= 8;
       }
       if (pdfSchema.showHash !== false) {
         ensureSpace(45);
-        page.drawText('SHA-256 de respuestas', { x: PAGE.margin, y, size: 8, font: bold }); y -= 14;
-        page.drawText(answerHash, { x: PAGE.margin, y, size: 8, font: regular }); y -= 25;
+        page.drawText('SHA-256 de respuestas', { x: PAGE.margin, y, size: 9, font: bold }); y -= 15;
+        page.drawText(answerHash, { x: PAGE.margin, y, size: 9, font: regular }); y -= 26;
       }
       if (pdfSchema.showAuditTrail !== false) {
         const { data: auditEvents, error: auditError } = await supabase.from('form_audit_logs').select('action,created_at').eq('response_id', response_id).order('created_at', { ascending: true });
         if (auditError) throw auditError;
         ensureSpace(35);
-        page.drawText('BITÁCORA', { x: PAGE.margin, y, size: 10, font: bold, color: primary }); y -= 18;
+        page.drawText('BITÁCORA DEL ENVÍO', { x: PAGE.margin, y, size: 10, font: bold, color: primary }); y -= 18;
         const events = [
           ...(responseRow.submitted_at ? [{ action: 'Respuesta registrada', created_at: responseRow.submitted_at }] : []),
           ...(auditEvents || []),
@@ -443,7 +478,7 @@ serve(async (req) => {
         if (!events.length) events.push({ action: 'Respuesta disponible', created_at: new Date().toISOString() });
         for (const event of events) {
           ensureSpace(18);
-          page.drawText(`${String(event.created_at || '').slice(0, 19)} · ${String(event.action || '').slice(0, 70)}`, { x: PAGE.margin, y, size: 8, font: regular });
+          page.drawText(`${String(event.created_at || '').slice(0, 19)} · ${String(event.action || '').slice(0, 70)}`, { x: PAGE.margin, y, size: 9, font: regular });
           y -= 16;
         }
         y -= 8;
@@ -454,7 +489,7 @@ serve(async (req) => {
         ensureSpace(140);
         page.drawImage(qr, { x: PAGE.margin, y: y - 110, width: 110, height: 110 });
         y -= 118;
-        page.drawText('Escanea para validar el documento', { x: PAGE.margin, y, size: 8, font: regular, color: rgb(0.44, 0.44, 0.48) });
+        page.drawText('Escanea para verificar el PDF de respuestas', { x: PAGE.margin, y, size: 9, font: regular, color: rgb(0.44, 0.44, 0.48) });
       }
     }
 

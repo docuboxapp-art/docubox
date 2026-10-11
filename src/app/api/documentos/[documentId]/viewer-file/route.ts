@@ -81,6 +81,13 @@ export async function GET(
       isDownload ? 'download' : 'view'
     );
     const { service, document, user } = access;
+    if (
+      isDownload &&
+      document.source_form_response_id &&
+      !(await finalDeliverableReady(service, document.id))
+    ) {
+      return finalDeliverablePendingResponse();
+    }
     if (access.additionalAccessLevel && !requestsFinalPdf) {
       throw new DocumentAccessError(
         'ADDITIONAL_ACCESS_FINAL_ONLY',

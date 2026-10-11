@@ -608,6 +608,43 @@ declare global {
   }
 }
 
+let pdfJsLoadPromise: Promise<void> | null = null;
+
+function ensurePdfJsLoaded(): Promise<void> {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (!pdfJsLoadPromise) {
+    pdfJsLoadPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.async = true;
+      const timeout = window.setTimeout(() => {
+        script.remove();
+        reject(new Error('El visor de PDF tardó demasiado en cargar.'));
+      }, 12000);
+      script.onload = () => {
+        window.clearTimeout(timeout);
+        if (!window.pdfjsLib) {
+          reject(new Error('No se pudo iniciar el visor de PDF.'));
+          return;
+        }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve();
+      };
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        script.remove();
+        reject(new Error('No se pudo cargar el visor de PDF. Comprueba tu conexión.'));
+      };
+      document.head.appendChild(script);
+    }).catch((error) => {
+      pdfJsLoadPromise = null;
+      throw error;
+    });
+  }
+  return pdfJsLoadPromise;
+}
+
 interface PdfCanvasProps {
   fileUrl: string;
   page: number;
@@ -676,6 +713,8 @@ function PdfCanvas({
   const renderTaskRef = useRef<any>(null);
   const pdfDocRef = useRef<any>(null);
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [rendering, setRendering] = useState(true);
   const [rendered, setRendered] = useState(false);
   const [requiresAccessCode, setRequiresAccessCode] = useState(false);
@@ -683,34 +722,17 @@ function PdfCanvas({
   const [accessCodeError, setAccessCodeError] = useState('');
   const [verifyingAccessCode, setVerifyingAccessCode] = useState(false);
 
-  useEffect(() => {
-    if (window.pdfjsLib) return;
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.async = true;
-    script.onload = () => {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      }
-    };
-    document.head.appendChild(script);
-  }, []);
-
   const renderPage = useCallback(async () => {
     if (!canvasRef.current) return;
     setRendering(true);
     setError(false);
+    setErrorMessage('');
+    setErrorStatus(null);
     setRendered(false);
     setRequiresAccessCode(false);
 
     try {
-      let attempts = 0;
-      while (!window.pdfjsLib && attempts < 50) {
-        await new Promise((r) => setTimeout(r, 100));
-        attempts++;
-      }
-      if (!window.pdfjsLib) throw new Error('PDF.js not loaded');
+      await ensurePdfJsLoaded();
 
       if (!pdfDocRef.current || pdfDocRef.current._docuboxFileUrl !== fileUrl) {
         const response = await fetch(fileUrl, {
@@ -791,6 +813,8 @@ function PdfCanvas({
         ) {
           setRequiresAccessCode(true);
         }
+        setErrorMessage(err instanceof Error ? err.message : 'No se pudo cargar el archivo PDF.');
+        setErrorStatus(typeof err?.status === 'number' ? err.status : null);
         setError(true);
       }
     } finally {
@@ -896,10 +920,21 @@ function PdfCanvas({
           </div>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4 bg-gray-100">
+        <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4 bg-gray-100 px-6 text-center">
           <FileText size={64} className="text-slate-300" strokeWidth={1} />
           <p className="text-sm text-slate-400">Vista previa no disponible</p>
-          <p className="text-xs text-slate-300">No se pudo cargar el archivo PDF</p>
+          <p className="max-w-md text-xs text-slate-600">
+            {errorStatus === 401 ? 'Tu sesión expiró. Inicia sesión para abrir el documento.' : errorMessage || 'No se pudo cargar el archivo PDF.'}
+          </p>
+          {errorStatus === 401 ? (
+            <a href={`/login?redirect=${encodeURIComponent(window.location.pathname)}`} className="text-xs font-semibold text-primary underline">
+              Iniciar sesión
+            </a>
+          ) : (
+            <button type="button" onClick={() => void renderPage()} className="text-xs font-semibold text-primary underline">
+              Reintentar vista previa
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -1426,6 +1461,12 @@ export default function VisorDocumentoPage() {
   }, [legalHoldSummary, searchParams]);
 
   useEffect(() => {
+    if (document?.source_form_response_id && searchParams.get('tab') === 'form-origin') {
+      setActiveTab('form-origin');
+    }
+  }, [document?.source_form_response_id, searchParams]);
+
+  useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
     let active = true;
     const load = async () => {
@@ -1719,6 +1760,48 @@ export default function VisorDocumentoPage() {
     return () => window.cancelAnimationFrame(certificationFrame);
   }, [loadCryptographicCertification]);
 
+  useEffect(() => {
+    if (
+      !docId ||
+      !document?.source_form_response_id ||
+      document.estado !== 'completado' ||
+      signedPdfReadyForDownload
+    ) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(`/api/documentos/obtener?id=${encodeURIComponent(docId)}`, {
+          headers: await apiAuthHeaders(),
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          const sealedPath = String(payload?.data?.sealed_pdf_path || '');
+          if (!cancelled && sealedPath) {
+            setDocument((current) =>
+              current && current.id === docId && current.sealed_pdf_path !== sealedPath
+                ? { ...current, sealed_pdf_path: sealedPath }
+                : current
+            );
+          }
+        }
+        if (!cancelled && attempts % 3 === 0) void loadCryptographicCertification();
+      } catch {
+        // A transient status request must not interrupt the viewer.
+      } finally {
+        if (!cancelled && attempts < 120) timer = setTimeout(refresh, 5000);
+      }
+    };
+    timer = setTimeout(refresh, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [apiAuthHeaders, docId, document?.source_form_response_id, document?.estado, signedPdfReadyForDownload, loadCryptographicCertification]);
+
   const generateCryptographicCertification = useCallback(async () => {
     if (!docId) return;
     if (!certificationE2eEnabled) {
@@ -1839,7 +1922,7 @@ export default function VisorDocumentoPage() {
     let cancelled = false;
     let pollTimeout: ReturnType<typeof setTimeout> | null = null;
     let pollAttempts = 0;
-    const maxPollAttempts = 24;
+    const maxPollAttempts = document.source_form_response_id ? 120 : 24;
     const lookupFrame = window.requestAnimationFrame(() => {
       if (!cancelled) setNom151LookupComplete(false);
     });
@@ -1877,11 +1960,17 @@ export default function VisorDocumentoPage() {
           return Boolean((json.data && json.verified) || json.failed);
         } else if (!cancelled) {
           setNom151Polling(false);
+          setNom151Error(
+            res.status === 401
+              ? 'Tu sesión expiró. Inicia sesión para consultar la certificación.'
+              : 'No se pudo consultar el estado de la constancia NOM-151.'
+          );
           setNom151LookupComplete(true);
         }
       } catch {
         if (!cancelled) {
           setNom151Polling(false);
+          setNom151Error('No se pudo consultar el estado de la constancia NOM-151.');
           setNom151LookupComplete(true);
         }
       }
@@ -1897,13 +1986,20 @@ export default function VisorDocumentoPage() {
     };
 
     void pollNom151();
+    const refreshOnReturn = () => {
+      if (!cancelled && window.document.visibilityState === 'visible') void fetchNom151();
+    };
+    window.addEventListener('focus', refreshOnReturn);
+    window.document.addEventListener('visibilitychange', refreshOnReturn);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', refreshOnReturn);
+      window.document.removeEventListener('visibilitychange', refreshOnReturn);
       window.cancelAnimationFrame(lookupFrame);
       if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [apiAuthHeaders, docId, document?.estado]);
+  }, [apiAuthHeaders, docId, document?.estado, document?.source_form_response_id]);
 
   // ── Download original PDF ──────────────────────────────────────────────────
   const downloadOriginalDocument = useCallback(async () => {
@@ -4868,12 +4964,18 @@ export default function VisorDocumentoPage() {
         sealBody.append('templatePdf', templatePdf, templatePdf.name);
         sealBody.append('templateFieldMeasurements', JSON.stringify(templateFieldMeasurements));
       }
-      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/seal-signatures`, {
+      const backgroundSeal = Boolean(document?.source_form_response_id && !sealBody);
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/seal-signatures${backgroundSeal ? '?background=1' : ''}`, {
         method: 'POST',
         headers: await apiAuthHeaders(),
         body: sealBody,
       });
       const payload = await response.json().catch(() => ({}));
+      if (response.status === 202 && payload.accepted) {
+        signatureStampGenerationRef.current.delete(docId);
+        void loadCryptographicCertification();
+        return;
+      }
       if (!response.ok || !payload.storage_path) {
         throw new Error(
           payload.code === 'PADES_PROVIDER_NOT_READY'
@@ -4903,6 +5005,7 @@ export default function VisorDocumentoPage() {
   }, [
     camposSolicitados,
     docId,
+    document?.source_form_response_id,
     loadCryptographicCertification,
     templateDocument,
     templateFieldValues,
@@ -4915,10 +5018,17 @@ export default function VisorDocumentoPage() {
     if (document?.estado !== 'completado' || document.additional_access_level || !docId || !user?.id)
       return;
 
+    const formRecentlyCompleted = Boolean(
+      document.source_form_response_id &&
+      document.fecha_completado &&
+      Date.now() - Date.parse(document.fecha_completado) < 5 * 60 * 1000
+    );
+
     if (
       user.id === document.owner_id &&
       hasConfiguredSignatureFields &&
       !document.sealed_pdf_path &&
+      !formRecentlyCompleted &&
       !signatureStampGenerationRef.current.has(docId)
     ) {
       const templateSource = isTemplateDocumentMimeType(document.file_type);
@@ -4950,8 +5060,10 @@ export default function VisorDocumentoPage() {
     document?.estado,
     document?.additional_access_level,
     document?.file_type,
+    document?.fecha_completado,
     document?.owner_id,
     document?.sealed_pdf_path,
+    document?.source_form_response_id,
     ensureFinalSignedPdf,
     generateNom151,
     hasConfiguredSignatureFields,
@@ -6113,12 +6225,13 @@ export default function VisorDocumentoPage() {
                 <div className="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-slate-500">
                   <p className="text-sm">PDF final pendiente de constancia NOM-151 emitida y verificada.</p>
                 </div>
-              ) : formFinalPdfLoading ? (
-                <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-500" role="status">
-                  Verificando el PDF firmado…
-                </div>
               ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full flex-col items-center gap-3 p-4 md:p-6">
+                  {formFinalPdfLoading && (
+                    <div role="status" className="w-full max-w-[800px] rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
+                      Verificando el estado del PDF final. Puedes consultar el PDF original mientras termina la comprobación.
+                    </div>
+                  )}
                   {formFinalPdfPending && (
                     <div role="status" className="w-full max-w-[800px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
                       <strong>Firma registrada; PDF final pendiente.</strong> Estás viendo el PDF original con el trazo capturado como vista previa. La estampa seleccionada se incorporará al PDF descargable cuando finalice la certificación.{formStampOmitsQr && ' El diseño elegido para esta firma no incluye QR.'}
@@ -6160,15 +6273,16 @@ export default function VisorDocumentoPage() {
           <div className="hidden flex-shrink-0 md:flex">
             <nav
               aria-label="Secciones del documento"
-              className="document-viewer-tabs z-30 flex w-[72px] min-w-[72px] flex-col items-center gap-1 border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
+              className="document-viewer-tabs z-30 flex min-h-0 w-[72px] min-w-[72px] flex-col items-center gap-1 overflow-y-auto border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
             >
               {toolbarItems.map((item) => (
                 <button
                   key={item.key}
+                  type="button"
                   onClick={() => setActiveTab(item.key)}
                   title={item.title}
                   aria-current={activeTab === item.key ? 'page' : undefined}
-                  className={`relative flex h-12 w-full max-w-[56px] flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
+                  className={`relative flex flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
                     activeTab === item.key
                       ? 'border-blue-200 bg-blue-50 text-[#1E6BFF]'
                       : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'
@@ -6189,18 +6303,22 @@ export default function VisorDocumentoPage() {
                 <>
                   <div className="my-1 h-px w-7 bg-slate-200" />
                   <button
+                    type="button"
                     onClick={() => router.push(`/documentos/${document.id}/revision`)}
                     title="Revisión colaborativa"
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    className="relative flex flex-col items-center justify-center gap-1 rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
                   >
-                    <ListChecks size={17} />
+                    <ListChecks size={16} />
+                    <span className="document-viewer-tab-label block w-full truncate whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">Revisión</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => router.push(`/documentos/${document.id}/versiones`)}
                     title="Versiones del documento"
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    className="relative flex flex-col items-center justify-center gap-1 rounded-md border border-transparent text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
                   >
-                    <History size={17} />
+                    <History size={16} />
+                    <span className="document-viewer-tab-label block w-full truncate whitespace-nowrap text-[8px] font-medium leading-none tracking-normal">Versiones</span>
                   </button>
                 </>
               )}
@@ -7144,6 +7262,13 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
                           {formResponseSummary.description && <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">{formResponseSummary.description}</p>}
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/formularios/capturado/${encodeURIComponent(document.id)}`)}
+                            className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                          >
+                            <Eye size={16} /> Ver formulario capturado
+                          </button>
                           <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3">
                             <div><dt className="text-[10px] font-semibold uppercase text-slate-400">Versión</dt><dd className="mt-0.5 text-xs text-slate-700">{formResponseSummary.version ? `v${formResponseSummary.version}` : 'Sin versión'}</dd></div>
                             <div><dt className="text-[10px] font-semibold uppercase text-slate-400">Creado por</dt><dd className="mt-0.5 break-words text-xs text-slate-700">{formResponseSummary.createdBy || 'No disponible'}</dd></div>
@@ -9304,14 +9429,14 @@ export default function VisorDocumentoPage() {
                                 className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                   signedPdfReadyForDownload
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : signedPdfError || padesUiStatus === 'PAdES ERROR'
+                                    : signedPdfError || nom151Error || padesUiStatus === 'PAdES ERROR'
                                       ? 'bg-red-50 text-red-700 border-red-200'
                                       : 'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}
                               >
                                 {signedPdfReadyForDownload
                                   ? 'Listo para descarga'
-                                  : signedPdfError || padesUiStatus === 'PAdES ERROR'
+                                  : signedPdfError || nom151Error || padesUiStatus === 'PAdES ERROR'
                                     ? 'Requiere atención'
                                     : 'Pendiente'}
                               </span>
@@ -9322,7 +9447,9 @@ export default function VisorDocumentoPage() {
                                   {document?.nombre || 'Documento'}{signedPdfReadyForDownload ? ' — Firmado' : ''}
                                 </p>
                                 <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                  {!document?.sealed_pdf_path
+                                  {nom151Error
+                                    ? nom151Error
+                                    : !document?.sealed_pdf_path
                                     ? signedPdfError
                                       ? 'La firma quedó registrada, pero aún no existe un PDF final verificable.'
                                       : 'La firma quedó registrada. Estamos preparando la estampa y la certificación del PDF final.'
@@ -9331,9 +9458,9 @@ export default function VisorDocumentoPage() {
                                       : 'El documento ya está firmado. Podrás descargarlo cuando termine la validación.'}
                                 </p>
                               </div>
-                              {signedPdfError && (
+                              {(signedPdfError || (document.source_form_response_id && padesUiStatus === 'PAdES ERROR')) && (
                                 <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800">
-                                  No se pudo cerrar el PDF final. {signedPdfError}
+                                  No se pudo cerrar el PDF final. {signedPdfError || 'La certificación necesita otro intento.'}
                                   <button
                                     type="button"
                                     onClick={() => void ensureFinalSignedPdf()}
@@ -9385,7 +9512,7 @@ export default function VisorDocumentoPage() {
                                         ? 'Error de verificación PAdES'
                                         : 'Pendiente de verificación PAdES'
                                       : !finalDeliverableAvailable
-                                        ? 'Pendiente de NOM-151'
+                                        ? nom151Error ? 'NOM-151 requiere atención' : 'Pendiente de NOM-151'
                                       : 'Descargar PDF firmado'}
                               </button>
                             </div>
@@ -9414,7 +9541,7 @@ export default function VisorDocumentoPage() {
                               </div>
                               <button
                                 onClick={downloadOriginalDocument}
-                                disabled={downloadingOriginal || !document?.file_url}
+                                disabled={downloadingOriginal || !document?.file_url || Boolean(document.source_form_response_id && !signedPdfReadyForDownload)}
                                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                               >
                                 {downloadingOriginal ? (
@@ -9422,7 +9549,11 @@ export default function VisorDocumentoPage() {
                                 ) : (
                                   <Download size={15} />
                                 )}
-                                {downloadingOriginal ? 'Descargando…' : 'Descargar PDF original'}
+                                {downloadingOriginal
+                                  ? 'Descargando…'
+                                  : document.source_form_response_id && !signedPdfReadyForDownload
+                                    ? 'Disponible al finalizar la certificación'
+                                    : 'Descargar PDF original'}
                               </button>
                             </div>
                           </div>
