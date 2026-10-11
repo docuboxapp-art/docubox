@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Camera, KeyRound, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
@@ -17,6 +17,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const [checkingEmail, setCheckingEmail] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  const autoCheckedEmail = useRef(false);
   const [code, setCode] = useState('');
   const [selfie, setSelfie] = useState('');
   const [cameraOn, setCameraOn] = useState(false);
@@ -84,9 +85,8 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     }
   };
 
-  const continueWithEmail = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const normalized = email.trim().toLowerCase();
+  const checkEmail = useCallback(async (address: string) => {
+    const normalized = address.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
       setError('Ingresa un correo electrónico válido.');
       return;
@@ -119,6 +119,17 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     } finally {
       setCheckingEmail(false);
     }
+  }, [formId, router, sessionEmail]);
+
+  useEffect(() => {
+    if (authChecking || autoCheckedEmail.current || !invitedEmail.trim()) return;
+    autoCheckedEmail.current = true;
+    void checkEmail(invitedEmail);
+  }, [authChecking, checkEmail, invitedEmail]);
+
+  const continueWithEmail = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void checkEmail(email);
   };
 
   const capture = () => {
@@ -145,8 +156,9 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
       const {
         data: { session },
       } = await createClient().auth.getSession();
-      if (!session) {
+      if (!session || session.user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
         setNeedsLogin(true);
+        setError('Inicia sesión con el correo que acreditaste para continuar.');
         return;
       }
       const response = await fetch(
@@ -315,8 +327,9 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                   Acreditar identidad
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Ingresa el correo con el que responderás el formulario. Buscaremos tu cuenta para
-                  indicarte el siguiente paso.
+                  {checkingEmail
+                    ? 'Estamos comprobando si este correo ya tiene cuenta en Docubox.'
+                    : 'Ingresa el correo con el que responderás el formulario. Buscaremos tu cuenta para indicarte el siguiente paso.'}
                 </p>
               </div>
               <button
@@ -337,6 +350,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                disabled={checkingEmail}
                 className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary"
               />
             </label>

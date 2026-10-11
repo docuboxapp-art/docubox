@@ -86,7 +86,7 @@ const launchSteps = [
   },
 ] as const;
 const publicLaunchSteps = [
-  { label: 'Acceso y participante', icon: ShieldCheck, description: 'Selecciona quién recibirá la invitación y el código.' },
+  { label: 'Acceso y correo', icon: ShieldCheck, description: 'Escribe el correo que recibirá la invitación y el código.' },
   { label: 'Confirmar envío', icon: Send, description: 'Envía la invitación y el código en correos separados.' },
 ] as const;
 
@@ -125,6 +125,7 @@ function LaunchContent() {
   const [showManualParticipant, setShowManualParticipant] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [accessMode, setAccessMode] = useState<'private' | 'public'>('private');
+  const [publicRecipientEmail, setPublicRecipientEmail] = useState('');
   const [publicAccessInfo, setPublicAccessInfo] = useState<{ url: string; code: string } | null>(null);
   const [copiedPublicField, setCopiedPublicField] = useState<'url' | 'code' | null>(null);
   const [signatureType, setSignatureType] = useState<SignatureType | ''>('');
@@ -300,8 +301,8 @@ function LaunchContent() {
   };
   const advance = () => {
     if (step === 1 && accessMode === 'public') {
-      if (!selectedParticipant || !emailPattern.test(selectedParticipant.email.trim())) {
-        setError('Selecciona un participante con nombre y correo para enviar la invitación y el código.');
+      if (!emailPattern.test(publicRecipientEmail.trim())) {
+        setError('Escribe un correo electrónico válido para enviar la invitación y el código.');
         return;
       }
       setError('');
@@ -391,8 +392,8 @@ function LaunchContent() {
       setError('Este formulario necesita firma autógrafa digital para activar el acceso público.');
       return;
     }
-    if (!selectedParticipant) {
-      setError('Selecciona un participante antes de enviar la invitación y el código.');
+    if (!emailPattern.test(publicRecipientEmail.trim())) {
+      setError('Escribe un correo electrónico válido para enviar la invitación y el código.');
       return;
     }
     setBusy(true);
@@ -404,11 +405,7 @@ function LaunchContent() {
       const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient: {
-          name: selectedParticipant.name,
-          email: selectedParticipant.email,
-          prefill: participantDetails(),
-        } }),
+        body: JSON.stringify({ recipient: { email: publicRecipientEmail.trim().toLowerCase() } }),
         cache: 'no-store',
       });
       const result = await response.json();
@@ -540,9 +537,9 @@ function LaunchContent() {
         <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Check size={22} /></span>
-            <div><h1 className="text-xl font-semibold text-slate-950">Invitación y código enviados</h1><p className="text-sm text-slate-500">{form?.name} · {selectedParticipant?.email}</p></div>
+            <div><h1 className="text-xl font-semibold text-slate-950">Invitación y código enviados</h1><p className="text-sm text-slate-500">{form?.name} · {publicRecipientEmail.trim().toLowerCase()}</p></div>
           </div>
-          <p className="mt-5 text-sm leading-6 text-slate-600">El participante recibirá el enlace y el código en correos separados. También puedes compartirlos con otros usuarios registrados; cada uno deberá iniciar sesión y superar la prueba de vida.</p>
+          <p className="mt-5 text-sm leading-6 text-slate-600">La dirección indicada recibirá el enlace y el código en correos separados. Al abrir el enlace se comprobará si necesita enrolarse o iniciar sesión. Cada persona deberá superar la prueba de vida.</p>
           <div className="mt-5">
             <label htmlFor="public-form-link" className="block text-sm font-medium text-slate-700">Enlace público</label>
             <div className="relative mt-1.5">
@@ -776,9 +773,9 @@ function LaunchContent() {
                             ))}
                           </div>
                           {!canLaunchPublicly && <p className="mt-2 text-xs text-amber-700">Para usar un código público, el formulario debe admitir firma autógrafa digital.</p>}
-                          <p className="mt-2 text-xs text-slate-500">Una invitación privada no revoca un código público que ya se haya compartido.</p>
+                          {accessMode === 'private' && <p className="mt-2 text-xs text-slate-500">Una invitación privada no revoca un código público que ya se haya compartido.</p>}
                         </fieldset>
-                        <>
+                        {accessMode === 'private' ? <>
                         <div>
                           <h2 className="text-base font-semibold">Participante</h2>
                           <p className="mt-1 text-sm text-slate-500">
@@ -830,7 +827,7 @@ function LaunchContent() {
                           <UserPlus size={16} />{' '}
                           {selectedParticipant ? 'Cambiar participante' : 'Agregar participante'}
                         </button>
-                        {accessMode === 'private' && <><div className="border-t border-slate-200 pt-5">
+                        <div className="border-t border-slate-200 pt-5">
                           <h3 className="mb-2 text-sm font-semibold">Método de notificación</h3>
                           <div className="grid gap-2 sm:grid-cols-3">
                             <span className="flex items-center gap-2 rounded-md border border-primary bg-blue-50 p-3 text-sm text-primary">
@@ -858,9 +855,24 @@ function LaunchContent() {
                               firma del formulario.
                             </span>
                           </span>
-                        </label></>}
-                        {accessMode === 'public' && <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">Se enviarán dos correos al participante: la invitación con el enlace y, por separado, el código. Si aún no tiene cuenta, podrá crear una cuenta básica. El código también permite el acceso a otros usuarios registrados que lo reciban; cada persona debe superar la prueba de vida.</div>}
-                        </>
+                        </label>
+                        </> : <>
+                          <label htmlFor="public-recipient-email" className="block text-sm font-medium text-slate-900">
+                            Correo electrónico
+                            <input
+                              id="public-recipient-email"
+                              type="email"
+                              autoComplete="email"
+                              value={publicRecipientEmail}
+                              onChange={(event) => { setPublicRecipientEmail(event.target.value); setError(''); }}
+                              placeholder="correo@ejemplo.com"
+                              className="mt-2 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-primary"
+                            />
+                          </label>
+                          <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">
+                            Se enviarán dos correos a esta dirección: la invitación con el enlace y, por separado, el código. Al abrir el enlace, se comprobará si el correo ya tiene cuenta: si no, seguirá el enrolamiento; si ya la tiene, iniciará sesión y realizará la prueba de vida.
+                          </div>
+                        </>}
                       </>
                     )}
                     {step === 2 && (
@@ -903,7 +915,7 @@ function LaunchContent() {
                         <div className="space-y-4">
                           <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-5">
                             <h2 className="text-lg font-semibold text-slate-950">Confirma el acceso público</h2>
-                            <p className="mt-1 text-sm leading-6 text-slate-600">Se habilitará un código para <strong>{form.name}</strong> y se enviarán dos correos separados a <strong>{selectedParticipant?.email}</strong>.</p>
+                            <p className="mt-1 text-sm leading-6 text-slate-600">Se habilitará un código para <strong>{form.name}</strong> y se enviarán dos correos separados a <strong>{publicRecipientEmail.trim().toLowerCase()}</strong>.</p>
                           </div>
                           <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700">
                             <p><strong>Acceso:</strong> invitación con enlace y correo separado con código.</p>

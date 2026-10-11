@@ -28,7 +28,7 @@ export function buildFormEmail(options: FormEmailOptions): string {
   const appUrl = new URL(options.formUrl).origin;
   const logoUrl = escapeHtml(`${appUrl}/assets/images/docubox-logo-2026.png`);
   const formUrl = escapeHtml(options.formUrl);
-  const recipientName = escapeHtml(options.recipientName || 'Participante');
+  const recipientName = options.recipientName.trim() ? escapeHtml(options.recipientName) : '';
   const formName = escapeHtml(options.formName);
   const requesterName = escapeHtml(options.requesterName || 'Usuario de Docubox');
   const sentToSelf = options.sentToSelf === true;
@@ -90,7 +90,7 @@ export function buildFormEmail(options: FormEmailOptions): string {
         <tr><td class="email-body" style="padding:32px 40px 36px;background-color:#ffffff;">
           <p style="font-size:12px;font-weight:700;color:#1E6BFF;text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px;">${publicCode ? 'Código de acceso' : publicInvitation || invitation ? 'Invitación a formulario' : 'Recordatorio de formulario'}</p>
           <h1 style="color:#18181B;font-size:24px;margin:0 0 12px;font-weight:700;line-height:1.3;">${title}</h1>
-          <p style="color:#52525B;font-size:15px;line-height:1.7;margin:0 0 8px;">Hola <strong>${recipientName}</strong>,</p>
+          <p style="color:#52525B;font-size:15px;line-height:1.7;margin:0 0 8px;">${recipientName ? `Hola <strong>${recipientName}</strong>,` : 'Hola,'}</p>
           <p style="color:#52525B;font-size:15px;line-height:1.7;margin:0 0 20px;">${message}</p>
           ${publicCode ? `<p style="font-family:monospace;font-size:24px;font-weight:700;letter-spacing:3px;color:#1E6BFF;background:#EFF6FF;padding:18px;border-radius:8px;text-align:center;margin:0 0 20px;">${escapeHtml(options.accessCode || '')}</p>` : ''}
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-top:1px solid #f3f4f6;">

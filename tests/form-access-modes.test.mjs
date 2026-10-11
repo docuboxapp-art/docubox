@@ -147,7 +147,7 @@ test('an existing response cannot claim another public link', async () => {
   assert.equal(current.inserted.length, 0);
 });
 
-function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'] } = {}) {
+function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'], recipientEmail = 'ana@example.com' } = {}) {
   const inserts = [];
   const invitees = [];
   const form = {
@@ -209,8 +209,7 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
     invitees,
     request: { headers: new Headers({ Authorization: 'Bearer owner-token' }),
       nextUrl: { origin: 'https://docubox.example' },
-      json: async () => ({ recipient: { name: 'Ana Invitada', email: 'ana@example.com',
-        prefill: { nombre: 'Ana', rfc: 'ANA000000ABC' } } }) },
+      json: async () => ({ recipient: { email: recipientEmail } }) },
     context: { params: Promise.resolve({ formId }) },
   };
 }
@@ -231,10 +230,22 @@ test('the launcher activates a code on a private-capable published form', async 
   assert.equal(current.inserts[0].form_id, formId);
   assert.equal(response.body.emails_sent, 2);
   assert.equal(current.invitees[0].recipient_email, 'ana@example.com');
+  assert.equal(current.invitees[0].recipient_name, '');
+  assert.deepEqual(current.invitees[0].launch_prefill, {});
   assert.equal(deliveredBatch.length, 2);
   assert.deepEqual(deliveredBatch.map((mail) => mail.to), [['ana@example.com'], ['ana@example.com']]);
   assert.doesNotMatch(deliveredBatch[0].html, /DBX-new-code/);
   assert.match(deliveredBatch[1].html, /DBX-new-code/);
+  assert.match(deliveredBatch[0].html, /Hola,<\/p>/);
+  assert.doesNotMatch(deliveredBatch[0].html, /Hola <strong>Participante<\/strong>/);
+});
+
+test('an invalid recipient email cannot activate a public code', async () => {
+  const current = codeRouteFixture({ recipientEmail: 'correo-invalido' });
+  const response = await current.exports.POST(current.request, current.context);
+  assert.equal(response.status, 400);
+  assert.equal(current.inserts.length, 0);
+  assert.equal(current.invitees.length, 0);
 });
 
 test('existing public codes remain stable and require the form owner', async () => {

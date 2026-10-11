@@ -16,16 +16,6 @@ export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' };
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function cleanPrefill(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const source = value as Record<string, unknown>;
-  const permitted = ['nombre', 'apellido_paterno', 'apellido_materno', 'full_name',
-    'phone', 'rfc', 'curp', 'personalidad_juridica', 'business_name'];
-  return Object.fromEntries(permitted.map((key) => [key,
-    typeof source[key] === 'string' ? source[key].trim().slice(0, 160) : ''
-  ]));
-}
-
 async function accessCode(request: NextRequest, context: { params: Promise<{ formId: string }> }, create: boolean) {
   const { formId } = await context.params;
   const jwt = request.headers
@@ -66,6 +56,18 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
       { error: 'No tienes acceso al código de este formulario.' },
       { status: 403, headers }
     );
+  const body = create ? await request.json().catch(() => ({})) : {};
+  const recipient = body && typeof body === 'object' ? body.recipient : null;
+  const recipientEmail = String(recipient?.email || '').trim().toLowerCase();
+  if (create && !emailPattern.test(recipientEmail))
+    return NextResponse.json({ error: 'Escribe un correo electrónico válido.' }, { status: 400, headers });
+  const resendKey = process.env.RESEND_API_KEY;
+  if (create && !resendKey)
+    return NextResponse.json({ error: 'El envío por correo no está configurado.' }, { status: 503, headers });
+  const allowedTypes = Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
+    ? form.allowed_signature_types : form.settings?.allowedSignatureTypes;
+  if (Array.isArray(allowedTypes) && allowedTypes.length && !allowedTypes.includes('autografa_digital'))
+    return NextResponse.json({ error: 'Habilita la firma autógrafa digital antes de activar el acceso público.' }, { status: 409, headers });
   const { data: existing, error: lookupError } = await service
     .from('form_public_access_codes')
     .select('code_ciphertext')
@@ -78,10 +80,6 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
     );
   if (!existing && !create)
     return NextResponse.json({ error: 'Este formulario aún no tiene un código público. Actívalo desde Lanzar formulario.' }, { status: 404, headers });
-  const allowedTypes = Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
-    ? form.allowed_signature_types : form.settings?.allowedSignatureTypes;
-  if (Array.isArray(allowedTypes) && allowedTypes.length && !allowedTypes.includes('autografa_digital'))
-    return NextResponse.json({ error: 'Habilita la firma autógrafa digital antes de activar el acceso público.' }, { status: 409, headers });
   let code = existing ? decryptPublicCode(existing.code_ciphertext) : createPublicCode();
   if (!existing) {
     const { error } = await service.from('form_public_access_codes').insert({
@@ -100,22 +98,11 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   }
   if (!create) return NextResponse.json({ code }, { headers });
 
-  const body = await request.json().catch(() => ({}));
-  const recipient = body.recipient;
-  const recipientEmail = String(recipient?.email || '').trim().toLowerCase();
-  const recipientName = String(recipient?.name || '').trim().slice(0, 160);
-  if (!recipientName || !emailPattern.test(recipientEmail))
-    return NextResponse.json({ error: 'Selecciona un participante con nombre y correo válido.' }, { status: 400, headers });
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey)
-    return NextResponse.json({ error: 'El envío por correo no está configurado.' }, { status: 503, headers });
-
-  const prefill = cleanPrefill(recipient.prefill);
   const { error: inviteeError } = await service.from('form_public_invitees').upsert({
     form_id: formId,
     recipient_email: recipientEmail,
-    recipient_name: recipientName,
-    launch_prefill: prefill,
+    recipient_name: '',
+    launch_prefill: {},
     invited_by: user.id,
     invited_at: new Date().toISOString(),
   }, { onConflict: 'form_id,recipient_email' });
@@ -129,7 +116,7 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   const formUrl = `${origin}/formulario-publico/${formId}?email=${encodeURIComponent(recipientEmail)}`;
   const workspace = form.workspaces as unknown as { name?: string } | null;
   const common = {
-    recipientName, formName: form.name, workspaceName: workspace?.name || 'Docubox',
+    recipientName: '', formName: form.name, workspaceName: workspace?.name || 'Docubox',
     requesterName: launcherName, formUrl, expiresAt: null,
   };
   const from = process.env.RESEND_FROM_EMAIL || 'Docubox <noreply@docubox.com.mx>';

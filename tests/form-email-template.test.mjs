@@ -57,3 +57,9 @@ test('self-addressed invitation and reminder say the launcher is the respondent'
     assert.doesNotMatch(html, /María &amp; José te ha enviado/);
   }
 });
+
+test('public invitation with only an email uses a neutral greeting', () => {
+  const html = buildFormEmail({ ...options, variant: 'public_invitation', recipientName: '' });
+  assert.match(html, /Hola,<\/p>/);
+  assert.doesNotMatch(html, /Hola <strong>Participante<\/strong>/);
+});
