@@ -199,9 +199,14 @@ function PublicFormRegistration() {
               <UserPlus size={23} /> Enrolamiento para el formulario
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Completa tus datos y acredita tu identidad con el mismo enrolamiento biométrico del
-              registro de usuario. Después verifica tu correo para ingresar.
+              Tu correo ya está precapturado. El enrolamiento biométrico completará los datos de tu
+              identificación; solo tendrás que crear una contraseña y confirmar tu correo.
             </p>
+            {invitedEmail && (
+              <p className="mt-4 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
+                No encontramos una cuenta con <strong>{invitedEmail}</strong>. Regístrate para continuar.
+              </p>
+            )}
             <form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4">
               <label className="block text-sm font-medium text-slate-700">
                 Nombre completo
@@ -209,9 +214,11 @@ function PublicFormRegistration() {
                   autoComplete="name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
+                  readOnly={Boolean(enrollmentResult?.nombre)}
                   required
                   maxLength={160}
-                  className="mt-1.5 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm"
+                  placeholder="Se completará con la biometría"
+                  className="mt-1.5 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm read-only:bg-slate-50"
                 />
               </label>
               <label className="block text-sm font-medium text-slate-700">
@@ -280,8 +287,14 @@ function PublicFormRegistration() {
                 {enrollmentResult?.face_match_passed ? (
                   <div className="mt-2 space-y-2">
                     <p className="text-sm text-emerald-700">
-                      Identidad acreditada. Ya puedes crear tu cuenta.
+                      Identidad acreditada. Capturamos los datos disponibles de tu identificación.
                     </p>
+                    {(enrollmentResult.curp || enrollmentResult.rfc) && (
+                      <p className="text-xs leading-5 text-slate-600">
+                        {enrollmentResult.curp && <>CURP: {enrollmentResult.curp}<br /></>}
+                        {enrollmentResult.rfc && <>RFC: {enrollmentResult.rfc}</>}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={() => void beginEnrollment()}
