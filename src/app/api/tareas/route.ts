@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 
 const schema = z.object({
   workspaceId: z.string().uuid(),
-  sourceKind: z.enum(['document', 'form_template', 'template', 'case_file']),
+  sourceKind: z.enum(['document', 'form_template', 'template', 'case_file', 'form_response', 'user', 'task']),
   sourceId: z.string().uuid(),
   workKind: z.enum(['accion', 'actividad']),
   type: z.enum([
@@ -23,8 +23,11 @@ const schema = z.object({
 const sourceTable = {
   document: { table: 'documentos', name: 'nombre' },
   form_template: { table: 'form_templates', name: 'name' },
-  template: { table: 'plantillas', name: 'name' },
+  template: { table: 'plantillas', name: 'nombre' },
   case_file: { table: 'case_files', name: 'title' },
+  form_response: { table: 'form_responses', name: 'folio' },
+  user: { table: 'user_profiles', name: 'full_name' },
+  task: { table: 'tareas', name: 'title' },
 } as const;
 
 const typeLabel: Record<z.infer<typeof schema>['type'], string> = {
@@ -50,7 +53,11 @@ export async function POST(request: Request) {
   const { data: source, error: sourceError } = await service.from(resource.table)
     .select('*').eq('id', input.sourceId).maybeSingle();
   if (sourceError || !source) return Response.json({ error: 'El recurso seleccionado ya no existe.' }, { status: 404 });
-  if (source.workspace_id !== input.workspaceId) {
+  if (input.sourceKind === 'user') {
+    const { data: membership } = await service.from('workspace_members').select('user_id')
+      .eq('workspace_id', input.workspaceId).eq('user_id', input.sourceId).eq('status', 'active').maybeSingle();
+    if (!membership) return Response.json({ error: 'El usuario no pertenece a este espacio.' }, { status: 403 });
+  } else if (source.workspace_id !== input.workspaceId) {
     const { data: workspace } = await service.from('workspaces').select('workspace_type,owner_id').eq('id', input.workspaceId).maybeSingle();
     const personalOwner = input.sourceKind === 'document' && !source.workspace_id && source.owner_id === user.id
       && workspace?.workspace_type === 'personal' && workspace.owner_id === user.id;
@@ -64,7 +71,15 @@ export async function POST(request: Request) {
     return Response.json({ error: 'El tipo seleccionado no corresponde a una plantilla.' }, { status: 400 });
   if (input.sourceKind === 'document' && !['revisar_documento', 'aprobar_documento', 'firmar_documento', 'subir_anexo', 'corregir_datos', 'validar_identidad', 'revisar_vencimiento', 'confirmar_lectura'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a un documento.' }, { status: 400 });
+  if (input.sourceKind === 'form_response' && !['revisar_documento', 'aprobar_documento', 'corregir_datos'].includes(input.type))
+    return Response.json({ error: 'El tipo seleccionado no corresponde a una respuesta.' }, { status: 400 });
+  if (input.sourceKind === 'user' && input.type !== 'validar_identidad')
+    return Response.json({ error: 'El tipo seleccionado no corresponde a un usuario.' }, { status: 400 });
+  if (input.sourceKind === 'task' && !['resolver_comentario', 'revisar_documento'].includes(input.type))
+    return Response.json({ error: 'El tipo seleccionado no corresponde a una tarea.' }, { status: 400 });
   const assignee = input.assigneeId || user.id;
+  if (input.sourceKind === 'user' && assignee !== input.sourceId)
+    return Response.json({ error: 'La validación de identidad debe asignarse a la persona seleccionada.' }, { status: 400 });
   const { data: member } = await service.from('workspace_members').select('user_id').eq('workspace_id', input.workspaceId)
     .eq('user_id', assignee).eq('status', 'active').maybeSingle();
   if (!member) return Response.json({ error: 'El responsable debe pertenecer al espacio.' }, { status: 400 });
@@ -76,7 +91,7 @@ export async function POST(request: Request) {
   const names = await service.from('user_profiles').select('id,full_name,email').in('id', [user.id, assignee]);
   const actor = names.data?.find(profile => profile.id === user.id);
   const responsible = names.data?.find(profile => profile.id === assignee);
-  const resourceName = String(source[resource.name] || 'recurso');
+  const resourceName = String(source[resource.name] || (input.sourceKind === 'user' ? source.email : null) || 'recurso');
   const { data: task, error } = await service.from('tareas').insert({
     workspace_id: input.workspaceId, created_by: user.id, assigned_to: assignee,
     title: `${typeLabel[input.type]}: ${resourceName}`, description: input.description || null,

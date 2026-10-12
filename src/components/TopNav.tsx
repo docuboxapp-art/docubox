@@ -71,7 +71,7 @@ const BASE_NAV_TABS = [
   { href: '/mis-documentos', label: 'Mis Documentos', icon: FileText },
   { href: '/mis-solicitudes', label: 'Solicitudes Enviadas', icon: Send },
   { href: '/mis-participaciones', label: 'Mis Participaciones', icon: FileSignature },
-  { href: '/mis-tareas', label: 'Tareas Pendientes', icon: CheckSquare },
+  { href: '/mis-tareas', label: 'Mis Tareas', icon: CheckSquare },
   { href: '/contactos', label: 'Mis Contactos', icon: Users },
   // plantillas and formularios injected conditionally
   { href: '/reportes', label: 'Reportes', icon: BarChart3 },
@@ -91,7 +91,7 @@ const BASE_SIDEBAR_NAV_SECTIONS = [
     items: [
       { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/mis-documentos', icon: FolderOpen, label: 'Mis Documentos' },
-      { href: '/mis-tareas', icon: CheckSquare, label: 'Tareas Pendientes' },
+      { href: '/mis-tareas', icon: CheckSquare, label: 'Mis Tareas' },
     ],
   },
   {

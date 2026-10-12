@@ -231,8 +231,9 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
               <CheckCircle2 size={17} /> Ya existe una cuenta con este correo.
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Comprueba el código recibido por separado. Cuando sea correcto, continúa con la
-              captura móvil de identidad y prueba de vida.
+              Comprueba el código recibido por separado. Si ya tienes una identificación registrada,
+              en el móvil solo tomarás una selfie para la prueba de vida y la compararemos con ella.
+              Si aún no la tienes, podrás capturarla allí.
             </p>
             <label className="mt-5 block text-sm font-medium text-slate-700">
               Código de acceso

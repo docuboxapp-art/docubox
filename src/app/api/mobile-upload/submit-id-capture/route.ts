@@ -4,55 +4,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { hashCapabilityToken } from '@/lib/security/capability-token';
 import {
   captureEncryptionKey,
-  decryptCapture,
   encryptCapture,
   normalizeImageBase64,
   validImageBase64,
 } from '@/lib/identity/capture-crypto';
-
-async function storedDocumentFront(
-  supabase: ReturnType<typeof createServiceClient>,
-  userId: string,
-  key: Buffer
-) {
-  const { data: capture } = await supabase
-    .from('id_capture_logs')
-    .select('anverso_b64')
-    .eq('user_id', userId)
-    .eq('nubarium_aprobado', true)
-    .not('anverso_b64', 'is', null)
-    .order('captured_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (capture?.anverso_b64) {
-    try {
-      return decryptCapture(capture.anverso_b64, key);
-    } catch {
-      /* legacy row */
-    }
-  }
-
-  const { data: result } = await supabase
-    .from('enrollment_results')
-    .select('enrollment_token_id')
-    .eq('user_id', userId)
-    .eq('status', 'completed')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!result?.enrollment_token_id) return null;
-  const { data: enrollment } = await supabase
-    .from('enrollment_tokens')
-    .select('anverso_encrypted')
-    .eq('id', result.enrollment_token_id)
-    .maybeSingle();
-  if (!enrollment?.anverso_encrypted) return null;
-  try {
-    return decryptCapture(enrollment.anverso_encrypted, key);
-  } catch {
-    return null;
-  }
-}
+import { findStoredIdentity } from '@/lib/identity/stored-identity';
 
 export async function POST(request: NextRequest) {
   try {
@@ -104,8 +60,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sesion invalida o expirada.' }, { status: 404 });
     }
 
-    if (!validImageBase64(front)) {
-      front = (await storedDocumentFront(supabase, session.user_id, key)) || '';
+    const storedIdentity = await findStoredIdentity(supabase, session.user_id, key);
+    if (formId && storedIdentity) {
+      // Public-form access must compare the selfie with the user's approved ID,
+      // regardless of what the mobile client sends in the document fields.
+      front = storedIdentity.front;
+      back = storedIdentity.front;
+    } else if (!validImageBase64(front)) {
+      front = storedIdentity?.front || '';
     }
     if (!validImageBase64(back)) back = front;
     if (!validImageBase64(front) || !validImageBase64(back)) {

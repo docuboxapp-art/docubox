@@ -1348,16 +1348,19 @@ export default function CapturaIdMovilPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token }),
           });
-          if (storedIdRes.ok) {
-            const storedIdData = await storedIdRes.json();
-            if (storedIdData.hasStoredId && storedIdData.anverso_b64) {
-              storedAnverso = storedIdData.anverso_b64;
-              storedCurp = storedIdData.curp_extracted || null;
-              storedNombre = storedIdData.nombre_extracted || null;
-            }
+          if (!storedIdRes.ok) {
+            setScreen('error');
+            return;
+          }
+          const storedIdData = await storedIdRes.json();
+          if (storedIdData.hasStoredId && storedIdData.anverso_b64) {
+            storedAnverso = storedIdData.anverso_b64;
+            storedCurp = storedIdData.curp_extracted || null;
+            storedNombre = storedIdData.nombre_extracted || null;
           }
         } catch {
-          // Proceed with full identification capture when the lookup is unavailable.
+          setScreen('error');
+          return;
         }
         if (storedAnverso) {
           const anversoDataUrl = storedAnverso.startsWith('data:')
@@ -1526,6 +1529,24 @@ export default function CapturaIdMovilPage() {
         <Loader2 size={32} color={BRAND.blue} style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
         <p style={{ color: BRAND.textMuted, fontSize: 14 }}>Verificando enlace…</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ── Stored identification lookup failed ──────────────────────────────────
+  if (screen === 'error') {
+    return (
+      <div style={{ minHeight: '100dvh', background: BRAND.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ background: BRAND.card, border: `1.5px solid ${BRAND.cardBorder}`, borderRadius: 20, padding: 32, maxWidth: 360, width: '100%', textAlign: 'center' }}>
+          <AlertTriangle size={40} color={BRAND.amber} style={{ margin: '0 auto 16px' }} />
+          <h2 style={{ color: BRAND.text, fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No pudimos comprobar tu identificación</h2>
+          <p style={{ color: BRAND.textMuted, fontSize: 14, lineHeight: 1.6 }}>
+            Intenta de nuevo para saber si solo necesitas realizar la prueba de vida.
+          </p>
+          <button onClick={() => window.location.reload()} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+            Reintentar
+          </button>
+        </div>
       </div>
     );
   }

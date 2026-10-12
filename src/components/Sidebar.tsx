@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -49,7 +49,7 @@ const BASE_NAV_SECTIONS = [
       { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard', badge: null },
       { href: '/mis-documentos', icon: FolderOpen, label: 'Mis Documentos', badge: null },
       { href: '/compartidos-conmigo', icon: Files, label: 'Compartidos conmigo', badge: null },
-      { href: '/mis-tareas', icon: CheckSquare, label: 'Tareas Pendientes', badge: 8 },
+      { href: '/mis-tareas', icon: CheckSquare, label: 'Mis Tareas', badge: null },
     ],
   },
   {
@@ -59,7 +59,7 @@ const BASE_NAV_SECTIONS = [
   {
     label: 'Gestión',
     items: [
-      { href: '/mis-solicitudes', icon: Send, label: 'Solicitudes Enviadas', badge: 3 },
+      { href: '/mis-solicitudes', icon: Send, label: 'Solicitudes Enviadas', badge: null },
       {
         href: '/mis-participaciones',
         icon: FileSignature,
@@ -68,7 +68,7 @@ const BASE_NAV_SECTIONS = [
       },
       { href: '/inicio', icon: Users, label: 'Firmantes', badge: null },
       // Plantillas and Formularios are injected conditionally
-      { href: '/inicio', icon: AlertTriangle, label: 'Certificados', badge: 2 },
+      { href: '/inicio', icon: AlertTriangle, label: 'Certificados', badge: null },
       { href: '/registro', icon: UserPlus, label: 'Registrar Usuario', badge: null },
     ],
   },
@@ -88,8 +88,31 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, userProfile, signOut } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingTasks, setPendingTasks] = useState<{ workspaceId: string; userId: string; count: number } | null>(null);
   const { isModuleActive } = useAppModules();
   const { activeWorkspace } = useWorkspace();
+  const pendingTaskCount = pendingTasks && pendingTasks.workspaceId === activeWorkspace?.id && pendingTasks.userId === user?.id
+    ? pendingTasks.count : 0;
+  useEffect(() => {
+    if (!user?.id || !activeWorkspace?.id) return;
+    let mounted = true;
+    const refresh = async () => {
+      const { count, error } = await createClient().from('tareas')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', activeWorkspace.id)
+        .eq('assigned_to', user.id)
+        .not('estado', 'in', '(completada,cancelada,rechazada)');
+      if (mounted && !error) setPendingTasks({ workspaceId: activeWorkspace.id, userId: user.id, count: count ?? 0 });
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [activeWorkspace?.id, user?.id]);
   const isBusinessWorkspace = activeWorkspace?.workspaceType === 'business';
   const canManageOrganization =
     isBusinessWorkspace && (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
@@ -276,6 +299,7 @@ export default function Sidebar() {
               </p>
             )}
             {section?.items?.map((item) => {
+              const badge = item.href === '/mis-tareas' ? (pendingTaskCount || null) : item.badge;
               const isActive =
                 item?.href === '/organizacion'
                   ? pathname.startsWith('/organizacion')
@@ -306,14 +330,14 @@ export default function Sidebar() {
                       <span className="text-sm font-medium flex-1 whitespace-nowrap">
                         {item?.label}
                       </span>
-                      {item?.badge !== null && (
+                      {badge !== null && (
                         <span className="ml-auto bg-secondary text-secondary-foreground text-[10px] font-600 px-1.5 py-0.5 rounded-full tabular-nums">
-                          {item?.badge}
+                          {badge > 99 ? '99+' : badge}
                         </span>
                       )}
                     </>
                   )}
-                  {collapsed && item?.badge !== null && (
+                  {collapsed && badge !== null && (
                     <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-secondary rounded-full" />
                   )}
                 </Link>

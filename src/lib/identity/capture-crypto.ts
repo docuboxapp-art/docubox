@@ -29,7 +29,8 @@ export function encryptCapture(value: string, key: Buffer) {
 
 export function decryptCapture(value: string, key: Buffer) {
   const envelope = JSON.parse(value) as EncryptedEnvelope;
-  if (envelope.version !== 'AES-256-GCM-V1') throw new Error('Unsupported capture encryption version.');
+  if (envelope.version !== 'AES-256-GCM-V1')
+    throw new Error('Unsupported capture encryption version.');
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
   decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
   return Buffer.concat([
@@ -39,9 +40,23 @@ export function decryptCapture(value: string, key: Buffer) {
 }
 
 export function normalizeImageBase64(value: unknown) {
-  return String(value || '').replace(/^data:image\/[-+\w.]+;base64,/, '').replace(/\s/g, '');
+  return String(value || '')
+    .replace(/^data:image\/[-+\w.]+;base64,/, '')
+    .replace(/\s/g, '');
 }
 
 export function validImageBase64(value: string) {
   return value.length >= 256 && value.length <= 16_000_000 && /^[A-Za-z0-9+/=]+$/.test(value);
+}
+
+// Approved captures created before encryption was introduced contain an image data URL.
+// Accept those rows only when they are valid images; current rows must decrypt normally.
+export function readStoredIdentityImage(value: string, key: Buffer): string | null {
+  try {
+    const image = value.startsWith('data:image/') ? value : decryptCapture(value, key);
+    const normalized = normalizeImageBase64(image);
+    return validImageBase64(normalized) ? normalized : null;
+  } catch {
+    return null;
+  }
 }

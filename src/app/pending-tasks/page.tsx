@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, Save, ChevronDown, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import NewTaskWizard from './components/NewTaskWizard';
+import { fetchAllPages } from '@/lib/tasks/pagination';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -34,6 +35,7 @@ interface Task {
   workspaceId: string;
   sourceType: string | null;
   sourceId: string | null;
+  automationKey: string | null;
   origin: 'manual' | 'sistema';
   workKind: 'accion' | 'actividad';
   resolutionNote: string | null;
@@ -126,6 +128,7 @@ function formatTime(dateStr: string) {
 }
 function getDueBadge(task: Task) {
   if (!task.dueDate) return { text: 'Sin fecha', urgent: false };
+  if (['completada', 'cancelada', 'rechazada'].includes(task.status)) return { text: formatDate(task.dueDate), urgent: false };
   if (task.isOverdue || task.status === 'vencida') return { text: 'Vencida', urgent: true };
   const diff = new Date(task.dueDate).getTime() - Date.now();
   const days = Math.ceil(diff / 86400000);
@@ -136,6 +139,21 @@ function getDueBadge(task: Task) {
 }
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function getTaskResource(task: Task) {
+  const labels: Record<string, string> = {
+    document: 'Documento', participant_requirement: 'Documento',
+    form_template: 'Formulario', form_token: 'Invitación de formulario',
+    form_response: 'Respuesta de formulario', template: 'Plantilla',
+    case_file: 'Expediente', user: 'Perfil de usuario', task: 'Tarea vinculada',
+  };
+  const kind = labels[task.sourceType || ''] || (task.expedienteId ? 'Expediente' : 'Recurso');
+  const name = task.documentName || task.expedienteName
+    || (task.sourceType === 'user' ? task.responsible : '')
+    || (task.title.includes(':') ? task.title.split(':').slice(1).join(':').trim() : '')
+    || kind;
+  return { kind, name };
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -163,6 +181,7 @@ function mapRowToTask(row: any): Task {
     workspaceId: row.workspace_id,
     sourceType: row.source_type || null,
     sourceId: row.source_id || null,
+    automationKey: row.automation_key || null,
     origin: row.origin === 'sistema' ? 'sistema' : 'manual',
     workKind: row.work_kind === 'actividad' ? 'actividad' : 'accion',
     resolutionNote: row.resolution_note || null,
@@ -176,7 +195,8 @@ function mapRowToTask(row: any): Task {
     createdAt: row.created_at,
     sla: row.sla || '',
     responsible: row.responsible_name || '',
-    responsibleAvatar: row.responsible_avatar || '??',
+    responsibleAvatar: row.responsible_avatar || String(row.responsible_name || '')
+      .trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part: string) => part[0].toUpperCase()).join('') || '?',
     creator: row.creator_name || '',
     documentName: row.document_name || '',
     documentId: row.document_id || '',
@@ -252,39 +272,60 @@ function TaskMetrics({ tasks }: { tasks: Task[] }) {
 function TaskListRow({ task, onClick }: { task: Task; onClick: () => void }) {
   const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const Icon = type.icon;
-  return <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/30">
-    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${type.bg} ${type.border}`}><Icon size={18} className={type.color} /></span>
-    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-950">{task.title}</span><span className="mt-0.5 block truncate text-xs text-slate-500">{type.label}{task.documentName ? ` · ${task.documentName}` : task.expedienteName ? ` · ${task.expedienteName}` : ''}</span></span>
-    {task.origin === 'sistema' && <span className="hidden rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 sm:inline-flex">Sistema</span>}
-    <span className={`hidden rounded-full px-2 py-0.5 text-xs sm:inline-flex ${STATUS_CONFIG[task.status].className}`}>{STATUS_CONFIG[task.status].label}</span>
-    <span className={`hidden text-xs font-medium md:inline-flex ${task.isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{getDueBadge(task).text}</span>
-    <ChevronRight size={17} className="shrink-0 text-slate-400" />
+  const resource = getTaskResource(task);
+  const status = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+  const priority = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
+  const due = getDueBadge(task);
+  return <button type="button" onClick={onClick} aria-label={`Ver tarea ${task.title}`} className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 bg-white px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 focus-visible:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.7fr)_minmax(0,1.5fr)_105px_110px_20px] lg:gap-4 lg:px-5">
+    <span className="flex min-w-0 items-start gap-3">
+      <span className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${type.bg} ${type.border}`}><Icon size={18} className={type.color} /></span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold leading-5 text-slate-950 group-hover:text-blue-700">{task.title}</span>
+        <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-slate-500">{task.description || taskGuidance(task)}</span>
+        <span className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500"><span className="font-medium text-slate-700">{type.label}</span><span aria-hidden="true">·</span><span className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${priority.dot}`} />{priority.label}</span>{task.origin === 'sistema' && <><span aria-hidden="true">·</span><span>Automática</span></>}</span>
+        <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 lg:hidden"><span>{resource.kind}: {resource.name}</span><span aria-hidden="true">·</span><span className={due.urgent ? 'font-semibold text-red-600' : ''}>{due.text}</span><span aria-hidden="true">·</span><span>{status.label}</span></span>
+      </span>
+    </span>
+    <span className="hidden min-w-0 lg:block"><span className="block text-[11px] text-slate-500">{resource.kind}</span><span className="mt-1 block truncate text-xs font-medium text-slate-800">{resource.name}</span></span>
+    <span className="hidden min-w-0 items-center gap-2 lg:flex"><Avatar initials={task.responsibleAvatar} size="sm" /><span className="truncate text-xs text-slate-700">{task.responsible || 'Sin asignar'}</span></span>
+    <span className="hidden lg:inline-flex"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${status.className}`}><span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />{status.label}</span></span>
+    <span className="hidden lg:block"><span className={`block text-xs font-semibold ${due.urgent ? 'text-red-600' : 'text-slate-800'}`}>{due.text}</span><span className="mt-1 block text-[11px] text-slate-500">{task.dueDate ? formatDate(task.dueDate) : 'Sin fecha límite'}</span></span>
+    <ChevronRight size={18} className="text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600" />
   </button>;
 }
 
 function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const Icon = type.icon;
-  return <button type="button" onClick={onClick} className="flex min-h-[170px] w-full flex-col rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/20">
-    <span className="flex w-full items-start gap-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${type.bg} ${type.border}`}><Icon size={17} className={type.color} /></span><span className="min-w-0 flex-1"><span className="block text-xs text-slate-500">{type.label}</span><span className="mt-1 line-clamp-2 text-sm font-semibold text-slate-950">{task.title}</span></span></span>
-    <span className="mt-3 line-clamp-1 text-xs text-slate-500">{task.documentName || task.expedienteName || (task.origin === 'sistema' ? 'Generada por el sistema' : 'Actividad del espacio')}</span>
-    <span className="mt-auto flex w-full items-center justify-between border-t border-slate-100 pt-3"><span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUS_CONFIG[task.status].className}`}>{STATUS_CONFIG[task.status].label}</span><span className={`text-xs ${task.isOverdue ? 'font-semibold text-red-600' : 'text-slate-500'}`}>{getDueBadge(task).text}</span></span>
+  const resource = getTaskResource(task);
+  const status = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+  const priority = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
+  const due = getDueBadge(task);
+  const completed = task.checklist.filter(item => item.done).length;
+  return <button type="button" onClick={onClick} aria-label={`Ver tarea ${task.title}`} className="group flex min-h-[260px] w-full flex-col rounded-xl border border-slate-200 bg-white p-4 text-left shadow-[0_1px_3px_rgba(15,23,42,0.04)] transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+    <span className="flex w-full items-start justify-between gap-2"><span className="flex min-w-0 items-center gap-2.5"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${type.bg} ${type.border}`}><Icon size={17} className={type.color} /></span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-700">{type.label}</span><span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500"><span className={`h-1.5 w-1.5 rounded-full ${priority.dot}`} />{priority.label}{task.origin === 'sistema' ? ' · Automática' : task.workKind === 'actividad' ? ' · Actividad' : ''}</span></span></span><span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${status.className}`}><span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />{status.label}</span></span>
+    <span className="mt-4 line-clamp-2 text-base font-semibold leading-6 text-slate-950 group-hover:text-blue-700">{task.title}</span>
+    <span className="mt-1.5 line-clamp-2 min-h-9 text-xs leading-[18px] text-slate-500">{task.description || taskGuidance(task)}</span>
+    <span className="mt-4 flex w-full min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5"><FileText size={15} className="shrink-0 text-slate-500" /><span className="min-w-0"><span className="block text-[10px] uppercase tracking-wide text-slate-500">{resource.kind}</span><span className="block truncate text-xs font-medium text-slate-800">{resource.name}</span></span></span>
+    {task.checklist.length > 0 && <span className="mt-3 flex w-full items-center gap-2 text-[11px] text-slate-500"><span>Avance {completed}/{task.checklist.length}</span><span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-blue-500" style={{ width: `${Math.round(completed / task.checklist.length * 100)}%` }} /></span></span>}
+    <span className="mt-auto flex w-full items-center justify-between gap-2 border-t border-slate-100 pt-3"><span className="flex min-w-0 items-center gap-2"><Avatar initials={task.responsibleAvatar} size="xs" /><span className="truncate text-[11px] text-slate-600">{task.responsible || 'Sin asignar'}</span></span><span className={`shrink-0 text-xs font-semibold ${due.urgent ? 'text-red-600' : 'text-slate-700'}`}>{!task.dueDate ? 'Sin fecha' : due.text === 'Vencida' ? 'Vencida' : /^\d+ días$/.test(due.text) ? `Vence en ${due.text}` : `${['completada', 'cancelada', 'rechazada'].includes(task.status) ? 'Límite' : 'Vence'} ${due.text.toLowerCase()}`}</span></span>
   </button>;
 }
 
 // ─── Task Detail Drawer (45% lateral) ────────────────────────────────────────
 type DrawerTab = 'info' | 'checklist' | 'comentarios' | 'historial' | 'dependencias';
 
-function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, userName, canReassign }: {
+function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceId, userId, userName, canReassign }: {
   task: Task;
   onClose: () => void;
   onTaskUpdated: (taskId: string) => void;
+  onOpenTask: (taskId: string) => boolean;
   workspaceId: string | null;
   userId: string | null;
   userName?: string;
   canReassign: boolean;
 }) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [tab, setTab] = useState<DrawerTab>('info');
 
@@ -328,6 +369,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [newAssignee, setNewAssignee] = useState(task.assignedTo || '');
   const [sourceInfo, setSourceInfo] = useState<{ name: string; status: string } | null>(null);
+  const [canCompleteSystem, setCanCompleteSystem] = useState(false);
 
   const typeInfo = TASK_TYPE_CONFIG[task.type];
   const priorityInfo = PRIORITY_CONFIG[task.priority];
@@ -336,6 +378,17 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
   const doneCount = checklist.filter(c => c.done).length;
   const canManageTask = Boolean(canReassign || (userId && task.createdBy === userId));
   const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
+
+  useEffect(() => {
+    const ruleId = task.automationKey?.startsWith('custom:') ? task.automationKey.slice(7) : null;
+    if (!ruleId) return;
+    let active = true;
+    supabase.from('task_custom_rules').select('target_kind,condition_kind').eq('id', ruleId)
+      .eq('workspace_id', workspaceId || '').maybeSingle().then(({ data }) => {
+        if (active) setCanCompleteSystem(Boolean(data && data.target_kind !== 'task' && data.condition_kind === 'created'));
+      });
+    return () => { active = false; };
+  }, [task.automationKey, workspaceId, supabase]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -350,20 +403,26 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     const sourceTable = task.sourceType === 'document' || task.sourceType === 'participant_requirement' ? 'documentos'
       : task.sourceType === 'case_file' ? 'case_files'
       : task.sourceType === 'form_template' || task.sourceType === 'form_token' ? 'form_templates'
-      : task.sourceType === 'template' ? 'plantillas' : null;
+      : task.sourceType === 'template' ? 'plantillas'
+      : task.sourceType === 'form_response' ? 'form_responses'
+      : task.sourceType === 'user' ? 'user_profiles'
+      : task.sourceType === 'task' ? 'tareas' : null;
     const sourceId = sourceTable === 'documentos' ? task.documentId
-      : sourceTable === 'case_files' ? task.expedienteId : task.sourceType === 'form_template' || task.sourceType === 'template' ? task.sourceId : null;
+      : sourceTable === 'case_files' ? task.expedienteId : task.sourceId;
     if (sourceTable && sourceId) {
-      const nameField = sourceTable === 'case_files' ? 'title' : ['form_templates', 'plantillas'].includes(sourceTable) ? 'name' : 'nombre';
-      const stateField = ['case_files', 'form_templates', 'plantillas'].includes(sourceTable) ? 'status' : 'estado';
-      supabase.from(sourceTable).select(`id,${nameField},${stateField}`).eq('id', sourceId).maybeSingle()
-        .then(({ data }) => { if (data) { const row = data as Record<string, unknown>; setSourceInfo({ name: String(row[nameField] || ''), status: String(row[stateField] || '') }); } });
+      const nameField = sourceTable === 'case_files' || sourceTable === 'tareas' ? 'title'
+        : sourceTable === 'form_templates' ? 'name' : sourceTable === 'form_responses' ? 'folio'
+        : sourceTable === 'user_profiles' ? 'full_name' : 'nombre';
+      const stateField = ['case_files', 'form_templates', 'form_responses'].includes(sourceTable) ? 'status'
+        : ['documentos', 'tareas', 'plantillas'].includes(sourceTable) ? 'estado' : null;
+      supabase.from(sourceTable).select('*').eq('id', sourceId).maybeSingle()
+        .then(({ data }) => { if (data) { const row = data as unknown as Record<string, unknown>; setSourceInfo({ name: String(row[nameField] || ''), status: stateField ? String(row[stateField] || '') : 'Usuario del espacio' }); } });
     }
     if (canReassign) {
       supabase.from('workspace_members').select('user_id,user_profiles!workspace_members_user_id_fkey(full_name,email)').eq('workspace_id', workspaceId).eq('status', 'active')
         .then(({ data }) => setMembers((data || []).map((member: any) => ({ id: member.user_id, name: member.user_profiles?.full_name || member.user_profiles?.email || 'Usuario' }))));
     }
-  }, [workspaceId, task.sourceType, task.sourceId, task.documentId, task.expedienteId, canReassign]);
+  }, [workspaceId, task.sourceType, task.sourceId, task.documentId, task.expedienteId, canReassign, supabase]);
 
   const runAction = async (action: 'open' | 'start' | 'complete' | 'cancel' | 'remind' | 'reassign') => {
     if (!workspaceId) return;
@@ -378,7 +437,17 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
     });
     const result = await response.json();
     if (!response.ok) { setActionError(result.error || 'No se pudo realizar la acción.'); setActionBusy(false); return; }
-    if (action === 'open' && result.href) { router.push(result.href); return; }
+    if (action === 'open' && result.href) {
+      if (result.href.startsWith('/mis-tareas?task=')) {
+        const linkedId = new URL(result.href, window.location.origin).searchParams.get('task');
+        if (linkedId && onOpenTask(linkedId)) return;
+        setActionError('La tarea vinculada no está disponible en este espacio.');
+        setActionBusy(false);
+        return;
+      }
+      router.push(result.href);
+      return;
+    }
     setReassignOpen(false); setCancelOpen(false); setCancelReason('');
     onTaskUpdated(task.id);
     const { data: latestHistory } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
@@ -421,11 +490,15 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
       });
 
     // Load available tasks for dependency selection
-    supabase.from('tareas').select('id, title, estado').eq('workspace_id', workspaceId).neq('id', task.id).limit(30)
-      .then(({ data }) => {
-        if (data) setAvailableTasks(data.map((r: any) => ({ id: r.id, title: r.title, status: r.estado as TaskStatus })));
-      });
-  }, [task.id, workspaceId]);
+    fetchAllPages((from, to) => supabase.from('tareas').select('id, title, estado')
+      .eq('workspace_id', workspaceId).neq('id', task.id)
+      .not('source_id', 'is', null)
+      .not('estado', 'in', '(completada,cancelada,rechazada)')
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
+      .range(from, to))
+      .then(data => setAvailableTasks(data.map((r: any) => ({ id: r.id, title: r.title, status: r.estado as TaskStatus }))))
+      .catch(loadError => setActionError(loadError instanceof Error ? loadError.message : 'No se pudieron cargar las dependencias.'));
+  }, [task.id, workspaceId, supabase]);
 
   const handleClose = () => {
     onClose();
@@ -638,7 +711,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                 <>
                   <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad'} · {task.origin === 'sistema' ? 'Generada por el sistema' : 'Creada manualmente'}</p>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">{task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">{canCompleteSystem ? 'Esta acción surgió al crearse el recurso. Puedes completarla después de atenderla.' : task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Descripción</p>
@@ -682,8 +755,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, workspaceId, userId, u
                       </button>
                       {!['completada','cancelada','rechazada'].includes(task.status) && <>
                         {['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50">Iniciar seguimiento</button>}
-                        {task.origin === 'manual' && <button onClick={() => runAction('complete')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-green-200 px-3 py-2 text-sm text-green-700 disabled:opacity-50"><CheckCircle2 size={14} />Completar</button>}
-                        {canReassign && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"><Users size={14} />Reasignar</button>}
+                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => runAction('complete')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-green-200 px-3 py-2 text-sm text-green-700 disabled:opacity-50"><CheckCircle2 size={14} />Completar</button>}
+                        {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"><Users size={14} />Reasignar</button>}
                         <button onClick={() => runAction('remind')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"><Bell size={14} />Recordatorio</button>
                         {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm text-red-600"><XCircle size={14} />Cancelar</button>}
                       </>}
@@ -1103,16 +1176,18 @@ export default function PendingTasksPage() {
       if (!user) { setTasks([]); setLoading(false); return; }
 
       if (!activeWorkspaceId) { setTasks([]); return; }
-      const { data, error: fetchError } = await supabase.from('tareas').select('*')
-        .eq('workspace_id', activeWorkspaceId).order('created_at', { ascending: false }).limit(500);
-      if (fetchError) { setError(fetchError.message); return; }
-      setTasks((data || []).map(mapRowToTask));
-    } catch {
-      setError('Error inesperado al cargar las tareas.');
+      const rows = await fetchAllPages((from, to) => supabase.from('tareas').select('*')
+          .eq('workspace_id', activeWorkspaceId)
+          .not('source_id', 'is', null)
+          .order('created_at', { ascending: false }).order('id', { ascending: false })
+          .range(from, to));
+      setTasks(rows.map(mapRowToTask));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Error inesperado al cargar las tareas.');
     } finally {
       setLoading(false);
     }
-  }, [user?.id, activeWorkspaceId]);
+  }, [user, activeWorkspaceId, supabase]);
 
   useEffect(() => { const timer = window.setTimeout(() => { void fetchTasks(); }, 0); return () => window.clearTimeout(timer); }, [fetchTasks]);
 
@@ -1132,7 +1207,7 @@ export default function PendingTasksPage() {
         setSelectedTask(prev => prev?.id === taskId ? mapRowToTask(data) : prev);
       }
     });
-  }, []);
+  }, [supabase]);
 
   const toggleFilter = useCallback((id: string) => {
     setActiveFilters(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
@@ -1178,7 +1253,7 @@ export default function PendingTasksPage() {
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-600 leading-tight text-slate-950">
-              Tareas pendientes
+              Mis Tareas
             </h1>
             <p className="mt-1 text-sm text-slate-500">
               Acciones que requieren tu atención dentro del flujo documental.
@@ -1316,11 +1391,23 @@ export default function PendingTasksPage() {
                   </button>
                 </div>
               ) : (
-                <div className={listLayout === 'grid' ? 'grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3' : 'space-y-2'}>
-                  {filtered.map(task => listLayout === 'grid'
-                    ? <TaskGridCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-                    : <TaskListRow key={task.id} task={task} onClick={() => setSelectedTask(task)} />)}
-                </div>
+                <section aria-label="Resultados de tareas" className={listLayout === 'grid' ? 'space-y-3' : 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]'}>
+                  <div className={listLayout === 'grid' ? 'flex flex-wrap items-end justify-between gap-2' : 'border-b border-slate-100 px-4 py-3 lg:px-5'}>
+                    <div><h2 className="text-sm font-semibold text-slate-900">{listLayout === 'grid' ? 'Tareas en tarjetas' : 'Lista de trabajo'}</h2><p className="mt-0.5 text-xs text-slate-500">{filtered.length} {filtered.length === 1 ? 'tarea disponible' : 'tareas disponibles'} · Selecciona una para ver el detalle y continuar.</p></div>
+                  </div>
+                  {listLayout === 'grid' ? (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {filtered.map(task => <TaskGridCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />)}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden grid-cols-[minmax(0,3fr)_minmax(0,1.7fr)_minmax(0,1.5fr)_105px_110px_20px] gap-4 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 lg:grid">
+                        <span>Tarea y contexto</span><span>Recurso</span><span>Responsable</span><span>Estado</span><span>Fecha límite</span><span className="sr-only">Abrir</span>
+                      </div>
+                      <div>{filtered.map(task => <TaskListRow key={task.id} task={task} onClick={() => setSelectedTask(task)} />)}</div>
+                    </>
+                  )}
+                </section>
               )
             )}
             {viewMode === 'kanban' && <KanbanView tasks={filtered} onTaskClick={setSelectedTask} />}
@@ -1340,12 +1427,20 @@ export default function PendingTasksPage() {
       {/* Full-screen task detail */}
       {selectedTask && (
         <TaskDetailDrawer
+          key={selectedTask.id}
           task={selectedTask}
           onClose={() => {
             setSelectedTask(null);
             window.history.replaceState(null, '', '/mis-tareas');
           }}
           onTaskUpdated={handleTaskUpdated}
+          onOpenTask={(taskId) => {
+            const linked = tasks.find(task => task.id === taskId);
+            if (!linked) return false;
+            window.history.replaceState(null, '', `/mis-tareas?task=${encodeURIComponent(taskId)}`);
+            setSelectedTask(linked);
+            return true;
+          }}
           workspaceId={activeWorkspaceId}
           userId={user?.id ?? null}
           userName={userName}

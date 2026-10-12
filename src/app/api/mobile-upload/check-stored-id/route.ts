@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { hashCapabilityToken } from '@/lib/security/capability-token';
-import { captureEncryptionKey, decryptCapture } from '@/lib/identity/capture-crypto';
+import { captureEncryptionKey } from '@/lib/identity/capture-crypto';
+import { findStoredIdentity } from '@/lib/identity/stored-identity';
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,67 +37,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check id_capture_logs first (most recent successful capture)
-    const { data: idLog } = await supabase
-      .from('id_capture_logs')
-      .select('anverso_b64, curp_extracted, nombre_extracted')
-      .eq('user_id', userId)
-      .eq('nubarium_aprobado', true)
-      .not('anverso_b64', 'is', null)
-      .order('captured_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (idLog?.anverso_b64) {
-      try {
-        return NextResponse.json(
-          {
+    const stored = await findStoredIdentity(supabase, userId, key);
+    return NextResponse.json(
+      stored
+        ? {
             hasStoredId: true,
-            anverso_b64: decryptCapture(idLog.anverso_b64, key),
-            curp_extracted: idLog.curp_extracted || null,
-            nombre_extracted: idLog.nombre_extracted || null,
-          },
-          { headers: { 'Cache-Control': 'no-store, private' } }
-        );
-      } catch {
-        // Try the completed enrollment if this older capture cannot be decrypted.
-      }
-    }
-
-    const { data: enrollData } = await supabase
-      .from('enrollment_results')
-      .select('enrollment_token_id')
-      .eq('user_id', userId)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (enrollData?.enrollment_token_id) {
-      const { data: enrollment } = await supabase
-        .from('enrollment_tokens')
-        .select('anverso_encrypted')
-        .eq('id', enrollData.enrollment_token_id)
-        .maybeSingle();
-      if (enrollment?.anverso_encrypted) {
-        try {
-          return NextResponse.json(
-            {
-              hasStoredId: true,
-              anverso_b64: decryptCapture(enrollment.anverso_encrypted, key),
-              curp_extracted: null,
-              nombre_extracted: null,
-            },
-            { headers: { 'Cache-Control': 'no-store, private' } }
-          );
-        } catch {
-          return NextResponse.json({ hasStoredId: false });
-        }
-      }
-    }
-
-    return NextResponse.json({ hasStoredId: false });
+            anverso_b64: stored.front,
+            curp_extracted: stored.curp,
+            nombre_extracted: stored.nombre,
+          }
+        : { hasStoredId: false },
+      { headers: { 'Cache-Control': 'no-store, private' } }
+    );
   } catch {
-    return NextResponse.json({ hasStoredId: false });
+    return NextResponse.json(
+      { error: 'No fue posible comprobar la identificación registrada.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store, private' } }
+    );
   }
 }

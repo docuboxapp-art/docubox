@@ -163,7 +163,10 @@ export default function PublicFormMobileBiometricModal({
               id="mobile-liveness-title"
               className="flex items-center gap-2 text-lg font-semibold text-slate-950"
             >
-              <Smartphone size={20} /> Captura de identificación y prueba de vida — Móvil
+              <Smartphone size={20} />{' '}
+              {session?.hasStoredId
+                ? 'Prueba de vida — Móvil'
+                : 'Captura de identificación y prueba de vida — Móvil'}
             </h2>
             <p className="mt-2 text-sm leading-5 text-slate-600">
               {session?.hasStoredId

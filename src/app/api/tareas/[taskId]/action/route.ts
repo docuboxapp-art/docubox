@@ -49,6 +49,15 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
       return Response.json({ href: task.tipo === 'seguimiento_formulario' ? `/formularios/lanzar?id=${task.source_id}` : `/formularios/nuevo?id=${task.source_id}` });
     if (task.source_type === 'template' && task.source_id)
       return Response.json({ href: `/plantillas/nueva?id=${task.source_id}` });
+    if (task.source_type === 'form_response' && task.source_id) {
+      const { data: response } = await service.from('form_responses').select('template_id,workspace_id')
+        .eq('id', task.source_id).eq('workspace_id', workspaceId).maybeSingle();
+      if (response) return Response.json({ href: `/formularios/respuestas?id=${response.template_id}` });
+    }
+    if (task.source_type === 'user' && task.source_id === user.id)
+      return Response.json({ href: '/mi-perfil' });
+    if (task.source_type === 'task' && task.source_id)
+      return Response.json({ href: `/mis-tareas?task=${task.source_id}` });
     return Response.json({ error: 'Esta tarea no tiene un recurso vigente para abrir.' }, { status: 409 });
   }
 
@@ -96,6 +105,8 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
     if (!workspace?.organization_enabled || !['owner', 'admin'].includes(role))
       return Response.json({ error: 'La reasignación requiere una organización y permisos de administración.' }, { status: 403 });
     if (!assigneeId) return Response.json({ error: 'Elige un responsable.' }, { status: 400 });
+    if (task.source_type === 'user' && task.source_id !== assigneeId)
+      return Response.json({ error: 'La validación de identidad debe permanecer asignada a la persona correspondiente.' }, { status: 400 });
     const { data: member } = await service.from('workspace_members').select('user_id').eq('workspace_id', workspaceId)
       .eq('user_id', assigneeId).eq('status', 'active').maybeSingle();
     if (!member) return Response.json({ error: 'El responsable no pertenece a la organización.' }, { status: 400 });
@@ -117,8 +128,16 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
 
   if (action === 'cancel' && (!canManage || !reason))
     return Response.json({ error: 'Indica un motivo para cancelar esta tarea.' }, { status: 400 });
-  if (action === 'complete' && task.origin === 'sistema')
-    return Response.json({ error: 'Esta acción se completa cuando se resuelve en el recurso vinculado.' }, { status: 409 });
+  if (action === 'complete' && task.origin === 'sistema') {
+    const ruleId = typeof task.automation_key === 'string' && task.automation_key.startsWith('custom:')
+      ? task.automation_key.slice(7) : null;
+    const { data: rule } = ruleId && z.string().uuid().safeParse(ruleId).success
+      ? await service.from('task_custom_rules').select('target_kind,condition_kind')
+          .eq('id', ruleId).eq('workspace_id', workspaceId).maybeSingle()
+      : { data: null };
+    if (rule?.target_kind === 'task' || rule?.condition_kind !== 'created')
+      return Response.json({ error: 'Esta acción se completa cuando se resuelve en el recurso vinculado.' }, { status: 409 });
+  }
   const nextStatus = action === 'start' ? 'en_proceso' : action === 'complete' ? 'completada' : 'cancelada';
   const { error } = await service.from('tareas').update({
     estado: nextStatus, completed_at: action === 'complete' ? new Date().toISOString() : task.completed_at,

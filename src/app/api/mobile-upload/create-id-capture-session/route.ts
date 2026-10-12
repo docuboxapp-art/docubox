@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import crypto from 'node:crypto';
+import { captureEncryptionKey } from '@/lib/identity/capture-crypto';
+import { findStoredIdentity } from '@/lib/identity/stored-identity';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 import {
   isValidPublicCode,
@@ -105,21 +107,14 @@ export async function POST(req: NextRequest) {
       }
       formId = access.form_id;
     }
-    const { data: enrollment } = await supabase
-      .from('enrollment_results')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('status', 'completed')
-      .limit(1)
-      .maybeSingle();
-    const { data: storedCapture } = await supabase
-      .from('id_capture_logs')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('nubarium_aprobado', true)
-      .not('anverso_b64', 'is', null)
-      .limit(1)
-      .maybeSingle();
+    const key = captureEncryptionKey();
+    if (!key) {
+      return NextResponse.json(
+        { error: 'El cifrado biométrico no está configurado.' },
+        { status: 503 }
+      );
+    }
+    const hasStoredId = Boolean(await findStoredIdentity(supabase, user.id, key));
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -136,7 +131,7 @@ export async function POST(req: NextRequest) {
           document_id: documentId || null,
           form_id: formId,
           user_id: user.id,
-          has_enrollment: Boolean(enrollment || storedCapture),
+          has_enrollment: hasStoredId,
         },
       })
       .select()
@@ -151,7 +146,7 @@ export async function POST(req: NextRequest) {
       token: sessionToken,
       expiresAt: expiresAt.toISOString(),
       sessionId: data.id,
-      hasStoredId: Boolean(enrollment || storedCapture),
+      hasStoredId,
     });
   } catch (err: unknown) {
     console.error('[create-id-capture-session] Unexpected error:', err);
