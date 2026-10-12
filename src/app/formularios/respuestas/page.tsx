@@ -1,9 +1,9 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft,
   ClipboardList,
   Eye,
   FileCheck2,
@@ -36,12 +36,12 @@ type ResponseDetail = {
   signed_pdf_ready: boolean;
   sent_at: string | null;
 };
-type DetailTab = 'preview' | 'fields' | 'document';
+type DetailTab = 'form' | 'document';
 type StatusFilter = 'all' | 'signed' | 'pending';
 
 const dateFormatter = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-border dark:bg-background dark:text-foreground';
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal [font-family:inherit] text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-border dark:bg-background dark:text-foreground';
 
 function formatDate(value?: string | null) {
   if (!value) return 'No disponible';
@@ -135,7 +135,7 @@ function ResponsesContent() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [tab, setTab] = useState<DetailTab>('preview');
+  const [tab, setTab] = useState<DetailTab>('form');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [detail, setDetail] = useState<ResponseDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
@@ -290,49 +290,48 @@ function ResponsesContent() {
   if (!formId || (!loading && unavailable))
     return (
       <AppLayout noPadding>
-        <div className="mx-auto max-w-[1500px] px-6 py-8">
-          <button
-            type="button"
-            onClick={() => router.push('/formularios')}
-            className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <ArrowLeft size={16} /> Volver a formularios
-          </button>
-          <h1 className="mt-8 text-xl font-semibold">Respuestas no disponibles</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Solo puedes consultar respuestas de formularios publicados o pausados.
-          </p>
+        <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
+          <div className="mx-auto w-full max-w-[1560px]">
+            <Link
+              href="/formularios"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+            >
+              <X size={16} /> Cerrar
+            </Link>
+            <h1 className="mt-8 text-2xl font-semibold">Respuestas no disponibles</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Solo puedes consultar respuestas de formularios publicados o pausados.
+            </p>
+          </div>
         </div>
       </AppLayout>
     );
 
   return (
     <AppLayout noPadding>
-      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6">
-        <header className="flex items-center gap-3 border-b border-slate-200 pb-5 dark:border-border">
-          <button
-            type="button"
-            onClick={() => router.push('/formularios')}
-            aria-label="Volver a formularios"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border"
-          >
-            <ArrowLeft size={16} />
-          </button>
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
+        <header className="mx-auto flex w-full max-w-[1560px] items-center justify-between gap-4 border-b border-slate-200 pb-5 dark:border-border">
           <div>
-            <h1 className="text-xl font-semibold text-slate-950 dark:text-foreground">
+            <h1 className="text-2xl font-semibold text-slate-950 dark:text-foreground">
               Respuestas
             </h1>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-sm text-slate-500">
               {formName} · {responses.length} {responses.length === 1 ? 'registro' : 'registros'}
             </p>
           </div>
+          <Link
+            href="/formularios"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
+          >
+            <X size={16} /> Cerrar
+          </Link>
         </header>
-        <div className="grid gap-4 py-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="mx-auto grid w-full max-w-[1560px] gap-4 py-5 xl:grid-cols-[minmax(0,1fr)_460px]">
           <section
             aria-label="Lista de respuestas"
-            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
+            className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
           >
-            <div className="space-y-3 border-b border-slate-200 p-4 dark:border-border">
+            <div className="space-y-4 border-b border-slate-200 p-5 dark:border-border">
               <div className="relative">
                 <Search
                   size={17}
@@ -347,50 +346,50 @@ function ResponsesContent() {
                   className={`${inputClass} pl-10`}
                 />
               </div>
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="min-w-[150px] flex-1 text-[11px] font-medium text-slate-600">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="min-w-[180px] flex-1 text-xs font-medium text-slate-600 dark:text-slate-300">
                   Estado
                   <select
                     value={statusFilter}
                     onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-                    className={`${inputClass} mt-1 !h-9 !text-xs`}
+                    className={`${inputClass} mt-1.5`}
                   >
                     <option value="all">Todos los estados</option>
                     <option value="signed">Firmadas</option>
                     <option value="pending">Pendientes de firma</option>
                   </select>
                 </label>
-                <label className="min-w-[140px] flex-1 text-[11px] font-medium text-slate-600">
+                <label className="min-w-[180px] flex-1 text-xs font-medium text-slate-600 dark:text-slate-300">
                   Respuesta desde
                   <input
                     type="date"
                     value={fromDate}
                     max={toDate || undefined}
                     onChange={(event) => setFromDate(event.target.value)}
-                    className={`${inputClass} mt-1 !h-9 !text-xs`}
+                    className={`${inputClass} mt-1.5 min-w-0 tabular-nums dark:[color-scheme:dark]`}
                   />
                 </label>
-                <label className="min-w-[140px] flex-1 text-[11px] font-medium text-slate-600">
+                <label className="min-w-[180px] flex-1 text-xs font-medium text-slate-600 dark:text-slate-300">
                   Respuesta hasta
                   <input
                     type="date"
                     value={toDate}
                     min={fromDate || undefined}
                     onChange={(event) => setToDate(event.target.value)}
-                    className={`${inputClass} mt-1 !h-9 !text-xs`}
+                    className={`${inputClass} mt-1.5 min-w-0 tabular-nums dark:[color-scheme:dark]`}
                   />
                 </label>
                 {hasFilters && (
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-blue-700 hover:bg-blue-50"
                   >
-                    <X size={14} /> Limpiar
+                    <X size={16} /> Limpiar
                   </button>
                 )}
               </div>
-              <p aria-live="polite" className="text-xs text-slate-500">
+              <p aria-live="polite" className="text-sm text-slate-500">
                 {filtered.length} de {responses.length} respuestas
               </p>
             </div>
@@ -411,9 +410,9 @@ function ResponsesContent() {
                     aria-pressed={selected?.id === response.id}
                     onClick={() => {
                       setSelectedId(response.id);
-                      setTab('preview');
+                      setTab('form');
                     }}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-muted/30 ${selected?.id === response.id ? 'bg-blue-50/70 dark:bg-blue-950/20' : ''}`}
+                    className={`flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/30 ${selected?.id === response.id ? 'bg-blue-50/70 dark:bg-blue-950/20' : ''}`}
                   >
                     <span
                       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${response.status === 'signed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
@@ -421,18 +420,18 @@ function ResponsesContent() {
                       <FileCheck2 size={18} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-900 dark:text-foreground">
+                      <span className="block truncate text-base font-semibold text-slate-900 dark:text-foreground">
                         {nameOf(response)}
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                      <span className="mt-0.5 block truncate text-sm text-slate-500">
                         {emailOf(response)}
                       </span>
-                      <span className="mt-1 block text-[11px] text-slate-500">
+                      <span className="mt-1 block text-xs text-slate-500">
                         Respuesta: {formatDate(response.submitted_at)}
                       </span>
                     </span>
                     <span
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${response.status === 'signed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${response.status === 'signed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
                     >
                       {response.status === 'signed' ? 'Firmada' : 'Pendiente de firma'}
                     </span>
@@ -464,56 +463,46 @@ function ResponsesContent() {
           </section>
           <aside
             aria-label="Detalle de respuesta"
-            className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
+            className="self-start overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
           >
             {selected ? (
               <>
-                <header className="border-b border-slate-200 p-4 dark:border-border">
-                  <p className="text-sm font-semibold">Detalle de respuesta</p>
-                  <p className="mt-1 text-[11px] text-slate-500">
+                <header className="border-b border-slate-200 p-5 dark:border-border">
+                  <p className="text-base font-semibold">Detalle de respuesta</p>
+                  <p className="mt-1 text-xs text-slate-500">
                     ID {selected.id.slice(0, 8).toUpperCase()}
                   </p>
-                  <p className="mt-3 text-sm font-medium">{nameOf(selected)}</p>
-                  <p className="mt-0.5 break-all text-xs text-slate-500">{emailOf(selected)}</p>
-                  <dl className="mt-3 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 dark:bg-muted/40">
+                  <p className="mt-3 text-sm font-semibold">{nameOf(selected)}</p>
+                  <p className="mt-0.5 break-all text-sm text-slate-500">{emailOf(selected)}</p>
+                  <dl className="mt-4 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-4 dark:bg-muted/40">
                     <div>
-                      <dt className="text-[10px] font-medium uppercase text-slate-500">
+                      <dt className="text-xs font-medium uppercase text-slate-500">
                         Envío de invitación
                       </dt>
-                      <dd className="mt-1 text-xs font-medium">
+                      <dd className="mt-1 text-sm font-medium">
                         {detailBusy && !currentDetail
                           ? 'Consultando…'
                           : formatDate(currentDetail?.sent_at)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[10px] font-medium uppercase text-slate-500">
+                      <dt className="text-xs font-medium uppercase text-slate-500">
                         Respuesta recibida
                       </dt>
-                      <dd className="mt-1 text-xs font-medium">
+                      <dd className="mt-1 text-sm font-medium">
                         {formatDate(selected.submitted_at)}
                       </dd>
                     </div>
                   </dl>
                 </header>
-                <div className="border-b border-slate-200 p-4 dark:border-border">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(true)}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    <Eye size={16} /> Ver formulario contestado
-                  </button>
-                </div>
                 <div
                   role="tablist"
                   aria-label="Información de la respuesta"
-                  className="flex gap-1 border-b border-slate-200 px-3 pt-2 dark:border-border"
+                  className="flex gap-1 border-b border-slate-200 px-4 pt-2 dark:border-border"
                 >
                   {(
                     [
-                      ['preview', 'Vista previa', Eye],
-                      ['fields', 'Campos', ClipboardList],
+                      ['form', 'Formulario', ClipboardList],
                       ['document', 'PDF firmado', FileText],
                     ] as const
                   ).map(([key, label, Icon]) => (
@@ -523,70 +512,50 @@ function ResponsesContent() {
                       role="tab"
                       aria-selected={tab === key}
                       onClick={() => setTab(key)}
-                      className={`inline-flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2.5 text-[11px] font-medium ${tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                      className={`inline-flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2.5 text-xs font-medium ${tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                     >
-                      <Icon size={14} /> {label}
+                      <Icon size={15} /> {label}
                     </button>
                   ))}
                 </div>
-                {tab === 'preview' && (
-                  <div role="tabpanel" className="space-y-3 p-4">
-                    <p className="text-xs text-slate-500">Vista rápida de los datos capturados</p>
-                    <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-border dark:border-border">
-                      {answers.slice(0, 5).map((answer) => (
-                        <div key={answer.key} className="px-3 py-2.5">
-                          <p className="text-[10px] font-medium uppercase text-slate-500">
-                            {answer.label}
-                          </p>
-                          <p className="mt-1 break-words text-xs">{answerText(answer, selected)}</p>
-                        </div>
-                      ))}
-                      {answers.length === 0 && (
-                        <p className="p-3 text-xs text-slate-500">No hay campos capturados.</p>
-                      )}
-                    </div>
-                    {answers.length > 5 && (
-                      <button
-                        type="button"
-                        onClick={() => setTab('fields')}
-                        className="text-xs font-medium text-blue-700 hover:underline"
-                      >
-                        Ver los {answers.length} campos
-                      </button>
-                    )}
-                  </div>
-                )}
-                {tab === 'fields' && (
-                  <div role="tabpanel" className="max-h-[540px] overflow-y-auto p-4">
-                    <p className="mb-3 text-xs text-slate-500">
-                      Campos y respuestas del formulario
+                {tab === 'form' && (
+                  <div role="tabpanel" className="max-h-[540px] overflow-y-auto p-5">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewOpen(true)}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                    >
+                      <Eye size={16} /> Ver formulario contestado
+                    </button>
+                    <p className="mb-3 mt-5 text-sm text-slate-500">
+                      Datos capturados en el formulario
                     </p>
                     <dl className="space-y-3">
                       {answers.map((answer) => (
                         <div
                           key={answer.key}
-                          className="rounded-lg border border-slate-200 p-3 dark:border-border"
+                          className="rounded-lg border border-slate-200 p-4 dark:border-border"
                         >
-                          <dt className="text-[10px] font-medium uppercase text-slate-500">
+                          <dt className="text-xs font-medium uppercase text-slate-500">
                             {answer.label}
                           </dt>
-                          <dd className="mt-1 break-words text-xs leading-5">
+                          <dd className="mt-1 break-words text-sm leading-5">
                             {answerText(answer, selected)}
                           </dd>
                         </div>
                       ))}
                     </dl>
                     {answers.length === 0 && (
-                      <p className="text-xs text-slate-500">No hay campos capturados.</p>
+                      <p className="text-sm text-slate-500">No hay campos capturados.</p>
                     )}
                   </div>
                 )}
                 {tab === 'document' && (
-                  <div role="tabpanel" className="space-y-3 p-4">
+                  <div role="tabpanel" className="space-y-3 p-5">
                     <p className="text-sm font-medium">PDF firmado y certificado</p>
                     {currentDetail?.signed_pdf_ready ? (
                       <>
-                        <p className="text-xs leading-5 text-slate-600">
+                        <p className="text-sm leading-6 text-slate-600">
                           El documento final ya está disponible para consultar en el visor.
                         </p>
                         <button
@@ -598,21 +567,21 @@ function ResponsesContent() {
                         </button>
                       </>
                     ) : (
-                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                         {detailBusy && !currentDetail
                           ? 'Comprobando la certificación del documento…'
                           : 'El PDF firmado aún no se puede visualizar. Estará disponible cuando concluya la certificación y la verificación NOM-151.'}
                       </p>
                     )}
                     {detailError && (
-                      <p role="alert" className="text-xs text-red-600">
+                      <p role="alert" className="text-sm text-red-600">
                         {detailError}
                       </p>
                     )}
                     <button
                       type="button"
                       onClick={() => setRefreshKey((current) => current + 1)}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:underline"
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline"
                     >
                       <RefreshCw size={13} /> Actualizar estado
                     </button>
@@ -655,7 +624,7 @@ function ResponsesContent() {
                 </div>
                 <button
                   type="button"
-                  aria-label="Cerrar vista previa"
+                  aria-label="Cerrar formulario contestado"
                   onClick={() => setPreviewOpen(false)}
                   className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
                 >
@@ -694,7 +663,7 @@ function ResponsesContent() {
                               key={answer.key}
                               className="border-b border-slate-200 pb-2 dark:border-border"
                             >
-                              <dt className="text-[10px] font-medium uppercase text-slate-500">
+                              <dt className="text-xs font-medium uppercase text-slate-500">
                                 {answer.label}
                               </dt>
                               <dd className="mt-1 break-words text-sm">
@@ -728,7 +697,7 @@ function ResponsesContent() {
                                 key={answer.key}
                                 className="border-b border-slate-200 pb-2 dark:border-border"
                               >
-                                <dt className="text-[10px] font-medium uppercase text-slate-500">
+                                <dt className="text-xs font-medium uppercase text-slate-500">
                                   {answer.label}
                                 </dt>
                                 <dd className="mt-1 break-words text-sm">
