@@ -12,6 +12,20 @@ type SourceKind = 'document' | 'form_template' | 'template' | 'case_file' | 'for
 type Option = { id: string; name: string; status?: string };
 type Member = { id: string; name: string };
 
+const resourceStatusLabels: Record<string, string> = {
+  en_proceso: 'En proceso', borrador: 'Borrador', completado: 'Completado',
+  pendiente: 'Pendiente', cancelado: 'Cancelado', rechazado: 'Rechazado',
+  publicado: 'Publicado', archivado: 'Archivado', activo: 'Activo',
+  draft: 'Borrador', published: 'Publicado', active: 'Activo',
+  completed: 'Completado', pending: 'Pendiente', rejected: 'Rechazado',
+  signed: 'Firmado', submitted: 'Enviado', pending_signature: 'Pendiente de firma',
+};
+
+function resourceStatusLabel(status?: string) {
+  if (!status) return '';
+  return resourceStatusLabels[status] || status.replaceAll('_', ' ');
+}
+
 const sources: { key: SourceKind; label: string; icon: typeof FileText; types: { key: string; label: string }[] }[] = [
   { key: 'document', label: 'Documento', icon: FileText, types: [
     { key: 'revisar_documento', label: 'Revisar documento' }, { key: 'aprobar_documento', label: 'Aprobar documento' },
@@ -127,8 +141,8 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
     onCreated(); onClose();
   };
 
-  return <div role="dialog" aria-modal="true" aria-label="Nueva tarea" className="fixed inset-0 z-[70] overflow-y-auto bg-[#f6f8fb]">
-    <div className="mx-auto min-h-screen w-full max-w-5xl bg-white shadow-xl">
+  return <div role="dialog" aria-modal="true" aria-label="Nueva tarea" className="fixed inset-0 z-[70] overflow-y-auto bg-white">
+    <div className="mx-auto min-h-screen w-full max-w-5xl bg-white">
       <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-8">
         <div><h2 className="text-lg font-semibold text-slate-950">Nueva tarea</h2><p className="text-sm text-slate-500">Vincula el trabajo a un recurso existente.</p></div>
         <button onClick={onClose} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50"><X size={16} /> Cerrar</button>
@@ -144,8 +158,8 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
         </>}
         {step === 1 && <>
           <div><h3 className="text-base font-semibold text-slate-950">Selecciona el {selectedSource.label.toLocaleLowerCase('es')}</h3><p className="mt-1 text-sm text-slate-500">Se muestran recursos de este espacio cuyo estado permite el trabajo elegido.</p></div>
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder={`Buscar ${selectedSource.label.toLocaleLowerCase('es')}...`} className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm" />
-          {loading ? <p className="text-sm text-slate-500">Cargando recursos...</p> : filteredOptions.length === 0 ? <p className="rounded-md border border-dashed border-slate-200 p-6 text-sm text-slate-500">No hay recursos disponibles para esta selección.</p> : <div className="max-h-[420px] space-y-2 overflow-y-auto">{filteredOptions.map(option => <button key={option.id} onClick={() => { setSourceId(option.id); if (sourceKind === 'user') setAssignee(option.id); }} className={`flex w-full items-center gap-3 rounded-md border p-3 text-left ${sourceId === option.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}><span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{option.name}</span><span className="text-xs text-slate-500">{option.status || ''}</span>{sourceId === option.id && <Check size={16} className="text-blue-600" />}</button>)}</div>}
+          <input value={query} onChange={event => setQuery(event.target.value)} aria-label={`Buscar ${selectedSource.label.toLocaleLowerCase('es')}`} placeholder={`Buscar ${selectedSource.label.toLocaleLowerCase('es')}...`} className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm" />
+          {loading ? <p className="text-sm text-slate-500">Cargando recursos...</p> : filteredOptions.length === 0 ? <p className="rounded-md border border-dashed border-slate-200 p-6 text-sm text-slate-500">No hay recursos disponibles para esta selección.</p> : <div className="max-h-[420px] space-y-2 overflow-y-auto">{filteredOptions.map(option => <button key={option.id} onClick={() => { setSourceId(option.id); if (sourceKind === 'user') setAssignee(option.id); }} className={`flex w-full items-center gap-3 rounded-md border p-3 text-left ${sourceId === option.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}><span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{option.name}</span><span className="shrink-0 text-xs text-slate-500">{resourceStatusLabel(option.status)}{sourceKind !== 'user' ? ` · ${option.id.slice(0, 8).toUpperCase()}` : ''}</span>{sourceId === option.id && <Check size={16} className="text-blue-600" />}</button>)}</div>}
         </>}
         {step === 2 && <>
           <div><h3 className="text-base font-semibold text-slate-950">Responsable y plazo</h3><p className="mt-1 text-sm text-slate-500">El título se generará con el tipo de trabajo y el recurso que elegiste.</p></div>

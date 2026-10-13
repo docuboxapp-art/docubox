@@ -216,9 +216,9 @@ export default function TaskRuleBuilder({
       role="dialog"
       aria-modal="true"
       aria-label={existing ? 'Editar automatización' : 'Nueva automatización'}
-      className="fixed inset-0 z-[80] overflow-y-auto bg-[#f6f8fb]"
+      className="fixed inset-0 z-[80] overflow-y-auto bg-white"
     >
-      <div className="mx-auto min-h-screen max-w-4xl bg-white shadow-xl">
+      <div className="mx-auto min-h-screen w-full max-w-4xl bg-white">
         <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">

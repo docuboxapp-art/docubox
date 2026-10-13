@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, Save, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, Save, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -255,24 +255,24 @@ function TaskMetrics({ tasks, now }: { tasks: Task[]; now: number }) {
   ];
 
   return (
-    <section className="mb-4 rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-3 text-left">
-        <span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de tareas</span><span className="text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{total} pendientes</span>
-        {open ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+    <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="task-summary-metrics" className={`flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 ${open ? 'border-b border-slate-200' : ''}`}>
+        <span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de tareas</span><span className="mt-0.5 block text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{total} pendientes</span>
+        <ChevronDown size={18} className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      {open && <div id="task-summary-metrics" className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
       {metrics.map((m) => {
         const MIcon = m.icon;
         return (
-          <div key={m.label} className={`flex min-h-[86px] flex-col justify-between rounded-lg border ${m.border} bg-white p-3`}>
-            <div className="flex items-center justify-between">
-              <span className={`flex h-8 w-8 items-center justify-center rounded-md ${m.bg}`}>
-                <MIcon size={15} className={m.color} />
-              </span>
-              <span className={`text-2xl font-600 ${m.color} tabular-nums leading-none`}>{m.value}</span>
-            </div>
-            <p className="text-[11px] font-600 leading-tight text-slate-500">{m.label}</p>
+          <div key={m.label} className="flex min-h-24 items-center gap-3 px-4 py-4">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${m.bg}`}>
+              <MIcon size={17} className={m.color} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xl font-semibold leading-none tabular-nums text-slate-950">{m.value}</span>
+              <span className="mt-1 block text-xs leading-4 text-slate-500">{m.label}</span>
+            </span>
           </div>
         );
       })}
@@ -388,7 +388,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const [sourceInfo, setSourceInfo] = useState<{ name: string; status: string } | null>(null);
   const [canCompleteSystem, setCanCompleteSystem] = useState(false);
 
-  const typeInfo = TASK_TYPE_CONFIG[task.type];
+  const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const priorityInfo = PRIORITY_CONFIG[task.priority];
   const statusInfo = STATUS_CONFIG[task.status];
   const TypeIcon = typeInfo.icon;
@@ -637,8 +637,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   ];
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-[#f6f8fb]">
-      <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col overflow-hidden bg-white shadow-xl">
+    <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-white">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-white">
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-border bg-white px-5 py-4 sm:px-6">
           <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${typeInfo.bg} ${typeInfo.border}`}>
@@ -1032,13 +1032,16 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
     { id: 'cancelada',   label: 'Cancelada',   color: 'border-t-slate-400',  bg: 'bg-slate-50/20' },
     { id: 'rechazada',   label: 'Rechazada',   color: 'border-t-rose-500',   bg: 'bg-rose-50/20' },
   ];
+  const visibleColumns = columns.filter(col => tasks.some(task => task.status === col.id));
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-3">
-      {columns.filter(col => col.id !== 'completada' && col.id !== 'cancelada' && col.id !== 'rechazada' || tasks.some(task => task.status === col.id)).map(col => {
+    visibleColumns.length === 0 ? (
+      <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-12 text-center text-sm text-slate-500">Sin tareas para este tablero. Ajusta los filtros para ver otras etapas.</div>
+    ) : <div className="flex gap-3 overflow-x-auto pb-3">
+      {visibleColumns.map(col => {
         const colTasks = tasks.filter(t => t.status === col.id);
         return (
-          <div key={col.id} className={`flex w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`} style={{ minHeight: 480 }}>
+          <div key={col.id} className={`flex min-h-[240px] w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`}>
             <div className="flex items-center justify-between px-4 py-3">
               <span className="text-sm font-600 text-slate-900">{col.label}</span>
               <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-xs font-600 text-slate-500">{colTasks.length}</span>
@@ -1050,7 +1053,7 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
                   <Inbox size={24} className="mb-1" /><span className="text-xs">Sin tareas</span>
                 </div>
               ) : colTasks.map(task => {
-                const typeInfo = TASK_TYPE_CONFIG[task.type];
+                const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
                 const TypeIcon = typeInfo.icon;
                 const dueInfo = getDueBadge(task);
                 return (
@@ -1059,14 +1062,14 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
                       <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${typeInfo.bg}`}>
                         <TypeIcon size={11} className={typeInfo.color} />
                       </div>
-                      <p className="text-xs font-semibold text-foreground leading-snug line-clamp-2">{task.title}</p>
+                      <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{task.title}</p>
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1">
                         <Avatar initials={task.responsibleAvatar} size="xs" />
-                        <span className="text-[10px] text-muted-foreground truncate max-w-[80px]">{task.responsible.split(' ')[0]}</span>
+                        <span className="max-w-[100px] truncate text-xs text-muted-foreground">{task.responsible.split(' ')[0]}</span>
                       </div>
-                      <span className={`text-[10px] font-semibold ${dueInfo.urgent ? 'text-red-600' : 'text-muted-foreground'}`}>{dueInfo.text}</span>
+                      <span className={`text-xs font-semibold ${dueInfo.urgent ? 'text-red-600' : 'text-muted-foreground'}`}>{dueInfo.text}</span>
                     </div>
                   </button>
                 );
@@ -1103,8 +1106,8 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: 
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 className="text-sm font-600 text-slate-900">{MONTHS_ES[month]} {year}</h3>
         <div className="flex items-center gap-1">
-          <button onClick={prev} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronLeft size={15} /></button>
-          <button onClick={next} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronRight size={15} /></button>
+          <button onClick={prev} aria-label="Mes anterior" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronLeft size={15} /></button>
+          <button onClick={next} aria-label="Mes siguiente" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronRight size={15} /></button>
         </div>
       </div>
       <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/70">
@@ -1123,12 +1126,11 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: 
                     : <span className={`text-[11px] font-medium ${cell.current ? 'text-foreground' : 'text-muted-foreground/50'}`}>{cell.date.getDate()}</span>
                   }
                 </div>
-                <div className="space-y-0.5">
-                  {dayTasks.slice(0, 2).map(t => {
-                    const tc = TASK_TYPE_CONFIG[t.type];
-                    return <button key={t.id} onClick={() => onTaskClick(t)} title={t.title} className={`block w-full truncate rounded px-1 py-0.5 text-left text-[9px] font-semibold ${tc.bg} ${tc.color}`}>{t.title}</button>;
+                <div className="max-h-28 space-y-1 overflow-y-auto">
+                  {dayTasks.map(t => {
+                    const tc = TASK_TYPE_CONFIG[t.type] || TASK_TYPE_CONFIG.revisar_documento;
+                    return <button key={t.id} onClick={() => onTaskClick(t)} title={t.title} className={`block w-full truncate rounded px-1.5 py-1 text-left text-[11px] font-medium ${tc.bg} ${tc.color}`}>{t.title}</button>;
                   })}
-                  {dayTasks.length > 2 && <span className="text-[9px] text-muted-foreground pl-1">+{dayTasks.length - 2}</span>}
                 </div>
               </div>
             );
@@ -1151,20 +1153,21 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
   return (
     <div className="space-y-3">
       {Object.entries(groups).map(([docId, docTasks]) => {
-        const name = docTasks[0]?.documentName || docTasks[0]?.expedienteName || docTasks[0]?.title || 'Recurso';
+        const resource = getTaskResource(docTasks[0]);
+        const reference = docTasks[0]?.sourceId || docTasks[0]?.documentId || docTasks[0]?.expedienteId;
         return (
           <div key={docId} className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
               <FileText size={15} className="text-primary flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-600 text-slate-900">{name}</p>
-                <p className="text-[11px] text-slate-500">{docTasks.length} tarea{docTasks.length !== 1 ? 's' : ''}</p>
+                <p className="truncate text-sm font-600 text-slate-900">{resource.name}</p>
+                <p className="text-xs text-slate-500">{resource.kind}{reference ? ` · ${reference.slice(0, 8).toUpperCase()}` : ''} · {docTasks.length} tarea{docTasks.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
             <div className="divide-y divide-slate-100">
               {docTasks.map(task => {
-                const typeInfo = TASK_TYPE_CONFIG[task.type];
-                const statusInfo = STATUS_CONFIG[task.status];
+                const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
+                const statusInfo = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
                 const TypeIcon = typeInfo.icon;
                 return (
                   <button key={task.id} type="button" onClick={() => onTaskClick(task)} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/80">
@@ -1172,10 +1175,10 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
                       <TypeIcon size={11} className={typeInfo.color} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-foreground">{task.title}</p>
-                      <p className="text-[10px] text-muted-foreground">{typeInfo.label}</p>
+                      <p className="text-sm font-semibold text-foreground">{task.title}</p>
+                      <p className="text-xs text-muted-foreground">{typeInfo.label}</p>
                     </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusInfo.className}`}>{statusInfo.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusInfo.className}`}>{statusInfo.label}</span>
                     <Avatar initials={task.responsibleAvatar} size="xs" />
                   </button>
                 );
@@ -1203,7 +1206,7 @@ const QUICK_FILTERS = [
 export default function PendingTasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [listLayout, setListLayout] = useState<'rows' | 'grid'>('rows');
-  const [statusScope, setStatusScope] = useState<'active' | 'completada' | 'cancelada' | 'all'>('active');
+  const [statusScope, setStatusScope] = useState<TaskStatus | 'active' | 'all'>('active');
   const [kindScope, setKindScope] = useState<'all' | 'accion' | 'actividad'>('all');
   const [typeScope, setTypeScope] = useState<string>('all');
   const [sortMode, setSortMode] = useState<'due' | 'recent' | 'priority'>('due');
@@ -1277,11 +1280,13 @@ export default function PendingTasksPage() {
   const filtered = displayTasks.filter(task => {
     if (search) {
       const q = search.toLowerCase();
-      if (!task.title.toLowerCase().includes(q) && !task.documentName.toLowerCase().includes(q) && !task.expedienteName.toLowerCase().includes(q)) return false;
+      const searchable = [task.title, task.description, task.documentName, task.expedienteName,
+        task.responsible, TASK_TYPE_CONFIG[task.type]?.label].filter(Boolean).join(' ').toLocaleLowerCase('es');
+      if (!searchable.includes(q)) return false;
     }
     if (statusScope === 'active' && ['completada','cancelada','rechazada'].includes(task.status)) return false;
-    if (statusScope === 'completada' && task.status !== 'completada') return false;
-    if (statusScope === 'cancelada' && !['cancelada','rechazada'].includes(task.status)) return false;
+    if (statusScope === 'vencida' && !task.isOverdue && task.status !== 'vencida') return false;
+    if (statusScope !== 'all' && statusScope !== 'active' && statusScope !== 'vencida' && task.status !== statusScope) return false;
     if (kindScope !== 'all' && task.workKind !== kindScope) return false;
     if (typeScope !== 'all' && task.type !== typeScope) return false;
     if (activeFilters.includes('mis_tareas') && task.assignedTo !== user?.id) return false;
@@ -1337,8 +1342,8 @@ export default function PendingTasksPage() {
         <TaskMetrics tasks={displayTasks} now={now} />
 
         {/* View Tabs + Search */}
-        <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center">
           {/* View mode buttons */}
           <div className="flex h-9 w-fit items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
             {views.map(v => {
@@ -1360,6 +1365,7 @@ export default function PendingTasksPage() {
             <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
+              aria-label="Buscar tareas y recursos"
               placeholder="Buscar tareas, documentos..."
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -1374,14 +1380,15 @@ export default function PendingTasksPage() {
             <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">{filtered.length} de {tasks.length}</span>
           )}
         </div>
-        </section>
 
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
           <select aria-label="Tipo de trabajo" value={kindScope} onChange={event => setKindScope(event.target.value as typeof kindScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="all">Acciones y actividades</option><option value="accion">Acciones del proceso</option><option value="actividad">Actividades</option>
           </select>
           <select aria-label="Estado" value={statusScope} onChange={event => setStatusScope(event.target.value as typeof statusScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
-            <option value="active">En curso</option><option value="completada">Completadas</option><option value="cancelada">Canceladas</option><option value="all">Todos los estados</option>
+            <option value="active">Pendientes y en curso</option>
+            {Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
+            <option value="all">Todos los estados</option>
           </select>
           <select aria-label="Tipo de tarea" value={typeScope} onChange={event => setTypeScope(event.target.value)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="all">Todos los tipos</option>{Object.entries(TASK_TYPE_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
@@ -1392,7 +1399,7 @@ export default function PendingTasksPage() {
         </div>
 
         {/* Quick Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
           {QUICK_FILTERS.map(f => (
             <button
               key={f.id}
@@ -1415,6 +1422,7 @@ export default function PendingTasksPage() {
             </button>
           )}
         </div>
+        </section>
 
         {/* Loading */}
         {loading && (

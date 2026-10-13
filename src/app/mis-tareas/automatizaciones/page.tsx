@@ -257,7 +257,7 @@ export default function TaskAutomationsPage() {
 
   return (
     <AppLayout noPadding>
-      <main className="min-h-screen bg-[#f6f8fb] px-4 py-6 sm:px-6">
+      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
         <div className="mx-auto max-w-6xl space-y-5">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -583,7 +583,7 @@ export default function TaskAutomationsPage() {
             </div>
           </div>
         )}
-      </main>
+      </div>
     </AppLayout>
   );
 }
