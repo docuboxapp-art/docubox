@@ -6753,7 +6753,6 @@ export default function FirmarDocumentoPage() {
   const steps =
     isFormResponseDocument
       ? [
-          { id: 'formulario', label: 'Formulario completado' },
           { id: 'terminos', label: 'Consentimiento' },
           { id: 'firma', label: 'Firma' },
         ]
@@ -6770,7 +6769,6 @@ export default function FirmarDocumentoPage() {
 
   const currentStepIndex = steps.findIndex((s) => s.id === step);
   const signingStepIcons: Record<string, React.ElementType> = {
-    formulario: FileCheck2,
     terminos: Shield,
     campos: Type,
     firma: PenLine,
@@ -6780,7 +6778,6 @@ export default function FirmarDocumentoPage() {
   const CurrentSigningStepIcon = signingStepIcons[currentStepData?.id || 'terminos'] || FileText;
   const currentStepDescription = (
     {
-      formulario: 'Respuestas guardadas.',
       terminos: isFormResponseDocument
         ? 'Es el mismo formulario que respondiste. Revisa su PDF y confirma tu consentimiento.'
         : 'Revisa las condiciones y confirma tu consentimiento para participar.',
@@ -8582,7 +8579,7 @@ export default function FirmarDocumentoPage() {
       >
         <AppLogo size={34} imageClassName="max-sm:w-24" />
         <nav
-          aria-label={isFormResponseDocument ? 'Progreso del formulario y firma' : 'Pasos de firma'}
+          aria-label={isFormResponseDocument ? 'Pasos de firma del formulario' : 'Pasos de firma'}
           className={`mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border p-1 sm:gap-1 ${isDark ? 'border-gray-700 bg-gray-900/70' : 'border-slate-200 bg-slate-100/80'}`}
         >
           {steps.map((s, idx) => {
@@ -8594,10 +8591,9 @@ export default function FirmarDocumentoPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    isCompleted && s.id !== 'formulario' &&
-                    setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
+                    isCompleted && setStep(s.id as 'terminos' | 'campos' | 'firma' | 'aprobacion')
                   }
-                  disabled={!isCompleted || s.id === 'formulario'}
+                  disabled={!isCompleted}
                   aria-current={isActive ? 'step' : undefined}
                   aria-label={s.label}
                   title={s.label}

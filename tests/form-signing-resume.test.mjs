@@ -7,6 +7,12 @@ const source = readFileSync('supabase/functions/get-form-schema/index.ts', 'utf8
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
+const accessPolicySource = readFileSync('supabase/functions/_shared/form-access-policy.ts', 'utf8');
+const accessPolicyCompiled = ts.transpileModule(accessPolicySource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const accessPolicy = {};
+new Function('exports', accessPolicyCompiled)(accessPolicy);
 
 function fixture({
   userEmail = 'ana@example.com',
@@ -53,6 +59,7 @@ function fixture({
   new Function('require', 'exports', compiled)((name) => {
     if (name.includes('deno.land/std')) return { serve: (callback) => { handler = callback; } };
     if (name.includes('@supabase/supabase-js')) return { createClient: () => client };
+    if (name.includes('form-access-policy.ts')) return accessPolicy;
     throw new Error(`Unexpected import: ${name}`);
   }, {});
   const request = new Request('https://example.test/get-form-schema?token=used-token', {
