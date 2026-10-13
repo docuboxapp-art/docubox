@@ -121,7 +121,9 @@ function answerText(answer: Answer, response: ResponseRow) {
 
 function ResponsesContent() {
   const router = useRouter();
-  const formId = useSearchParams().get('id');
+  const searchParams = useSearchParams();
+  const formId = searchParams.get('id');
+  const requestedResponseId = searchParams.get('respuesta');
   const [formName, setFormName] = useState('Formulario');
   const [formDescription, setFormDescription] = useState('');
   const [fields, setFields] = useState<Field[]>([]);
@@ -191,7 +193,11 @@ function ResponsesContent() {
         const rows = (responseResult.data || []) as ResponseRow[];
         setResponses(rows);
         setSelectedId((current) =>
-          current && rows.some((row) => row.id === current) ? current : rows[0]?.id || null
+          requestedResponseId && rows.some((row) => row.id === requestedResponseId)
+            ? requestedResponseId
+            : current && rows.some((row) => row.id === current)
+              ? current
+              : rows[0]?.id || null
         );
       }
       setLoading(false);
@@ -200,7 +206,7 @@ function ResponsesContent() {
     return () => {
       cancelled = true;
     };
-  }, [formId]);
+  }, [formId, requestedResponseId]);
 
   const filtered = useMemo(() => {
     const needle = searchText(query);

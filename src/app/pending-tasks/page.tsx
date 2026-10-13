@@ -24,7 +24,7 @@ type TaskStatus =
 type ViewMode = 'lista' | 'kanban' | 'calendario' | 'documento';
 
 interface ChecklistItem { id: string; text: string; done: boolean; position?: number; }
-interface Comment { id: string; author: string; avatar: string; text: string; date: string; }
+interface Comment { id: string; authorId: string | null; author: string; avatar: string; text: string; date: string; }
 interface ActivityEntry { id: string; action: string; user: string; date: string; icon: React.ElementType; color: string; }
 interface Dependency { id: string; taskId: string; title: string; status: TaskStatus; }
 
@@ -466,7 +466,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
     // Load comments from dedicated table
     supabase.from('task_comments').select('*').eq('tarea_id', task.id).order('created_at', { ascending: true })
-      .then(({ data }) => { if (data && data.length > 0) setComments(data.map((r: any) => ({ id: r.id, author: r.author_name, avatar: r.author_avatar, text: r.text, date: r.created_at }))); });
+      .then(({ data }) => { if (data && data.length > 0) setComments(data.map((r: any) => ({ id: r.id, authorId: r.author_id, author: r.author_name, avatar: r.author_avatar, text: r.text, date: r.created_at }))); });
 
     // Load history from dedicated table
     supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false })
@@ -504,6 +504,12 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     onClose();
   };
 
+  const refreshHistory = async () => {
+    const { data } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
+    if (data) setHistory(data.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
+      date: entry.created_at, icon: ICON_MAP[entry.icon_name] || Plus, color: entry.color })));
+  };
+
   // ── Checklist operations ──
   const handleChecklistToggle = async (itemId: string) => {
     const item = checklist.find(c => c.id === itemId);
@@ -512,7 +518,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     const { error } = await supabase.from('task_checklist_items').update({ done: newDone }).eq('id', itemId);
     if (error) { setActionError(error.message); return; }
     setChecklist(prev => prev.map(c => c.id === itemId ? { ...c, done: newDone } : c));
-    await addHistoryEntry(`Checklist: "${item.text}" marcado como ${newDone ? 'completado' : 'pendiente'}`, 'CheckCircle2', 'text-green-500');
+    await refreshHistory();
   };
 
   const handleAddCheckItem = async () => {
@@ -524,14 +530,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       text: newItem.text, done: false, position: newItem.position, created_by: userId,
     });
     if (error) setActionError(error.message);
-    else { setChecklist(prev => [...prev, newItem]); setNewCheckItem(''); }
+    else { setChecklist(prev => [...prev, newItem]); setNewCheckItem(''); await refreshHistory(); }
     setAddingCheck(false);
   };
 
   const handleDeleteCheckItem = async (itemId: string) => {
     const { error } = await supabase.from('task_checklist_items').delete().eq('id', itemId);
     if (error) setActionError(error.message);
-    else setChecklist(prev => prev.filter(c => c.id !== itemId));
+    else { setChecklist(prev => prev.filter(c => c.id !== itemId)); await refreshHistory(); }
   };
 
   // ── Comment operations ──
@@ -539,31 +545,20 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     if (!newComment.trim() || !workspaceId || !userId) return;
     setSendingComment(true);
     const avatar = (userName || 'YO').slice(0, 2).toUpperCase();
-    const newC: Comment = { id: crypto.randomUUID(), author: userName || 'Yo', avatar, text: newComment.trim(), date: new Date().toISOString() };
+    const newC: Comment = { id: crypto.randomUUID(), authorId: userId, author: userName || 'Yo', avatar, text: newComment.trim(), date: new Date().toISOString() };
     const { error } = await supabase.from('task_comments').insert({
       id: newC.id, tarea_id: task.id, workspace_id: workspaceId,
       author_id: userId, author_name: newC.author, author_avatar: avatar, text: newC.text,
     });
     if (error) setActionError(error.message);
-    else { setComments(prev => [...prev, newC]); setNewComment(''); await addHistoryEntry(`Comentario agregado por ${userName || 'usuario'}`, 'MessageSquare', 'text-blue-500'); }
+    else { setComments(prev => [...prev, newC]); setNewComment(''); await refreshHistory(); }
     setSendingComment(false);
   };
 
   const handleDeleteComment = async (commentId: string) => {
     const { error } = await supabase.from('task_comments').delete().eq('id', commentId);
     if (error) setActionError(error.message);
-    else setComments(prev => prev.filter(c => c.id !== commentId));
-  };
-
-  // ── History helper ──
-  const addHistoryEntry = async (action: string, iconName: string, color: string) => {
-    if (!workspaceId) return;
-    const entry = { id: crypto.randomUUID(), action, user: userName || 'Sistema', date: new Date().toISOString(), icon: ICON_MAP[iconName] || Plus, color };
-    setHistory(prev => [entry, ...prev]);
-    await supabase.from('task_history').insert({
-      id: entry.id, tarea_id: task.id, workspace_id: workspaceId,
-      action, actor_id: userId, actor_name: userName || 'Sistema', icon_name: iconName, color,
-    });
+    else { setComments(prev => prev.filter(c => c.id !== commentId)); await refreshHistory(); }
   };
 
   // ── Dependency operations ──
@@ -578,14 +573,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       tarea_id: task.id, depends_on_id: selectedDepTask, workspace_id: workspaceId,
     });
     if (error) setActionError(error.message);
-    else { setDependencies(prev => [...prev, newDep]); setSelectedDepTask(''); await addHistoryEntry(`Dependencia agregada: "${depTask.title}"`, 'Link2', 'text-purple-500'); }
+    else { setDependencies(prev => [...prev, newDep]); setSelectedDepTask(''); await refreshHistory(); }
     setAddingDep(false);
   };
 
   const handleRemoveDependency = async (depId: string) => {
     const { error } = await supabase.from('task_dependencies').delete().eq('tarea_id', task.id).eq('depends_on_id', depId);
     if (error) setActionError(error.message);
-    else setDependencies(prev => prev.filter(d => d.id !== depId));
+    else { setDependencies(prev => prev.filter(d => d.id !== depId)); await refreshHistory(); }
   };
 
   // ── Edit task ──
@@ -620,17 +615,17 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-[#f6f8fb]">
       <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col overflow-hidden bg-white shadow-xl">
         {/* Header */}
-        <div className="flex items-start gap-3 border-b border-border bg-white px-5 py-4 sm:px-8">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${typeInfo.bg} border ${typeInfo.border}`}>
-            <TypeIcon size={17} className={typeInfo.color} />
+        <div className="flex items-start gap-3 border-b border-border bg-white px-5 py-4 sm:px-6">
+          <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${typeInfo.bg} ${typeInfo.border}`}>
+            <TypeIcon size={18} className={typeInfo.color} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <span className="text-[10px] font-mono text-muted-foreground">{task.id.slice(0,8).toUpperCase()}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusInfo.className}`}>{statusInfo.label}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${priorityInfo.className}`}>{priorityInfo.label}</span>
+              <span className="font-mono text-xs text-muted-foreground">{task.id.slice(0,8).toUpperCase()}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusInfo.className}`}>{statusInfo.label}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityInfo.className}`}>{priorityInfo.label}</span>
             </div>
-            <h2 className="text-sm font-semibold text-foreground leading-snug">{task.title}</h2>
+            <h2 className="text-xl font-semibold leading-snug text-foreground">{task.title}</h2>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {canManageTask && task.origin === 'manual' && !['completada','cancelada','rechazada'].includes(task.status) && <button
@@ -640,14 +635,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
             >
               <Edit2 size={14} />
             </button>}
-            <button onClick={handleClose} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50">
+            <button onClick={handleClose} className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <X size={16} />Cerrar
             </button>
           </div>
         </div>
 
         {/* Tabs — matching mis-participaciones style: text-sm, px-4 py-2 */}
-        <div className="flex overflow-x-auto border-b border-border bg-white px-5 gap-0 sm:px-8">
+        <div className="flex gap-0 overflow-x-auto border-b border-border bg-white px-5 sm:px-6">
           {tabs.map(t => {
             const TIcon = t.icon;
             return (
@@ -671,7 +666,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-[#f6f8fb] p-5 sm:p-8"><div className="mx-auto max-w-5xl space-y-5 rounded-lg border border-slate-200 bg-white p-5 sm:p-8">
+        <div className="flex-1 overflow-y-auto bg-white px-5 py-6 sm:px-6 lg:px-10">
+          <div className="mx-auto max-w-[1240px] space-y-6">
           {actionError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
           {/* ── Info / Edit ── */}
@@ -709,33 +705,41 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                 </div>
               ) : (
                 <>
-                  <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+                  <div className="border-l-[3px] border-primary bg-blue-50/50 px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad'} · {task.origin === 'sistema' ? 'Generada por el sistema' : 'Creada manualmente'}</p>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">{canCompleteSystem ? 'Esta acción surgió al crearse el recurso. Puedes completarla después de atenderla.' : task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
+                    <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{canCompleteSystem ? 'Esta acción surgió al crearse el recurso. Puedes completarla después de atenderla.' : task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Descripción</p>
-                    <p className="text-sm text-foreground leading-relaxed">{task.description || 'Sin descripción.'}</p>
+                  <div className="grid gap-6 border-b border-slate-200 pb-6 lg:grid-cols-2 lg:gap-10">
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Descripción</h3>
+                      <p className="text-[15px] leading-relaxed text-slate-800">{task.description || 'Sin descripción.'}</p>
+                    </div>
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Qué sigue</h3>
+                      <p className="text-[15px] leading-relaxed text-slate-800">{taskGuidance(task)}</p>
+                    </div>
                   </div>
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Qué sigue</p><p className="mt-1 text-sm text-slate-700">{taskGuidance(task)}</p></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { label: 'Tipo de tarea',  value: typeInfo.label },
-                      { label: 'Estado',         value: statusInfo.label },
-                      { label: 'Prioridad',      value: priorityInfo.label },
-                      { label: 'Riesgo',         value: RISK_CONFIG[task.risk].label },
-                      { label: 'Fecha límite',   value: formatDate(task.dueDate) },
-                      { label: 'Responsable',    value: task.responsible || '—' },
-                      { label: 'Creador',        value: task.creator || '—' },
-                      { label: 'Recurso vinculado', value: sourceInfo?.name || task.documentName || task.expedienteName || '—' },
-                      { label: 'Estado del recurso', value: sourceInfo?.status || 'Consulta el recurso para ver su estado actual' },
-                    ].filter(item => Boolean(item.value)).map(item => (
-                      <div key={item.label} className="bg-muted/30 rounded-lg p-2.5">
-                        <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">{item.label}</p>
-                        <p className="text-xs font-semibold text-foreground truncate" title={item.value}>{item.value}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <section aria-labelledby="task-detail-heading">
+                    <h3 id="task-detail-heading" className="mb-2 text-base font-semibold text-slate-900">Información de la tarea</h3>
+                    <dl className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        { label: 'Tipo de tarea', value: typeInfo.label },
+                        { label: 'Estado', value: statusInfo.label },
+                        { label: 'Prioridad', value: priorityInfo.label },
+                        { label: 'Riesgo', value: RISK_CONFIG[task.risk].label },
+                        { label: 'Fecha límite', value: formatDate(task.dueDate) },
+                        { label: 'Responsable', value: task.responsible || '—' },
+                        { label: 'Creador', value: task.creator || '—' },
+                        { label: 'Recurso vinculado', value: sourceInfo?.name || task.documentName || task.expedienteName || '—' },
+                        { label: 'Estado del recurso', value: sourceInfo?.status || 'Estado no disponible' },
+                      ].filter(item => Boolean(item.value)).map(item => (
+                        <div key={item.label} className="min-w-0 border-b border-slate-200 py-3">
+                          <dt className="mb-1 text-xs font-medium text-slate-500">{item.label}</dt>
+                          <dd className="break-words text-sm font-medium leading-5 text-slate-900">{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
                   {task.tags.length > 0 && (
                     <div>
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Etiquetas</p>
@@ -747,18 +751,18 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                     </div>
                   )}
                   {task.resolutionNote && <div className="rounded-md border border-green-200 bg-green-50 p-3"><p className="text-xs font-semibold text-green-800">Motivo de cierre</p><p className="mt-1 text-sm text-green-900">{task.resolutionNote}</p></div>}
-                  {canActTask ? <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Acciones</p>
+                  {canActTask ? <div className="border-t border-slate-200 pt-5">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Acciones</p>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => runAction('open')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">
-                        <Play size={14} />Abrir recurso vinculado
+                      <button onClick={() => runAction('open')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
+                        <Play size={16} />{task.type === 'retomar_borrador' ? 'Continuar borrador' : 'Abrir recurso vinculado'}
                       </button>
                       {!['completada','cancelada','rechazada'].includes(task.status) && <>
-                        {['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50">Iniciar seguimiento</button>}
-                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => runAction('complete')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-green-200 px-3 py-2 text-sm text-green-700 disabled:opacity-50"><CheckCircle2 size={14} />Completar</button>}
-                        {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"><Users size={14} />Reasignar</button>}
-                        <button onClick={() => runAction('remind')} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"><Bell size={14} />Recordatorio</button>
-                        {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm text-red-600"><XCircle size={14} />Cancelar</button>}
+                        {task.type !== 'retomar_borrador' && ['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Marcar en proceso</button>}
+                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => runAction('complete')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
+                        {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Users size={16} />Reasignar</button>}
+                        <button onClick={() => runAction('remind')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Bell size={16} />Recordatorio</button>
+                        {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"><XCircle size={16} />Cancelar</button>}
                       </>}
                     </div>
                     {reassignOpen && <div className="mt-3 flex max-w-lg gap-2"><select aria-label="Nuevo responsable" value={newAssignee} onChange={event => setNewAssignee(event.target.value)} className="h-10 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="">Selecciona un integrante</option>{members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button onClick={() => runAction('reassign')} disabled={!newAssignee || actionBusy} className="rounded-md bg-blue-600 px-4 text-sm text-white disabled:opacity-50">Guardar</button></div>}
@@ -781,7 +785,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               </div>
 
               {/* Add new item */}
-              <div className="flex gap-2 mb-4">
+              {canActTask && <div className="flex gap-2 mb-4">
                 <input
                   value={newCheckItem}
                   onChange={e => setNewCheckItem(e.target.value)}
@@ -797,7 +801,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                   {addingCheck ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus size={13} />}
                   Agregar
                 </button>
-              </div>
+              </div>}
 
               {checklist.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
@@ -807,7 +811,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               )}
               {checklist.map(item => (
                 <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group">
-                  <button type="button" aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
+                  <button type="button" disabled={!canActTask} aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
                     onClick={() => handleChecklistToggle(item.id)}
                     className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${item.done ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
                   >
@@ -818,12 +822,12 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                   >
                     {item.text}
                   </span>
-                  <button
+                  {canActTask && <button
                     onClick={() => handleDeleteCheckItem(item.id)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all"
                   >
                     <Trash2 size={12} />
-                  </button>
+                  </button>}
                 </div>
               ))}
             </div>
@@ -846,9 +850,9 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                       <span className="text-xs font-semibold text-foreground">{c.author}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-muted-foreground">{formatDate(c.date)} {formatTime(c.date)}</span>
-                        <button onClick={() => handleDeleteComment(c.id)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
+                        {(c.authorId === userId || canManageTask) && <button onClick={() => handleDeleteComment(c.id)} aria-label={`Eliminar comentario de ${c.author}`} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
                           <Trash2 size={11} />
-                        </button>
+                        </button>}
                       </div>
                     </div>
                     <p className="text-xs text-foreground/80 leading-relaxed">{c.text}</p>
@@ -910,7 +914,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
           {tab === 'dependencias' && (
             <div className="space-y-3">
               {/* Add dependency */}
-              <div className="flex gap-2 mb-4">
+              {canActTask && <div className="flex gap-2 mb-4">
                 <select
                   value={selectedDepTask}
                   onChange={e => setSelectedDepTask(e.target.value)}
@@ -931,7 +935,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                   {addingDep ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus size={13} />}
                   Agregar
                 </button>
-              </div>
+              </div>}
 
               {dependencies.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
@@ -949,16 +953,17 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         <p className="text-[10px] text-muted-foreground">{d.taskId}</p>
                       </div>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s.className}`}>{s.label}</span>
-                      <button onClick={() => handleRemoveDependency(d.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
+                      {canActTask && <button onClick={() => handleRemoveDependency(d.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
                         <X size={12} />
-                      </button>
+                      </button>}
                     </div>
                   );
                 })
               )}
             </div>
           )}
-        </div></div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1182,6 +1187,7 @@ export default function PendingTasksPage() {
           .order('created_at', { ascending: false }).order('id', { ascending: false })
           .range(from, to));
       setTasks(rows.map(mapRowToTask));
+      window.dispatchEvent(new Event('docubox:tasks-changed'));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Error inesperado al cargar las tareas.');
     } finally {
@@ -1205,6 +1211,7 @@ export default function PendingTasksPage() {
       if (data) {
         setTasks(prev => prev.map(t => t.id === taskId ? mapRowToTask(data) : t));
         setSelectedTask(prev => prev?.id === taskId ? mapRowToTask(data) : prev);
+        window.dispatchEvent(new Event('docubox:tasks-changed'));
       }
     });
   }, [supabase]);

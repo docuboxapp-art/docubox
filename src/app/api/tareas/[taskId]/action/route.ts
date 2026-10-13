@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authorizeTaskRequest } from '@/lib/tasks/server';
+import { formInvitationPath, formResponsePath } from '@/lib/tasks/action-navigation';
 
 export const runtime = 'nodejs';
 
@@ -32,11 +33,14 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
 
   if (action === 'open') {
     if (task.source_type === 'form_token' && task.source_id) {
-      const { data: token } = await service.from('form_tokens').select('template_id,used_at,expires_at')
+      const { data: token } = await service.from('form_tokens').select('template_id,recipient_email,used_at,expires_at')
         .eq('id', task.source_id).maybeSingle();
       if (!token || token.used_at || (token.expires_at && new Date(token.expires_at) < new Date()))
         return Response.json({ error: 'La invitación ya no está vigente.' }, { status: 409 });
-      return Response.json({ href: `/formularios/lanzar?id=${encodeURIComponent(token.template_id)}` });
+      const href = formInvitationPath(token.template_id, token.recipient_email, user.email);
+      if (!href)
+        return Response.json({ error: 'La invitación corresponde a otro destinatario.' }, { status: 403 });
+      return Response.json({ href });
     }
     if (task.document_id && z.string().uuid().safeParse(task.document_id).success) {
       const href = task.tipo === 'retomar_borrador'
@@ -52,7 +56,7 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
     if (task.source_type === 'form_response' && task.source_id) {
       const { data: response } = await service.from('form_responses').select('template_id,workspace_id')
         .eq('id', task.source_id).eq('workspace_id', workspaceId).maybeSingle();
-      if (response) return Response.json({ href: `/formularios/respuestas?id=${response.template_id}` });
+      if (response) return Response.json({ href: formResponsePath(response.template_id, task.source_id) });
     }
     if (task.source_type === 'user' && task.source_id === user.id)
       return Response.json({ href: '/mi-perfil' });
@@ -137,6 +141,46 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
       : { data: null };
     if (rule?.target_kind === 'task' || rule?.condition_kind !== 'created')
       return Response.json({ error: 'Esta acción se completa cuando se resuelve en el recurso vinculado.' }, { status: 409 });
+  }
+  if (action === 'complete') {
+    const dependencies = await service.from('task_dependencies').select('depends_on_id')
+      .eq('tarea_id', taskId).eq('workspace_id', workspaceId);
+    if (dependencies.error) return Response.json({ error: 'No se pudieron verificar las dependencias.' }, { status: 500 });
+    if (dependencies.data?.length) {
+      const pending = await service.from('tareas').select('id').eq('workspace_id', workspaceId)
+        .in('id', dependencies.data.map(item => item.depends_on_id)).neq('estado', 'completada').limit(1);
+      if (pending.error) return Response.json({ error: 'No se pudieron verificar las dependencias.' }, { status: 500 });
+      if (pending.data?.length) return Response.json({ error: 'Completa primero las tareas de las que depende esta acción.' }, { status: 409 });
+    }
+    if (task.work_kind === 'accion' && task.origin === 'manual') {
+      let confirmed = true;
+      if (task.tipo === 'retomar_borrador' && task.document_id) {
+        const result = await service.from('documentos').select('estado').eq('id', task.document_id).maybeSingle();
+        confirmed = Boolean(result.data && result.data.estado !== 'borrador');
+      } else if (task.tipo === 'firmar_documento' && task.document_id) {
+        const [document, signature] = await Promise.all([
+          service.from('documentos').select('estado').eq('id', task.document_id).maybeSingle(),
+          service.from('signature_evidence').select('id').eq('document_id', task.document_id)
+            .eq('captured_by', task.assigned_to).eq('is_voided', false).not('signed_at', 'is', null).limit(1),
+        ]);
+        confirmed = document.data?.estado === 'completado' || Boolean(signature.data?.length);
+      } else if (task.tipo === 'responder_formulario' && task.source_type === 'form_token' && task.source_id) {
+        const result = await service.from('form_tokens').select('used_at').eq('id', task.source_id).maybeSingle();
+        confirmed = Boolean(result.data?.used_at);
+      } else if (task.tipo === 'validar_identidad' && task.source_type === 'user' && task.source_id) {
+        const result = await service.from('user_verification_status').select('biometric_verified')
+          .eq('user_id', task.source_id).maybeSingle();
+        confirmed = result.data?.biometric_verified === true;
+      } else if (task.tipo === 'cerrar_expediente' && task.source_type === 'case_file' && task.source_id) {
+        const result = await service.from('case_files').select('closed_at').eq('id', task.source_id).maybeSingle();
+        confirmed = Boolean(result.data?.closed_at);
+      } else if (task.tipo === 'subir_anexo' && task.source_type === 'participant_requirement' && task.source_id) {
+        const result = await service.from('participant_document_requirements').select('provided_at,status')
+          .eq('id', task.source_id).maybeSingle();
+        confirmed = Boolean(result.data?.provided_at || ['approved','accepted','completed','waived'].includes(result.data?.status || ''));
+      }
+      if (!confirmed) return Response.json({ error: 'Completa primero la acción en el recurso vinculado; todavía no hay evidencia de que haya concluido.' }, { status: 409 });
+    }
   }
   const nextStatus = action === 'start' ? 'en_proceso' : action === 'complete' ? 'completada' : 'cancelada';
   const { error } = await service.from('tareas').update({

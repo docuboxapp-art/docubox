@@ -77,7 +77,7 @@ const resourceStatuses: Record<Exclude<CustomRule['target_kind'], 'task'>, strin
   form_template: ['draft', 'in_review', 'published', 'paused', 'closed', 'archived'],
   template: ['draft', 'published', 'archived'],
   case_file: ['draft', 'open', 'in_progress', 'closed'],
-  form_response: ['draft', 'submitted', 'signed'],
+  form_response: ['draft', 'submitted', 'signing', 'signed'],
   user: ['correo pendiente', 'identidad pendiente', 'validado'],
 };
 const typeOptions = [

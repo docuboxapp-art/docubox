@@ -20,6 +20,7 @@ const systemCatalog: Record<string, { label: string; description: string; days: 
   template_draft_stale: { label: 'Borradores de plantillas', description: 'Retoma plantillas que siguen sin publicar.', days: 'Días sin cambios' },
   form_draft_stale: { label: 'Borradores de formularios', description: 'Retoma formularios que siguen sin publicar.', days: 'Días sin cambios' },
   identity_pending: { label: 'Identidad pendiente', description: 'Solicita completar la biometría tras verificar el correo.', days: 'Días desde registro' },
+  form_signing_stale: { label: 'Firma de formulario pendiente', description: 'Crea un seguimiento para el creador cuando una respuesta permanece en proceso de firma; se cierra al resolverse.', days: 'Días sin firma' },
 };
 
 const taskTypes = [
