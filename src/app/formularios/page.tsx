@@ -84,6 +84,7 @@ export default function FormulariosPage() {
   const [scheduledDialogOpen, setScheduledDialogOpen] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [pendingDialogError, setPendingDialogError] = useState('');
+  const [pendingDialogMessage, setPendingDialogMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<FormFilter>('auto');
@@ -339,6 +340,7 @@ export default function FormulariosPage() {
     if (pendingActionId) return;
     setPendingActionId(launch.id);
     setPendingDialogError('');
+    setPendingDialogMessage('');
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
@@ -355,8 +357,44 @@ export default function FormulariosPage() {
         ));
       }
       setNotice(action === 'resend' ? `Recordatorio enviado a ${launch.recipient_email}.` : 'Enlace cancelado.');
+      setPendingDialogMessage(action === 'resend' ? `Recordatorio enviado a ${launch.recipient_email}.` : 'Enlace cancelado.');
     } catch (cause) {
       setPendingDialogError(cause instanceof Error ? cause.message : 'No fue posible gestionar este enlace.');
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
+  const managePublicInvite = async (invitee: PublicFormInvite, action: 'resend' | 'cancel') => {
+    if (pendingActionId) return;
+    const rowId = `${invitee.form_id}:${invitee.recipient_email}`;
+    setPendingActionId(rowId);
+    setPendingDialogError('');
+    setPendingDialogMessage('');
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (sessionError || !accessToken) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+      const response = await fetch(`/api/formularios/lanzamientos/publicos/${encodeURIComponent(invitee.form_id)}`, {
+        method: action === 'resend' ? 'POST' : 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: invitee.recipient_email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'No fue posible gestionar la invitación.');
+      if (action === 'cancel') {
+        setPublicInvitees((current) => current.filter((item) =>
+          item.form_id !== invitee.form_id || item.recipient_email !== invitee.recipient_email
+        ));
+      }
+      setNotice(action === 'resend'
+        ? `Invitación y código reenviados a ${invitee.recipient_email}.`
+        : 'Invitación cancelada. El código dejó de funcionar.');
+      setPendingDialogMessage(action === 'resend'
+        ? `Invitación y código reenviados a ${invitee.recipient_email}.`
+        : 'Invitación cancelada. El código dejó de funcionar.');
+    } catch (cause) {
+      setPendingDialogError(cause instanceof Error ? cause.message : 'No fue posible gestionar la invitación.');
     } finally {
       setPendingActionId(null);
     }
@@ -722,7 +760,7 @@ export default function FormulariosPage() {
           <button type="button" onClick={() => void navigator.clipboard.writeText(publicAccessInfo.url).then(() => setNotice('Enlace copiado.'))} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> Copiar enlace</button>
         </div>
       </div>}
-      {pendingDialogOpen && <PendingResponsesDialog launches={launchSummary.tokenLaunches} publicInvitees={launchSummary.pendingPublicInvitees} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setPendingDialogOpen(false); }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} />}
+      {pendingDialogOpen && <PendingResponsesDialog launches={launchSummary.tokenLaunches} publicInvitees={launchSummary.pendingPublicInvitees} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} message={pendingDialogMessage} onClose={() => { if (!pendingActionId) { setPendingDialogOpen(false); setPendingDialogMessage(''); } }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} onResendInvite={(invitee) => void managePublicInvite(invitee, 'resend')} onCancelInvite={(invitee) => void managePublicInvite(invitee, 'cancel')} />}
       {scheduledDialogOpen && <ScheduledLaunchesDialog launches={scheduledLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setScheduledDialogOpen(false); }} onCancel={(launch) => void cancelScheduledLaunch(launch)} />}
       {notice && <BottomNotice message={notice} onClose={() => setNotice('')} />}
     </AppLayout>
@@ -783,24 +821,27 @@ function RemoveDialog({ form, mode, busy, error, onCancel, onConfirm }: { form: 
   );
 }
 
-function PendingResponsesDialog({ launches, publicInvitees, formNames, busyId, error, onClose, onResend, onCancelLink }: {
+function PendingResponsesDialog({ launches, publicInvitees, formNames, busyId, error, message, onClose, onResend, onCancelLink, onResendInvite, onCancelInvite }: {
   launches: FormLaunch[];
   publicInvitees: PublicFormInvite[];
   formNames: Map<string, string>;
   busyId: string | null;
   error: string;
+  message: string;
   onClose: () => void;
   onResend: (launch: FormLaunch) => void;
   onCancelLink: (launch: FormLaunch) => void;
+  onResendInvite: (invitee: PublicFormInvite) => void;
+  onCancelInvite: (invitee: PublicFormInvite) => void;
 }) {
   return <div role="dialog" aria-modal="true" aria-labelledby="pending-responses-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} onKeyDown={(event) => { if (event.key === 'Escape') onClose(); }}>
     <div className="flex max-h-[min(85vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-border dark:bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-border"><div><h2 id="pending-responses-title" className="text-base font-semibold text-slate-950 dark:text-foreground">Respuestas pendientes</h2><p className="mt-1 text-xs text-slate-500">Enlaces e invitaciones con código que aún esperan respuesta.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar pendientes" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={18} /></button></div>
 <div className="overflow-y-auto p-5">{launches.length + publicInvitees.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay respuestas pendientes.</p> : <div className="space-y-3">{launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{launch.recipient_name || launch.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(launch.template_id) || 'Formulario'} · Enlace</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Enviado: {new Date(launch.created_at).toLocaleDateString('es-MX')}{launch.expires_at ? ` · Vence: ${new Date(launch.expires_at).toLocaleString('es-MX')}` : ' · Sin vencimiento'}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResend(launch)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === launch.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelLink(launch)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar enlace</button></div></div>)}{publicInvitees.map((invitee) => {
         const rowId = `${invitee.form_id}:${invitee.recipient_email}`;
-        return <div key={rowId} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{invitee.recipient_name || invitee.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(invitee.form_id) || 'Formulario'} · Código de acceso</p><p className="truncate text-xs text-slate-500">{invitee.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Invitado: {new Date(invitee.invited_at).toLocaleDateString('es-MX')}</p></div></div>;
+        return <div key={rowId} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{invitee.recipient_name || invitee.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(invitee.form_id) || 'Formulario'} · Código de acceso</p>{invitee.recipient_name && invitee.recipient_name !== invitee.recipient_email && <p className="truncate text-xs text-slate-500">{invitee.recipient_email}</p>}<p className="mt-1 text-[11px] text-slate-500">Invitado: {new Date(invitee.invited_at).toLocaleDateString('es-MX')}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResendInvite(invitee)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === rowId ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelInvite(invitee)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar invitación</button></div></div>;
       })}</div>}
-      {error && <p role="alert" className="mt-4 text-xs text-red-600">{error}</p>}</div>
+      {error && <p role="alert" className="mt-4 text-xs text-red-600">{error}</p>}{message && <p role="status" className="mt-4 text-xs text-emerald-700">{message}</p>}</div>
     </div>
   </div>;
 }
