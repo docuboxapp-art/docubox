@@ -1263,17 +1263,12 @@ export default function VisorDocumentoPage() {
     nom151LookupComplete && padesBtVerified && nom151Data?.verification_status === 'verified';
   const signedPdfReadyForDownload =
     Boolean(document?.sealed_pdf_path) && finalDeliverableAvailable;
-  const formFinalPdfLoading = Boolean(
-    document?.source_form_response_id && document.estado === 'completado' && !nom151LookupComplete
-  );
   const formFinalPdfPending = Boolean(
     document?.source_form_response_id &&
       document.estado === 'completado' &&
       nom151LookupComplete &&
       !signedPdfReadyForDownload
   );
-  const formFinalPdfProviderMissing =
-    formFinalPdfPending && evidenceV2?.errorCode === 'NOM151_PROVIDER_NOT_CONFIGURED';
   const formStampStyle = participationResponses.find((response) => response.firma_completada)
     ?.signature_stamp_style?.trim().toUpperCase() || null;
   const formStampOmitsQr = formStampStyle === 'AC1' || formStampStyle === 'AC2';
@@ -6257,16 +6252,6 @@ export default function VisorDocumentoPage() {
                 </div>
               ) : document.file_url ? (
                 <div className="flex min-h-full min-w-full flex-col items-center gap-3 p-4 md:p-6">
-                  {formFinalPdfLoading && (
-                    <div role="status" className="w-full max-w-[800px] rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
-                      Verificando el estado del PDF final. Puedes consultar el PDF original mientras termina la comprobación.
-                    </div>
-                  )}
-                  {formFinalPdfProviderMissing && (
-                    <div role="alert" className="w-full max-w-[800px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs leading-5 text-red-900">
-                      No se pudo generar el PDF certificado: falta configurar el proveedor de constancias NOM-151.
-                    </div>
-                  )}
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
                     <PdfCanvas
                       fileUrl={document.file_url}
