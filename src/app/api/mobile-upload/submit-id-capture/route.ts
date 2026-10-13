@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import { hashCapabilityToken } from '@/lib/security/capability-token';
 import {
@@ -9,6 +8,7 @@ import {
   validImageBase64,
 } from '@/lib/identity/capture-crypto';
 import { findStoredIdentity } from '@/lib/identity/stored-identity';
+import { IdentityProviderUnavailableError, verifyIdentityAndLiveness } from '@/lib/identity/verify-provider';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,18 +29,6 @@ export async function POST(request: NextRequest) {
         { error: 'El cifrado biometrico no esta configurado.' },
         { status: 503 }
       );
-    const providerUrl = process.env.IDENTITY_VERIFICATION_GATEWAY_URL;
-    const providerToken = process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN;
-    if (!providerUrl || !providerToken) {
-      return NextResponse.json(
-        {
-          error: 'El proveedor de identidad y prueba de vida no esta configurado.',
-          code: 'IDENTITY_PROVIDER_NOT_CONFIGURED',
-        },
-        { status: 503 }
-      );
-    }
-
     const supabase = createServiceClient();
     const { data: session } = await supabase
       .from('mobile_upload_sessions')
@@ -77,23 +65,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const providerResponse = await fetch(providerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${providerToken}` },
-      body: JSON.stringify({
-        operation: 'VERIFY_IDENTITY_AND_LIVENESS',
-        correlation_id: randomUUID(),
-        document_front_base64: front,
-        document_back_base64: back,
-        selfie_base64: selfie,
-        ...(validImageBase64(video) ? { liveness_video_base64: video } : {}),
-      }),
-      signal: AbortSignal.timeout(60_000),
+    const provider = await verifyIdentityAndLiveness({
+      front,
+      back,
+      selfie,
+      video: validImageBase64(video) ? video : null,
+      approvedDocument: storedIdentity?.front === front ? {
+        curp: storedIdentity.curp,
+        nombre: storedIdentity.nombre,
+      } : null,
     });
-    const provider = (await providerResponse.json().catch(() => ({}))) as Record<string, any>;
-    if (!providerResponse.ok) {
-      return NextResponse.json({ error: 'No fue posible validar la identidad.' }, { status: 502 });
-    }
 
     const documentValidation = provider.document_validation || {};
     const faceValidation = provider.face_validation || {};
@@ -232,6 +213,9 @@ export async function POST(request: NextRequest) {
       { status: identityMatch ? 200 : 422 }
     );
   } catch (error) {
+    if (error instanceof IdentityProviderUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     console.error(
       '[submit-id-capture] Failed:',
       error instanceof Error ? error.message : 'unknown'

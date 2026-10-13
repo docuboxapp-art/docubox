@@ -989,18 +989,20 @@ function OcrValidationScreen({
 // ─── Face Validation Screen ───────────────────────────────────────────────────
 
 function FaceValidationScreen({
-  selfie, idAnverso, token, onConfirm, onBack,
+  selfie, idAnverso, token, usingStoredId, onConfirm, onBack,
 }: {
   selfie: string | null;
   idAnverso: string | null;
   token: string;
+  usingStoredId: boolean;
   onConfirm: () => void;
-  onBack: () => void;
+  onBack: (countAttempt: boolean) => void;
 }) {
   const [validating, setValidating] = useState(true);
   const [similitud, setSimilitud] = useState<number | null>(null);
   const [aprobado, setAprobado] = useState(false);
   const [faceApiError, setFaceApiError] = useState<string | null>(null);
+  const [retryIndex, setRetryIndex] = useState(0);
   const calledRef = useRef(false);
 
   useEffect(() => {
@@ -1008,7 +1010,7 @@ function FaceValidationScreen({
     calledRef.current = true;
 
     const runFaceComparison = async () => {
-      if (!selfie || !idAnverso) {
+      if (!selfie || (!idAnverso && !usingStoredId)) {
         setFaceApiError('No se encontraron las imágenes necesarias para la comparación.');
         setValidating(false);
         return;
@@ -1017,7 +1019,7 @@ function FaceValidationScreen({
         const res = await fetch('/api/nubarium/reconocimiento-facial', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credencial: idAnverso, captura: selfie, enrollmentToken: token }),
+          body: JSON.stringify({ credencial: idAnverso || undefined, captura: selfie, enrollmentToken: token }),
         });
         let data: Record<string, unknown> = {};
         try { data = await res.json(); } catch {
@@ -1030,17 +1032,17 @@ function FaceValidationScreen({
           setValidating(false);
           return;
         }
+        if (data.error || (data.estatus && data.estatus !== 'OK' && !data.isSimilarityRejection)) {
+          const nubariumMsg = typeof data.mensaje === 'string' ? data.mensaje : null;
+          const apiError = typeof data.error === 'string' ? data.error : null;
+          setFaceApiError(nubariumMsg || apiError || 'Error al comparar rostros con Nubarium.');
+          setValidating(false);
+          return;
+        }
         if (typeof data.similitud === 'number') {
           const sim = data.similitud as number;
           setSimilitud(sim);
           setAprobado(sim >= 99.50);
-          setValidating(false);
-          return;
-        }
-        if (data.error || (data.estatus && data.estatus !== 'OK')) {
-          const nubariumMsg = typeof data.mensaje === 'string' ? data.mensaje : null;
-          const apiError = typeof data.error === 'string' ? data.error : null;
-          setFaceApiError(nubariumMsg || apiError || 'Error al comparar rostros con Nubarium.');
           setValidating(false);
           return;
         }
@@ -1059,7 +1061,14 @@ function FaceValidationScreen({
 
     runFaceComparison();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryIndex]);
+
+  const retryComparison = () => {
+    calledRef.current = false;
+    setFaceApiError(null);
+    setValidating(true);
+    setRetryIndex((value) => value + 1);
+  };
 
   const canContinue = !validating && aprobado && !faceApiError;
 
@@ -1112,8 +1121,8 @@ function FaceValidationScreen({
       )}
 
       {!validating && faceApiError && (
-        <button onClick={onBack} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <RefreshCw size={16} /> Volver a capturar
+        <button onClick={retryComparison} style={{ width: '100%', padding: '15px 0', borderRadius: 16, background: BRAND.blueGradient, color: '#fff', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <RefreshCw size={16} /> Reintentar validación
         </button>
       )}
 
@@ -1123,7 +1132,7 @@ function FaceValidationScreen({
         </PrimaryBtn>
       )}
 
-      <SecondaryBtn onClick={onBack}>
+      <SecondaryBtn onClick={() => onBack(similitud !== null && !aprobado && !faceApiError)}>
         <ChevronLeft size={16} /> Regresar
       </SecondaryBtn>
     </div>
@@ -1916,8 +1925,9 @@ export default function CapturaIdMovilPage() {
               selfie={captureData.selfiePhoto}
               idAnverso={captureData.anverso}
               token={token}
+              usingStoredId={usingStoredId}
               onConfirm={handleSubmit}
-              onBack={handleSelfieBack}
+              onBack={(countAttempt) => countAttempt ? handleSelfieBack() : setScreen('selfie_instructions')}
             />
           )}
 

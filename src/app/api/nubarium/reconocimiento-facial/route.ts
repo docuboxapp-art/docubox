@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { hashCapabilityToken } from '@/lib/security/capability-token';
+import { captureEncryptionKey, validImageBase64 } from '@/lib/identity/capture-crypto';
+import { findStoredIdentity } from '@/lib/identity/stored-identity';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,8 +14,34 @@ export async function POST(request: NextRequest) {
     }
 
     const { credencial, captura, enrollmentToken } = body;
+    let comparisonCredential = credencial;
 
-    if (!credencial || !captura) {
+    // Public-form sessions deliberately do not send the approved ID image to
+    // the browser. Resolve it here using the short-lived mobile session token.
+    if (enrollmentToken && /^[a-f0-9]{64}$/i.test(enrollmentToken)) {
+      const supabase = createServiceClient();
+      const { data: session, error: sessionError } = await supabase
+        .from('mobile_upload_sessions')
+        .select('user_id,status,expires_at,metadata')
+        .eq('token_hash', hashCapabilityToken(enrollmentToken))
+        .maybeSingle();
+      if (sessionError) {
+        return NextResponse.json({ error: 'No fue posible verificar la sesión de captura.' }, { status: 503 });
+      }
+      if (session?.metadata?.mode === 'public_form_liveness') {
+        if (session.status !== 'pending' || new Date(session.expires_at) <= new Date() || !session.user_id) {
+          return NextResponse.json({ error: 'La sesión de captura expiró. Solicita un nuevo acceso.' }, { status: 410 });
+        }
+        const key = captureEncryptionKey();
+        if (!key) {
+          return NextResponse.json({ error: 'El cifrado biométrico no está configurado.' }, { status: 503 });
+        }
+        const stored = await findStoredIdentity(supabase, session.user_id, key);
+        if (stored?.front) comparisonCredential = stored.front;
+      }
+    }
+
+    if (!comparisonCredential || !captura) {
       return NextResponse.json({ error: 'Se requieren las imágenes de credencial y selfie' }, { status: 400 });
     }
 
@@ -34,8 +63,11 @@ export async function POST(request: NextRequest) {
       return dataUrl;
     };
 
-    const cleanCredencial = cleanBase64(credencial);
+    const cleanCredencial = cleanBase64(comparisonCredential);
     const cleanCaptura = cleanBase64(captura);
+    if (!validImageBase64(cleanCredencial) || !validImageBase64(cleanCaptura)) {
+      return NextResponse.json({ error: 'Las imágenes de credencial o selfie no son válidas.' }, { status: 400 });
+    }
 
     console.log(`[reconocimiento-facial] Sending request to Nubarium, tipo=imagen, credencial_len=${cleanCredencial.length}, captura_len=${cleanCaptura.length}`);
 

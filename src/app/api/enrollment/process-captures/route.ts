@@ -8,6 +8,7 @@ import {
   normalizeImageBase64,
   validImageBase64,
 } from '@/lib/identity/capture-crypto';
+import { IdentityProviderUnavailableError, verifyIdentityAndLiveness } from '@/lib/identity/verify-provider';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,18 +38,6 @@ export async function POST(request: NextRequest) {
         { status: 503 }
       );
     }
-    const providerUrl = process.env.IDENTITY_VERIFICATION_GATEWAY_URL;
-    const providerToken = process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN;
-    if (!providerUrl || !providerToken) {
-      return NextResponse.json(
-        {
-          error: 'El proveedor de verificacion de identidad no esta configurado.',
-          code: 'IDENTITY_PROVIDER_NOT_CONFIGURED',
-        },
-        { status: 503 }
-      );
-    }
-
     const supabase = createServiceClient();
     const { data: tokenData, error: tokenError } = await supabase
       .from('enrollment_tokens')
@@ -65,26 +54,12 @@ export async function POST(request: NextRequest) {
     }
 
     const correlationId = crypto.randomUUID();
-    const providerResponse = await fetch(providerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${providerToken}` },
-      body: JSON.stringify({
-        operation: 'VERIFY_IDENTITY_AND_LIVENESS',
-        correlation_id: correlationId,
-        document_type: tipoId,
-        document_front_base64: anversoData,
-        document_back_base64: reversoData,
-        selfie_base64: selfieData,
-      }),
-      signal: AbortSignal.timeout(60_000),
+    const provider = await verifyIdentityAndLiveness({
+      front: anversoData,
+      back: reversoData,
+      selfie: selfieData,
+      documentType: tipoId,
     });
-    const provider = (await providerResponse.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!providerResponse.ok) {
-      return NextResponse.json(
-        { error: 'El proveedor no pudo procesar las capturas.' },
-        { status: 502 }
-      );
-    }
 
     const documentValidation = (provider.document_validation || {}) as Record<string, unknown>;
     const faceValidation = (provider.face_validation || {}) as Record<string, unknown>;
@@ -144,6 +119,9 @@ export async function POST(request: NextRequest) {
       { status: validated ? 200 : 422 }
     );
   } catch (error) {
+    if (error instanceof IdentityProviderUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     console.error('[process-captures] Failed:', error instanceof Error ? error.message : 'unknown');
     return NextResponse.json({ error: 'No fue posible procesar las capturas.' }, { status: 500 });
   }
