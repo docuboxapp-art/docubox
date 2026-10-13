@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { authorizeTaskRequest } from '@/lib/tasks/server';
 import { formInvitationPath, formResponsePath } from '@/lib/tasks/action-navigation';
 import { completionAttestationIsValid, completionMode } from '@/lib/tasks/completion-policy';
+import { isScheduledForLater, scheduleValidationError } from '@/lib/tasks/schedule';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,7 @@ const inputSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   priority: z.enum(['baja', 'media', 'alta', 'critica']).optional(),
   dueDate: z.string().datetime().nullable().optional(),
+  scheduledFor: z.string().datetime().nullable().optional(),
 });
 
 export async function POST(request: Request, context: { params: Promise<{ taskId: string }> }) {
@@ -69,6 +71,8 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
 
   if (['completada', 'cancelada', 'rechazada'].includes(task.estado))
     return Response.json({ error: 'La tarea ya terminó.' }, { status: 409 });
+  if (isScheduledForLater(task.scheduled_for) && ['start', 'complete', 'remind'].includes(action))
+    return Response.json({ error: 'Esta tarea aún no comienza. Puedes consultar el recurso o cambiar su programación.' }, { status: 409 });
   const actorName = (await service.from('user_profiles').select('full_name,email').eq('id', user.id).maybeSingle()).data;
   const audit = async (description: string) => service.from('task_history').insert({
     tarea_id: taskId, workspace_id: workspaceId, action: description,
@@ -78,8 +82,15 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
 
   if (action === 'edit') {
     if (!canManage || task.origin !== 'manual') return Response.json({ error: 'Solo puedes editar una actividad manual que administras.' }, { status: 403 });
+    const nextSchedule = parsed.data.scheduledFor === undefined ? task.scheduled_for : parsed.data.scheduledFor;
+    const nextDueDate = parsed.data.dueDate === undefined ? task.due_date : parsed.data.dueDate;
+    if (parsed.data.scheduledFor !== undefined || isScheduledForLater(nextSchedule)) {
+      const scheduleError = scheduleValidationError(nextSchedule, nextDueDate);
+      if (scheduleError) return Response.json({ error: scheduleError }, { status: 400 });
+    }
     const changes = { title: parsed.data.title, description: parsed.data.description,
       prioridad: parsed.data.priority, due_date: parsed.data.dueDate,
+      scheduled_for: parsed.data.scheduledFor,
       riesgo: parsed.data.priority === 'critica' ? 'alto' : parsed.data.priority === 'alta' ? 'medio' : 'bajo' };
     if (!changes.title || !changes.prioridad) return Response.json({ error: 'Completa el título y la prioridad.' }, { status: 400 });
     const { error } = await service.from('tareas').update(changes).eq('id', taskId);

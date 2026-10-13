@@ -11,6 +11,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import NewTaskWizard from './components/NewTaskWizard';
 import { fetchAllPages } from '@/lib/tasks/pagination';
 import { completionMode } from '@/lib/tasks/completion-policy';
+import { dueCalendarLabel, isScheduledForLater, toLocalDateTimeInput } from '@/lib/tasks/schedule';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -47,6 +48,7 @@ interface Task {
   status: TaskStatus;
   risk: 'alto' | 'medio' | 'bajo';
   dueDate: string;
+  scheduledFor: string;
   createdAt: string;
   sla: string;
   responsible: string;
@@ -131,11 +133,8 @@ function getDueBadge(task: Task) {
   if (!task.dueDate) return { text: 'Sin fecha', urgent: false };
   if (['completada', 'cancelada', 'rechazada'].includes(task.status)) return { text: formatDate(task.dueDate), urgent: false };
   if (task.isOverdue || task.status === 'vencida') return { text: 'Vencida', urgent: true };
-  const diff = new Date(task.dueDate).getTime() - Date.now();
-  const days = Math.ceil(diff / 86400000);
-  if (days <= 0) return { text: 'Hoy', urgent: true };
-  if (days === 1) return { text: 'Mañana', urgent: true };
-  if (days <= 3) return { text: `${days} días`, urgent: true };
+  const label = dueCalendarLabel(task.dueDate);
+  if (label) return { text: label, urgent: true };
   return { text: formatDate(task.dueDate), urgent: false };
 }
 function isSameDay(a: Date, b: Date) {
@@ -171,6 +170,7 @@ function taskGuidance(task: Task) {
   if (task.type === 'firmar_documento') return 'Abre el documento y continúa con el proceso de firma habilitado para ti.';
   if (task.type === 'aprobar_documento') return 'Abre el recurso, revisa su contenido y registra la aprobación en el flujo correspondiente.';
   if (task.type === 'validar_identidad') return 'Abre el recurso y continúa con la verificación de identidad indicada en el proceso.';
+  if (task.workKind === 'actividad') return 'Consulta el recurso, realiza el trabajo indicado y registra aquí el resultado para cerrar la actividad.';
   return 'Abre el recurso vinculado para completar la acción y registra el seguimiento en esta tarea.';
 }
 
@@ -190,9 +190,10 @@ function mapRowToTask(row: any): Task {
     description: row.description || '',
     type: row.tipo as TaskType,
     priority: row.prioridad as Priority,
-    status: row.estado === 'pendiente' && row.due_date && new Date(row.due_date).getTime() > Date.now() + 3 * 86400000 ? 'programada' : row.estado as TaskStatus,
+    status: row.estado as TaskStatus,
     risk: row.riesgo as 'alto' | 'medio' | 'bajo',
     dueDate: row.due_date || '',
+    scheduledFor: row.scheduled_for || '',
     createdAt: row.created_at,
     sla: row.sla || '',
     responsible: row.responsible_name || '',
@@ -215,6 +216,17 @@ function mapRowToTask(row: any): Task {
   };
 }
 
+function taskAtTime(task: Task, now: number): Task {
+  const status = task.status === 'pendiente' && isScheduledForLater(task.scheduledFor, now)
+    ? 'programada' : task.status;
+  return {
+    ...task,
+    status,
+    isOverdue: Boolean(task.dueDate && new Date(task.dueDate).getTime() < now
+      && !['completada', 'cancelada', 'rechazada'].includes(status)),
+  };
+}
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm' | 'md' }) {
   const colors = ['bg-blue-500','bg-purple-500','bg-green-500','bg-amber-500','bg-cyan-500','bg-pink-500','bg-indigo-500','bg-teal-500'];
@@ -224,15 +236,15 @@ function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm
 }
 
 // ─── Metrics Dashboard ────────────────────────────────────────────────────────
-function TaskMetrics({ tasks }: { tasks: Task[] }) {
+function TaskMetrics({ tasks, now }: { tasks: Task[]; now: number }) {
   const [open, setOpen] = useState(true);
-  const [now] = useState(() => Date.now());
   const active = tasks.filter(t => !['completada', 'cancelada', 'rechazada'].includes(t.status));
   const total = active.length;
   const vencidas = active.filter(t => t.isOverdue || t.status === 'vencida').length;
   const criticas = active.filter(t => t.priority === 'critica' || t.priority === 'alta' || t.isCritical).length;
   const bloqueadas = active.filter(t => t.isBlocked || t.status === 'bloqueada').length;
-  const upcoming = active.filter(t => t.dueDate && !t.isOverdue && new Date(t.dueDate).getTime() <= now + 3 * 86400000).length;
+  const upcoming = active.filter(t => t.dueDate && new Date(t.dueDate).getTime() >= now
+    && new Date(t.dueDate).getTime() <= now + 3 * 86400000).length;
 
   const metrics = [
     { label: 'Total pendientes',  value: total,       icon: CheckSquare,   color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-100' },
@@ -358,7 +370,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     prioridad: task.priority,
     estado: task.status,
     riesgo: task.risk,
-    due_date: task.dueDate ? task.dueDate.slice(0, 16) : '',
+    due_date: toLocalDateTimeInput(task.dueDate),
+    scheduled_for: isScheduledForLater(task.scheduledFor) ? toLocalDateTimeInput(task.scheduledFor) : '',
     sla: task.sla,
     responsible_name: task.responsible,
   });
@@ -605,7 +618,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({ workspaceId, action: 'edit', title: editForm.title,
         description: editForm.description, priority: editForm.prioridad,
-        dueDate: editForm.due_date ? new Date(editForm.due_date).toISOString() : null }) });
+        dueDate: editForm.due_date ? new Date(editForm.due_date).toISOString() : null,
+        scheduledFor: editForm.scheduled_for ? new Date(editForm.scheduled_for).toISOString() : null }) });
     const result = await response.json();
     if (response.ok) {
       onTaskUpdated(task.id);
@@ -706,6 +720,11 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                     <label className="block text-xs font-semibold text-foreground mb-1.5">Fecha límite</label>
                     <input type="datetime-local" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">Inicio programado (opcional)</label>
+                    <input type="datetime-local" value={editForm.scheduled_for} onChange={e => setEditForm(f => ({ ...f, scheduled_for: e.target.value }))} className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                    <p className="mt-1 text-xs text-slate-500">Déjalo vacío para que la tarea esté disponible ahora.</p>
+                  </div>
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => setEditMode(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-border text-foreground hover:bg-muted transition-colors">Cancelar</button>
                     <button onClick={handleSaveEdit} disabled={savingEdit} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
@@ -739,6 +758,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         { label: 'Estado', value: statusInfo.label },
                         { label: 'Prioridad', value: priorityInfo.label },
                         { label: 'Riesgo', value: RISK_CONFIG[task.risk].label },
+                        ...(task.scheduledFor ? [{ label: 'Inicio programado', value: `${formatDate(task.scheduledFor)} · ${formatTime(task.scheduledFor)}` }] : []),
                         { label: 'Fecha límite', value: formatDate(task.dueDate) },
                         { label: 'Responsable', value: task.responsible || '—' },
                         { label: 'Creador', value: task.creator || '—' },
@@ -766,15 +786,16 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                   {task.resolutionNote && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motivo de cierre</p><p className="text-sm leading-6 text-slate-800">{task.resolutionNote}</p></div>}
                   {canActTask ? <div className="space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Acciones</p>
+                    {task.status === 'programada' && <p className="text-sm text-indigo-700">Podrás iniciar, recordar o completar esta tarea a partir del {formatDate(task.scheduledFor)} a las {formatTime(task.scheduledFor)}.</p>}
                     <div className="flex flex-wrap gap-2">
                       <button onClick={() => runAction('open')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
                         <Play size={16} />{task.type === 'retomar_borrador' ? 'Continuar borrador' : 'Abrir recurso vinculado'}
                       </button>
                       {!['completada','cancelada','rechazada'].includes(task.status) && <>
-                        {task.type !== 'retomar_borrador' && ['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Marcar en proceso</button>}
-                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => setCompleteOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
+                        {task.status !== 'programada' && task.type !== 'retomar_borrador' && ['pendiente','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Marcar en proceso</button>}
+                        {task.status !== 'programada' && (task.origin === 'manual' || canCompleteSystem) && <button onClick={() => setCompleteOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
                         {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Users size={16} />Reasignar</button>}
-                        <button onClick={() => runAction('remind')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Bell size={16} />Recordatorio</button>
+                        {task.status !== 'programada' && <button onClick={() => runAction('remind')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Bell size={16} />Recordatorio</button>}
                         {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"><XCircle size={16} />Cancelar</button>}
                       </>}
                     </div>
@@ -1191,6 +1212,7 @@ export default function PendingTasksPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1223,6 +1245,10 @@ export default function PendingTasksPage() {
   }, [user, activeWorkspaceId, supabase]);
 
   useEffect(() => { const timer = window.setTimeout(() => { void fetchTasks(); }, 0); return () => window.clearTimeout(timer); }, [fetchTasks]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || selectedTask || tasks.length === 0) return;
@@ -1247,7 +1273,8 @@ export default function PendingTasksPage() {
     setActiveFilters(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
   }, []);
 
-  const filtered = tasks.filter(task => {
+  const displayTasks = useMemo(() => tasks.map(task => taskAtTime(task, now)), [tasks, now]);
+  const filtered = displayTasks.filter(task => {
     if (search) {
       const q = search.toLowerCase();
       if (!task.title.toLowerCase().includes(q) && !task.documentName.toLowerCase().includes(q) && !task.expedienteName.toLowerCase().includes(q)) return false;
@@ -1307,7 +1334,7 @@ export default function PendingTasksPage() {
         </div>
 
         {/* Metrics */}
-        <TaskMetrics tasks={tasks} />
+        <TaskMetrics tasks={displayTasks} now={now} />
 
         {/* View Tabs + Search */}
         <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -1462,7 +1489,7 @@ export default function PendingTasksPage() {
       {selectedTask && (
         <TaskDetailDrawer
           key={selectedTask.id}
-          task={selectedTask}
+          task={taskAtTime(selectedTask, now)}
           onClose={() => {
             setSelectedTask(null);
             window.history.replaceState(null, '', '/mis-tareas');

@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { authorizeTaskRequest } from '@/lib/tasks/server';
+import { completionMode } from '@/lib/tasks/completion-policy';
+import { taskResourceIsEligible } from '@/lib/tasks/resource-eligibility';
+import { scheduleValidationError } from '@/lib/tasks/schedule';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +19,7 @@ const schema = z.object({
   ]),
   priority: z.enum(['critica', 'alta', 'media', 'baja']).default('media'),
   dueDate: z.string().datetime().optional(),
+  scheduledFor: z.string().datetime().optional(),
   assigneeId: z.string().uuid().optional(),
   description: z.string().trim().max(2000).optional(),
 });
@@ -50,6 +54,11 @@ export async function POST(request: Request) {
   const auth = await authorizeTaskRequest(request, input.workspaceId);
   if (!auth) return Response.json({ error: 'No autorizado.' }, { status: 403 });
   const { service, scoped, user, role } = auth;
+  const scheduleError = scheduleValidationError(input.scheduledFor, input.dueDate);
+  if (scheduleError) return Response.json({ error: scheduleError }, { status: 400 });
+  const expectedKind = completionMode(input.type, input.sourceKind) === 'verified' ? 'accion' : 'actividad';
+  if (input.workKind !== expectedKind)
+    return Response.json({ error: 'La clase de trabajo no corresponde a la acción seleccionada.' }, { status: 400 });
   const resource = sourceTable[input.sourceKind];
   const { data: source, error: sourceError } = await service.from(resource.table)
     .select('*').eq('id', input.sourceId).maybeSingle();
@@ -85,6 +94,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'El tipo seleccionado no corresponde a un anexo requerido.' }, { status: 400 });
   if (input.sourceKind === 'task' && !['resolver_comentario', 'revisar_documento'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a una tarea.' }, { status: 400 });
+  if (!taskResourceIsEligible(input.sourceKind, input.type, source.estado || source.status))
+    return Response.json({ error: 'El estado actual del recurso no permite esta acción.' }, { status: 409 });
   if (input.type === 'retomar_borrador' && source.estado !== 'borrador')
     return Response.json({ error: 'El documento ya no está en borrador.' }, { status: 409 });
   if (input.type === 'firmar_documento' && source.estado === 'completado')
@@ -130,12 +141,14 @@ export async function POST(request: Request) {
   const resourceName = String(source[resource.name] || (input.sourceKind === 'user' ? source.email : null) || 'recurso');
   const relatedDocument = input.sourceKind === 'participant_requirement'
     ? (await service.from('documentos').select('nombre').eq('id', source.document_id).maybeSingle()).data : null;
+  const defaultDueAt = Math.max(Date.now(), input.scheduledFor ? new Date(input.scheduledFor).getTime() : 0) + 3 * 86400000;
   const { data: task, error } = await service.from('tareas').insert({
     workspace_id: input.workspaceId, created_by: user.id, assigned_to: assignee,
     title: `${typeLabel[input.type]}: ${resourceName}`, description: input.description || null,
     tipo: input.type, prioridad: input.priority, estado: 'pendiente',
     riesgo: input.priority === 'critica' ? 'alto' : input.priority === 'alta' ? 'medio' : 'bajo',
-    due_date: input.dueDate || new Date(Date.now() + 3 * 86400000).toISOString(),
+    due_date: input.dueDate || new Date(defaultDueAt).toISOString(),
+    scheduled_for: input.scheduledFor || null,
     source_type: input.sourceKind, source_id: input.sourceId, origin: 'manual', work_kind: input.workKind,
     document_id: input.sourceKind === 'document' ? input.sourceId : input.sourceKind === 'participant_requirement' ? source.document_id : null,
     document_name: input.sourceKind === 'document' ? resourceName : relatedDocument?.nombre || null,
@@ -147,7 +160,8 @@ export async function POST(request: Request) {
   }).select('id').single();
   if (error || !task) return Response.json({ error: error?.message || 'No se pudo crear la tarea.' }, { status: 500 });
   await service.from('task_history').insert({ tarea_id: task.id, workspace_id: input.workspaceId,
-    action: 'Actividad creada y vinculada a un recurso existente.', actor_id: user.id,
+    action: `${input.workKind === 'accion' ? 'Acción' : 'Actividad'} creada y vinculada a un recurso existente.${input.scheduledFor ? ` Inicio programado para ${input.scheduledFor}.` : ''}`,
+    actor_id: user.id,
     actor_name: actor?.full_name || actor?.email || 'Usuario', icon_name: 'Plus', color: 'text-blue-500' });
   return Response.json({ success: true, id: task.id });
 }

@@ -180,3 +180,54 @@ test('task creation uses an accessible resource and rejects cross-role assignmen
   assert.equal(rows.tareas[1].source_id, documentId);
   assert.equal(rows.tareas[1].assigned_to, memberId);
 });
+
+test('a planned task keeps its start separate from the deadline and cannot begin early', async () => {
+  const rows = setup({ actor: memberId, role: 'member' });
+  const scheduledFor = new Date(Date.now() + 2 * 86400000).toISOString();
+  const response = await createRoute.POST(new Request('http://localhost/api/tareas', {
+    method: 'POST', body: JSON.stringify({ workspaceId, sourceKind: 'document', sourceId: documentId,
+      workKind: 'actividad', type: 'revisar_documento', assigneeId: memberId, scheduledFor }),
+  }));
+  assert.equal(response.status, 200);
+  const created = rows.tareas.at(-1);
+  assert.equal(created.scheduled_for, scheduledFor);
+  assert.ok(new Date(created.due_date).getTime() > new Date(scheduledFor).getTime());
+  const createdId = created.id;
+  const scheduledAction = actionName => actionRoute.POST(new Request('http://localhost/api/tareas/action', {
+    method: 'POST', body: JSON.stringify({ workspaceId, action: actionName }),
+  }), { params: Promise.resolve({ taskId: createdId }) });
+  assert.equal((await scheduledAction('start')).status, 409);
+  assert.equal((await scheduledAction('remind')).status, 409);
+  assert.equal((await scheduledAction('complete')).status, 409);
+  assert.equal(created.estado, 'pendiente');
+});
+
+test('creation rejects an incompatible resource state and start after deadline', async () => {
+  const rows = setup({ actor: memberId, role: 'member' });
+  rows.documentos[0].estado = 'completado';
+  const post = body => createRoute.POST(new Request('http://localhost/api/tareas', {
+    method: 'POST', body: JSON.stringify({ workspaceId, sourceKind: 'document', sourceId: documentId,
+      workKind: 'accion', type: 'firmar_documento', assigneeId: memberId, ...body }),
+  }));
+  assert.equal((await post({})).status, 409);
+  rows.documentos[0].estado = 'en_proceso';
+  const scheduledFor = new Date(Date.now() + 2 * 86400000).toISOString();
+  const dueDate = new Date(Date.now() + 86400000).toISOString();
+  assert.equal((await post({ scheduledFor, dueDate })).status, 400);
+  assert.equal(rows.tareas.length, 1);
+});
+
+test('an owner can reschedule a manual task but cannot place its deadline before its start', async () => {
+  const rows = setup({ role: 'owner' });
+  const scheduledFor = new Date(Date.now() + 2 * 86400000).toISOString();
+  const dueDate = new Date(Date.now() + 3 * 86400000).toISOString();
+  assert.equal((await action('edit', {
+    title: 'Revisar contrato', priority: 'media', scheduledFor, dueDate,
+  })).status, 200);
+  assert.equal(rows.tareas[0].scheduled_for, scheduledFor);
+  assert.equal((await action('edit', {
+    title: 'Revisar contrato', priority: 'media', scheduledFor,
+    dueDate: new Date(Date.now() + 86400000).toISOString(),
+  })).status, 400);
+  assert.equal(rows.tareas[0].due_date, dueDate);
+});
