@@ -77,14 +77,16 @@ export async function GET(request: Request) {
         participantes: asCount(row.participantes), urgente: Boolean(row.es_urgente), tamano: row.file_size || 0,
         creado: row.created_at, actualizado: row.updated_at, vence: row.fecha_vencimiento, completado: row.fecha_completado }));
     } else if (dataset === 'plantillas') {
-      let query = service.from('plantillas').select('id,name,description,category,language,status,requires_efirma,requires_nom151,fields,created_by,created_at,updated_at')
+      let query = service.from('plantillas').select('id,nombre,descripcion,category,language,estado,estado_plantilla,requires_efirma,requires_nom151,fields,created_by,created_at,updated_at,numero_oficio,area_responsable,tipo_plantilla,version_publicada,revisor_nombre,last_draft_at')
         .eq('workspace_id', workspaceId).order('created_at', { ascending: false });
       if (!manager) query = query.eq('created_by', userId);
       const items = await source(query);
       const names = await profiles(items.map(row => row.created_by));
-      rows = items.map(row => ({ nombre: row.name, descripcion: row.description, categoria: row.category, estado: row.status,
+      rows = items.map(row => ({ nombre: row.nombre, descripcion: row.descripcion, categoria: row.category, estado: row.estado_plantilla || row.estado,
         idioma: row.language, efirma: Boolean(row.requires_efirma), nom151: Boolean(row.requires_nom151),
-        campos: asCount(row.fields), creador: names.get(row.created_by) || null, creado: row.created_at, actualizado: row.updated_at }));
+        campos: asCount(row.fields), creador: names.get(row.created_by) || null, creado: row.created_at, actualizado: row.updated_at,
+        oficio: row.numero_oficio, area: row.area_responsable, tipo: row.tipo_plantilla,
+        version: row.version_publicada, revisor: row.revisor_nombre, ultimo_borrador: row.last_draft_at }));
     } else if (dataset === 'formularios' || dataset === 'respuestas') {
       const items = await forms();
       const ids = items.map(row => row.id);
@@ -97,6 +99,8 @@ export async function GET(request: Request) {
           campos: asCount(row.schema), respuestas: counts.get(row.id) || 0, creador: names.get(row.created_by) || null,
           creado: row.created_at, actualizado: row.updated_at }));
       } else {
+        const generatedDocuments = responses.length ? await documents() : [];
+        const documentNames = new Map(generatedDocuments.map(row => [row.id, row.nombre]));
         const tokens = responses.length ? await source(service.from('form_tokens').select('id,recipient_name,recipient_email').in('id', responses.map(row => row.token_id))) : [];
         const tokenMap = new Map(tokens.map(row => [row.id, row]));
         const formMap = new Map(items.map(row => [row.id, row.name]));
@@ -112,7 +116,7 @@ export async function GET(request: Request) {
           const token = tokenMap.get(row.token_id);
           const result: ReportRow = { formulario: formMap.get(row.template_id) || null,
             participante: token?.recipient_name || null, correo: token?.recipient_email || null,
-            documento: row.document_id || null, enviado: row.submitted_at,
+            documento: documentNames.get(row.document_id) || (row.document_id ? 'Documento vinculado' : null), enviado: row.submitted_at,
             estado: row.pdf_output_path ? 'PDF generado' : 'Respuesta recibida' };
           if (row.response_data && typeof row.response_data === 'object' && !Array.isArray(row.response_data)) {
             Object.entries(row.response_data).forEach(([key, value]) => {

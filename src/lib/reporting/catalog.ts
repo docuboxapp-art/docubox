@@ -34,6 +34,9 @@ export const DATASETS: Record<DatasetId, { label: string; description: string; i
     { id: 'categoria', label: 'Categoría', type: 'text' }, { id: 'estado', label: 'Estado', type: 'text' },
     { id: 'idioma', label: 'Idioma', type: 'text' }, { id: 'efirma', label: 'Requiere e.firma', type: 'boolean' },
     { id: 'nom151', label: 'Requiere NOM-151', type: 'boolean' }, { id: 'campos', label: 'Campos', type: 'number' },
+    { id: 'oficio', label: 'Número de oficio', type: 'text' }, { id: 'area', label: 'Área responsable', type: 'text' },
+    { id: 'tipo', label: 'Tipo de plantilla', type: 'text' }, { id: 'version', label: 'Versión publicada', type: 'text' },
+    { id: 'revisor', label: 'Revisor', type: 'text' }, { id: 'ultimo_borrador', label: 'Último borrador', type: 'date' },
     { id: 'creador', label: 'Creada por', type: 'text' }, { id: 'creado', label: 'Creada', type: 'date' }, { id: 'actualizado', label: 'Actualizada', type: 'date' },
   ] },
   formularios: { label: 'Formularios', description: 'Publicación, respuestas y configuración.', icon: 'form', fields: [
@@ -114,7 +117,8 @@ export const DATASETS: Record<DatasetId, { label: string; description: string; i
 export const datasetIds = Object.keys(DATASETS) as DatasetId[];
 export function defaultConfig(dataset: DatasetId): ReportConfig {
   const fields = DATASETS[dataset].fields;
-  const dateField = fields.find(field => field.type === 'date')?.id || '';
+  const dateField = fields.find(field => field.id === 'creado' && field.type === 'date')?.id
+    || fields.find(field => field.type === 'date')?.id || '';
   return { fields: fields.slice(0, 5).map(field => field.id), conditions: [], match: 'all', period: 'all', dateField,
     visualization: 'table', groupBy: '', metric: '__count', sortBy: dateField, sortDirection: 'desc' };
 }
@@ -124,13 +128,19 @@ function preset(id: string, name: string, description: string, dataset: DatasetI
 }
 export const BUILTIN_REPORTS: ReportDefinition[] = [
   preset('docubox-documentos', 'Estado de documentos', 'Volumen y situación de documentos del espacio.', 'documentos', { visualization: 'bar', groupBy: 'estado' }),
-  preset('docubox-vencimientos', 'Documentos con vencimiento', 'Plazos documentales y seguimiento.', 'documentos', { fields: ['nombre','estado','propietario','vence'], conditions: [{ field: 'vence', operator: 'not_empty', value: '' }], sortBy: 'vence' }),
-  preset('docubox-firmas', 'Participación y firmas', 'Estado de las personas invitadas a documentos.', 'participantes', { fields: ['nombre','correo','rol','estado','recurso'], conditions: [{ field: 'modulo', operator: 'eq', value: 'Documentos' }] }),
+  preset('docubox-vencimientos', 'Documentos con vencimiento', 'Plazos documentales y seguimiento.', 'documentos', { fields: ['nombre','estado','propietario','vence'], conditions: [{ field: 'vence', operator: 'not_empty', value: '' }], sortBy: 'vence', groupBy: 'estado' }),
+  preset('docubox-firmas', 'Participación y firmas', 'Estado de las personas invitadas a documentos.', 'participantes', { fields: ['nombre','correo','rol','estado','recurso'], conditions: [{ field: 'modulo', operator: 'eq', value: 'Documentos' }], groupBy: 'estado' }),
   preset('docubox-formularios', 'Formularios y respuestas', 'Actividad de formularios publicados y sus respuestas.', 'formularios', { fields: ['nombre','estado','respuestas','creador','creado'], visualization: 'bar', groupBy: 'estado' }),
-  preset('docubox-expedientes', 'Avance de expedientes', 'Estado y progreso de los expedientes.', 'expedientes', { fields: ['folio','nombre','estado','progreso','objetivo'] }),
-  preset('docubox-tareas', 'Tareas y plazos', 'Acciones y actividades pendientes o concluidas.', 'tareas', { fields: ['nombre','estado','prioridad','responsable','vence'] }),
-  preset('docubox-actividad', 'Actividad y auditoría', 'Interacciones registradas sobre documentos.', 'actividad', { fields: ['accion','actor','documento','fecha'] }),
-  preset('docubox-plantillas', 'Plantillas documentales', 'Inventario y configuración de plantillas.', 'plantillas', { fields: ['nombre','categoria','estado','creador','actualizado'] }),
-  preset('docubox-certificaciones', 'Estado de certificaciones', 'Seguimiento de los casos de certificación.', 'certificaciones', { fields: ['folio','nombre','servicio','estado','creado','emitido'] }),
-  preset('docubox-notificaciones', 'Avisos recibidos', 'Notificaciones y recordatorios del usuario.', 'notificaciones', { fields: ['titulo','categoria','prioridad','leida','creado'] }),
+  preset('docubox-respuestas', 'Respuestas capturadas', 'Registro de respuestas recibidas y documentos generados.', 'respuestas', { fields: ['formulario','participante','correo','documento','enviado','estado'], groupBy: 'formulario' }),
+  preset('docubox-expedientes', 'Avance de expedientes', 'Estado y progreso de los expedientes.', 'expedientes', { fields: ['folio','nombre','estado','progreso','objetivo'], groupBy: 'estado' }),
+  preset('docubox-tareas', 'Tareas y plazos', 'Acciones y actividades pendientes o concluidas.', 'tareas', { fields: ['nombre','estado','prioridad','responsable','vence'], groupBy: 'estado' }),
+  preset('docubox-tareas-abiertas', 'Tareas abiertas', 'Trabajo pendiente, en curso o vencido del espacio.', 'tareas', {
+    fields: ['nombre','tipo','estado','prioridad','responsable','vence'],
+    conditions: ['completada', 'cancelada', 'rechazada'].map(value => ({ field: 'estado', operator: 'neq' as const, value })), groupBy: 'prioridad',
+  }),
+  preset('docubox-actividad', 'Actividad y auditoría', 'Interacciones registradas en documentos, formularios, expedientes, tareas y acceso.', 'actividad', { fields: ['accion','actor','documento','fecha'], groupBy: 'modulo' }),
+  preset('docubox-plantillas', 'Plantillas documentales', 'Inventario y configuración de plantillas.', 'plantillas', { fields: ['nombre','categoria','estado','creador','actualizado'], groupBy: 'estado' }),
+  preset('docubox-certificaciones', 'Estado de certificaciones', 'Seguimiento de los casos de certificación.', 'certificaciones', { fields: ['folio','nombre','servicio','estado','creado','emitido'], groupBy: 'estado' }),
+  preset('docubox-notificaciones', 'Avisos recibidos', 'Notificaciones y recordatorios del usuario.', 'notificaciones', { fields: ['titulo','categoria','prioridad','leida','creado'], groupBy: 'categoria' }),
+  preset('docubox-contactos', 'Directorio de contactos', 'Contactos registrados por el usuario.', 'contactos', { fields: ['nombre','correo','empresa','cargo','creado'], groupBy: 'empresa' }),
 ];

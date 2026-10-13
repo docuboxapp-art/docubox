@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 const require = createRequire(import.meta.url);
 await build({ entryPoints: ['src/lib/reporting/engine.ts'], outfile: 'node_modules/.cache/report-engine-test.cjs', bundle: true, platform: 'node', format: 'cjs' });
 await build({ entryPoints: ['src/lib/reporting/export.ts'], outfile: 'node_modules/.cache/report-export-test.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['jszip', 'pdf-lib'] });
-const { runReport, aggregate } = require('../node_modules/.cache/report-engine-test.cjs');
+const { runReport, aggregate, reportCategoryLabel, safeConfig } = require('../node_modules/.cache/report-engine-test.cjs');
 const { exportReport } = require('../node_modules/.cache/report-export-test.cjs');
 
 const fields = [{ id: 'nombre', label: 'Nombre', type: 'text' }, { id: 'estado', label: 'Estado', type: 'text' }, { id: 'cantidad', label: 'Cantidad', type: 'number' }];
@@ -19,6 +19,32 @@ test('conditions, sorting and aggregation use the configured fields', () => {
   assert.deepEqual(result.map(row => row.nombre), ['A', 'C']);
   assert.deepEqual(aggregate(result, 'estado', '__count'), [{ label: 'completado', value: 2 }]);
   assert.deepEqual(aggregate(result, 'estado', 'cantidad'), [{ label: 'completado', value: 7 }]);
+});
+
+test('period excludes invalid, old and future dates, and keeps a valid date reference', () => {
+  const datedFields = [{ id: 'creado', label: 'Creado', type: 'date' }];
+  const daysAgo = days => new Date(Date.now() - days * 86400000).toISOString();
+  const datedRows = [{ creado: daysAgo(2) }, { creado: daysAgo(10) },
+    { creado: new Date(Date.now() + 86400000).toISOString() }, { creado: 'fecha inválida' }];
+  const config = { ...base, period: '7d', dateField: 'creado', sortBy: '' };
+  assert.deepEqual(runReport(datedRows, config, datedFields), [datedRows[0]]);
+  assert.equal(safeConfig({ period: '7d', dateField: '' }, 'documentos').dateField, 'creado');
+});
+
+test('technical states have readable labels without changing the source value', () => {
+  assert.equal(reportCategoryLabel('en_proceso', 'estado'), 'En proceso');
+  assert.equal(reportCategoryLabel('accion', 'clase'), 'Acción');
+});
+
+test('conditions accept visible status names, calendar dates, booleans and numbers', () => {
+  const allFields = [...fields, { id: 'fecha', label: 'Fecha', type: 'date' }, { id: 'urgente', label: 'Urgente', type: 'boolean' }];
+  const item = { nombre: 'A', estado: 'en_proceso', cantidad: 3, fecha: '2026-10-13T18:00:00Z', urgente: true };
+  for (const condition of [
+    { field: 'estado', operator: 'eq', value: 'En proceso' },
+    { field: 'fecha', operator: 'eq', value: '2026-10-13' },
+    { field: 'urgente', operator: 'eq', value: 'Sí' },
+    { field: 'cantidad', operator: 'eq', value: '3.0' },
+  ]) assert.deepEqual(runReport([item], { ...base, conditions: [condition] }, allFields), [item]);
 });
 
 test('CSV, Excel, JSON and PDF exports contain real configured rows', async () => {

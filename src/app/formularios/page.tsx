@@ -14,6 +14,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { formSaveError } from '@/lib/forms/lifecycle';
+import { summarizeFormLaunches, type FormLaunchSummary, type FormResponseSummary, type PublicFormInviteSummary } from '@/lib/forms/pending-launches';
 import { normalizeFormTemplate } from '@/lib/forms/schema';
 
 interface FormRow {
@@ -33,22 +34,8 @@ interface FormRow {
   archived_from_status?: 'draft' | 'published' | 'paused' | null;
 }
 
-interface FormLaunch {
-  id: string;
-  template_id: string;
-  recipient_name: string | null;
-  recipient_email: string;
-  created_at: string;
-  expires_at: string | null;
-  used_at: string | null;
-}
-
-interface FormResponseSummary {
-  template_id: string;
-  token_id: string;
-  respondent_email: string | null;
-  submitted_at: string;
-}
+type FormLaunch = FormLaunchSummary;
+type PublicFormInvite = PublicFormInviteSummary;
 
 interface ScheduledFormLaunch {
   id: string;
@@ -85,9 +72,11 @@ export default function FormulariosPage() {
   const supabase = createClient();
   const [forms, setForms] = useState<FormRow[]>([]);
   const [launches, setLaunches] = useState<FormLaunch[]>([]);
+  const [publicInvitees, setPublicInvitees] = useState<PublicFormInvite[]>([]);
   const [responseSummaries, setResponseSummaries] = useState<FormResponseSummary[]>([]);
   const [scheduledLaunches, setScheduledLaunches] = useState<ScheduledFormLaunch[]>([]);
   const [launchesError, setLaunchesError] = useState(false);
+  const [publicInviteesError, setPublicInviteesError] = useState(false);
   const [clockTime, setClockTime] = useState(() => Date.now());
   const [formsSummaryOpen, setFormsSummaryOpen] = useState(false);
   const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(true);
@@ -123,9 +112,11 @@ export default function FormulariosPage() {
     const workspaceId = activeWorkspace.id;
     setLoading(true);
     setLaunches([]);
+    setPublicInvitees([]);
     setResponseSummaries([]);
     setScheduledLaunches([]);
     setLaunchesError(false);
+    setPublicInviteesError(false);
     const [{ data: templateData, error }, { data: responseData, error: responseError }, { data: typeData, error: typeError }] = await Promise.all([
       supabase.from('form_templates').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
       supabase.from('form_responses').select('template_id,token_id,respondent_email,submitted_at').eq('workspace_id', workspaceId),
@@ -138,7 +129,7 @@ export default function FormulariosPage() {
         let launchResult;
         for (let attempt = 0; attempt < 3; attempt++) {
           launchResult = await supabase.from('form_tokens')
-            .select('id,template_id,recipient_name,recipient_email,created_at,expires_at,used_at')
+            .select('id,template_id,access_mode,recipient_name,recipient_email,created_at,expires_at,used_at')
             .in('template_id', templateIds)
             .order('created_at', { ascending: false });
           if (requestId !== loadRequestId.current) return;
@@ -152,17 +143,32 @@ export default function FormulariosPage() {
           const { data: sessionData } = await supabase.auth.getSession();
           if (requestId !== loadRequestId.current) return;
           if (sessionData.session?.access_token) {
-            const scheduledResponse = await fetch(`/api/formularios/lanzamientos/programar?workspace_id=${encodeURIComponent(workspaceId)}`, {
-              headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
-            });
+            const requestHeaders = { Authorization: `Bearer ${sessionData.session.access_token}` };
+            const [scheduledResult, publicInviteesResult] = await Promise.allSettled([
+              fetch(`/api/formularios/lanzamientos/programar?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: requestHeaders, cache: 'no-store' })
+                .then(async (response) => {
+                  if (!response.ok) throw new Error('No se pudieron consultar los envíos programados.');
+                  return response.json();
+                }),
+              fetch(`/api/formularios/lanzamientos/publicos?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: requestHeaders, cache: 'no-store' })
+                .then(async (response) => {
+                  if (!response.ok) throw new Error('No se pudieron consultar las invitaciones con código.');
+                  return response.json();
+                }),
+            ]);
             if (requestId !== loadRequestId.current) return;
-            if (!scheduledResponse.ok) throw new Error('No se pudieron consultar los envíos programados.');
-            const scheduled = await scheduledResponse.json();
-            if (requestId !== loadRequestId.current) return;
-            setScheduledLaunches(scheduled.schedules || []);
+            if (scheduledResult.status === 'fulfilled') setScheduledLaunches(scheduledResult.value.schedules || []);
+            else setNotice('No se pudieron cargar los envíos programados.');
+            if (publicInviteesResult.status === 'fulfilled') setPublicInvitees(publicInviteesResult.value.invitees || []);
+            else setPublicInviteesError(true);
+          } else {
+            setPublicInviteesError(true);
           }
         } catch {
-          if (requestId === loadRequestId.current) setNotice('No se pudieron cargar los envíos programados.');
+          if (requestId === loadRequestId.current) {
+            setNotice('No se pudieron cargar los envíos programados.');
+            setPublicInviteesError(true);
+          }
         }
       }
       if (requestId !== loadRequestId.current) return;
@@ -313,31 +319,20 @@ export default function FormulariosPage() {
     }
   };
 
+  const launchSummary = useMemo(() => summarizeFormLaunches(
+    launches, publicInvitees, responseSummaries,
+    new Set(scheduledLaunches.map((schedule) => schedule.token_id).filter((id): id is string => Boolean(id))),
+    clockTime
+  ), [launches, publicInvitees, responseSummaries, scheduledLaunches, clockTime]);
   const metrics = useMemo(() => ({
     total: forms.length,
     published: filterCounts.published,
     draft: filterCounts.draft,
     archived: filterCounts.archived,
     responses: forms.reduce((sum, form) => sum + form.responseCount, 0),
-    launched: launches.length,
-  }), [forms, filterCounts, launches]);
-  const pendingLaunches = useMemo(() => {
-    const unsentTokenIds = new Set(scheduledLaunches.map((schedule) => schedule.token_id).filter(Boolean));
-    const answeredTokenIds = new Set(responseSummaries.map((response) => response.token_id));
-    const latestResponseByRecipient = new Map<string, number>();
-    for (const response of responseSummaries) {
-      if (!response.respondent_email) continue;
-      const key = `${response.template_id}:${response.respondent_email.trim().toLowerCase()}`;
-      const submittedAt = new Date(response.submitted_at).getTime();
-      if (Number.isFinite(submittedAt))
-        latestResponseByRecipient.set(key, Math.max(submittedAt, latestResponseByRecipient.get(key) || 0));
-    }
-    return launches.filter((launch) =>
-      !unsentTokenIds.has(launch.id) && !launch.used_at && !answeredTokenIds.has(launch.id) &&
-      (latestResponseByRecipient.get(`${launch.template_id}:${launch.recipient_email.trim().toLowerCase()}`) || 0) < new Date(launch.created_at).getTime() &&
-      (!launch.expires_at || new Date(launch.expires_at).getTime() > clockTime)
-    );
-  }, [launches, scheduledLaunches, responseSummaries, clockTime]);
+    launched: launchSummary.launchedCount,
+  }), [forms, filterCounts, launchSummary.launchedCount]);
+  const pendingCount = launchSummary.tokenLaunches.length + launchSummary.pendingPublicInvitees.length;
   const formNames = useMemo(() => new Map(forms.map((form) => [form.id, form.name])), [forms]);
 
   const managePendingLaunch = async (launch: FormLaunch, action: 'resend' | 'cancel') => {
@@ -540,23 +535,24 @@ export default function FormulariosPage() {
               <button
                 type="button"
                 onClick={() => { setPendingDialogError(''); setPendingDialogOpen(true); }}
-                disabled={pendingLaunches.length === 0}
+                disabled={pendingCount === 0}
                 className="metric-action-card group flex min-h-24 items-center gap-3 px-5 py-4 text-left transition-colors enabled:hover:bg-blue-50/50 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-inset enabled:focus-visible:ring-primary/40 enabled:dark:hover:bg-muted/40"
-                aria-label={pendingLaunches.length > 0 ? `Ver ${pendingLaunches.length} ${pendingLaunches.length === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}` : 'Sin respuestas pendientes'}
+                aria-label={pendingCount > 0 ? `Ver ${pendingCount} ${pendingCount === 1 ? 'respuesta pendiente' : 'respuestas pendientes'}` : 'Sin respuestas pendientes'}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
                   <ClipboardClock size={17} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="metric-action-value block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{pendingLaunches.length}</span>
+                  <span className="metric-action-value block text-xl font-600 tabular-nums text-slate-950 dark:text-foreground">{pendingCount}</span>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span className="metric-action-label text-xs text-slate-500 dark:text-muted-foreground">Respuestas pendientes</span>
-                    {pendingLaunches.length > 0 && <span className="metric-action-link inline-flex items-center gap-0.5 text-xs font-medium text-primary group-hover:underline">Ver <ChevronRight size={12} aria-hidden="true" /></span>}
+                    {pendingCount > 0 && <span className="metric-action-link inline-flex items-center gap-0.5 text-xs font-medium text-primary group-hover:underline">Ver <ChevronRight size={12} aria-hidden="true" /></span>}
                   </span>
                 </span>
               </button>
             </div>}
             {responsesSummaryOpen && launchesError && <BottomNotice message="No se pudieron cargar los lanzamientos. Actualiza la página para ver las cifras correctas." tone="critical" />}
+            {responsesSummaryOpen && publicInviteesError && <BottomNotice message="No se pudieron cargar las invitaciones con código. Actualiza la página para ver las respuestas pendientes." tone="critical" />}
           </section>
 
           <div className="mb-3 mt-5 flex items-center gap-2">
@@ -726,7 +722,7 @@ export default function FormulariosPage() {
           <button type="button" onClick={() => void navigator.clipboard.writeText(publicAccessInfo.url).then(() => setNotice('Enlace copiado.'))} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> Copiar enlace</button>
         </div>
       </div>}
-      {pendingDialogOpen && <PendingResponsesDialog launches={pendingLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setPendingDialogOpen(false); }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} />}
+      {pendingDialogOpen && <PendingResponsesDialog launches={launchSummary.tokenLaunches} publicInvitees={launchSummary.pendingPublicInvitees} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setPendingDialogOpen(false); }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} />}
       {scheduledDialogOpen && <ScheduledLaunchesDialog launches={scheduledLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setScheduledDialogOpen(false); }} onCancel={(launch) => void cancelScheduledLaunch(launch)} />}
       {notice && <BottomNotice message={notice} onClose={() => setNotice('')} />}
     </AppLayout>
@@ -787,8 +783,9 @@ function RemoveDialog({ form, mode, busy, error, onCancel, onConfirm }: { form: 
   );
 }
 
-function PendingResponsesDialog({ launches, formNames, busyId, error, onClose, onResend, onCancelLink }: {
+function PendingResponsesDialog({ launches, publicInvitees, formNames, busyId, error, onClose, onResend, onCancelLink }: {
   launches: FormLaunch[];
+  publicInvitees: PublicFormInvite[];
   formNames: Map<string, string>;
   busyId: string | null;
   error: string;
@@ -798,8 +795,11 @@ function PendingResponsesDialog({ launches, formNames, busyId, error, onClose, o
 }) {
   return <div role="dialog" aria-modal="true" aria-labelledby="pending-responses-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} onKeyDown={(event) => { if (event.key === 'Escape') onClose(); }}>
     <div className="flex max-h-[min(85vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-border dark:bg-card">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-border"><div><h2 id="pending-responses-title" className="text-base font-semibold text-slate-950 dark:text-foreground">Respuestas pendientes</h2><p className="mt-1 text-xs text-slate-500">Participantes con un enlace vigente que todavía no responden.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar pendientes" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={18} /></button></div>
-<div className="overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay respuestas pendientes con enlaces vigentes.</p> : <div className="space-y-3">{launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{launch.recipient_name || launch.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(launch.template_id) || 'Formulario'}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Enviado: {new Date(launch.created_at).toLocaleDateString('es-MX')}{launch.expires_at ? ` · Vence: ${new Date(launch.expires_at).toLocaleString('es-MX')}` : ' · Sin vencimiento'}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResend(launch)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === launch.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelLink(launch)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar enlace</button></div></div>)}</div>}
+      <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-border"><div><h2 id="pending-responses-title" className="text-base font-semibold text-slate-950 dark:text-foreground">Respuestas pendientes</h2><p className="mt-1 text-xs text-slate-500">Enlaces e invitaciones con código que aún esperan respuesta.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar pendientes" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={18} /></button></div>
+<div className="overflow-y-auto p-5">{launches.length + publicInvitees.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay respuestas pendientes.</p> : <div className="space-y-3">{launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{launch.recipient_name || launch.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(launch.template_id) || 'Formulario'} · Enlace</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Enviado: {new Date(launch.created_at).toLocaleDateString('es-MX')}{launch.expires_at ? ` · Vence: ${new Date(launch.expires_at).toLocaleString('es-MX')}` : ' · Sin vencimiento'}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResend(launch)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === launch.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelLink(launch)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar enlace</button></div></div>)}{publicInvitees.map((invitee) => {
+        const rowId = `${invitee.form_id}:${invitee.recipient_email}`;
+        return <div key={rowId} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{invitee.recipient_name || invitee.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(invitee.form_id) || 'Formulario'} · Código de acceso</p><p className="truncate text-xs text-slate-500">{invitee.recipient_email}</p><p className="mt-1 text-[11px] text-slate-500">Invitado: {new Date(invitee.invited_at).toLocaleDateString('es-MX')}</p></div></div>;
+      })}</div>}
       {error && <p role="alert" className="mt-4 text-xs text-red-600">{error}</p>}</div>
     </div>
   </div>;

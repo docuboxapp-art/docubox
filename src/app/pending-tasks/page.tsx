@@ -14,6 +14,7 @@ import { fetchAllPages } from '@/lib/tasks/pagination';
 import { completionMode } from '@/lib/tasks/completion-policy';
 import { dueCalendarLabel, isScheduledForLater, toLocalDateTimeInput } from '@/lib/tasks/schedule';
 import { resourceStatusLabel } from '@/lib/tasks/resource-labels';
+import { isFinishedTask, matchesTaskStatus, taskStatusAtTime, visibleTaskStatus, type TaskStatus, type TaskStatusScope } from '@/lib/tasks/view-state';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -23,8 +24,6 @@ type TaskType =
   | 'responder_formulario' | 'seguimiento_formulario' | 'revisar_expediente';
 
 type Priority = 'critica' | 'alta' | 'media' | 'baja';
-type TaskStatus =
-  | 'nueva' | 'programada' | 'pendiente' | 'en_proceso' | 'bloqueada' | 'en_revision' |'vencida' | 'escalada' | 'completada' | 'cancelada' | 'rechazada';
 type ViewMode = 'lista' | 'kanban' | 'calendario' | 'documento';
 
 interface ChecklistItem { id: string; text: string; done: boolean; position?: number; }
@@ -133,7 +132,7 @@ function formatTime(dateStr: string) {
 }
 function getDueBadge(task: Task) {
   if (!task.dueDate) return { text: 'Sin fecha', urgent: false };
-  if (['completada', 'cancelada', 'rechazada'].includes(task.status)) return { text: formatDate(task.dueDate), urgent: false };
+  if (isFinishedTask(task.status)) return { text: formatDate(task.dueDate), urgent: false };
   if (task.isOverdue || task.status === 'vencida') return { text: 'Vencida', urgent: true };
   const label = dueCalendarLabel(task.dueDate);
   if (label) return { text: label, urgent: true };
@@ -219,13 +218,12 @@ function mapRowToTask(row: any): Task {
 }
 
 function taskAtTime(task: Task, now: number): Task {
-  const status = task.status === 'pendiente' && isScheduledForLater(task.scheduledFor, now)
-    ? 'programada' : task.status;
+  const status = taskStatusAtTime(task, now);
   return {
     ...task,
     status,
     isOverdue: Boolean(task.dueDate && new Date(task.dueDate).getTime() < now
-      && !['completada', 'cancelada', 'rechazada'].includes(status)),
+      && !isFinishedTask(status)),
   };
 }
 
@@ -240,7 +238,7 @@ function Avatar({ initials, size = 'sm' }: { initials: string; size?: 'xs' | 'sm
 // ─── Metrics Dashboard ────────────────────────────────────────────────────────
 function TaskMetrics({ tasks, now }: { tasks: Task[]; now: number }) {
   const [open, setOpen] = useState(true);
-  const active = tasks.filter(t => !['completada', 'cancelada', 'rechazada'].includes(t.status));
+  const active = tasks.filter(t => !isFinishedTask(t.status));
   const total = active.length;
   const vencidas = active.filter(t => t.isOverdue || t.status === 'vencida').length;
   const criticas = active.filter(t => t.priority === 'critica' || t.priority === 'alta' || t.isCritical).length;
@@ -249,7 +247,7 @@ function TaskMetrics({ tasks, now }: { tasks: Task[]; now: number }) {
     && new Date(t.dueDate).getTime() <= now + 3 * 86400000).length;
 
   const metrics = [
-    { label: 'Total pendientes',  value: total,       icon: CheckSquare,   color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-100' },
+    { label: 'Tareas abiertas',   value: total,       icon: CheckSquare,   color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-100' },
     { label: 'Vencidas',          value: vencidas,    icon: AlertTriangle, color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-100' },
     { label: 'Alta prioridad',    value: criticas,    icon: Flame,         color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
     { label: 'Bloqueadas',        value: bloqueadas,  icon: Lock,          color: 'text-rose-600',   bg: 'bg-rose-50',   border: 'border-rose-100' },
@@ -260,7 +258,7 @@ function TaskMetrics({ tasks, now }: { tasks: Task[]; now: number }) {
     <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="task-summary-metrics" className={`flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 ${open ? 'border-b border-slate-200' : ''}`}>
         <span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de tareas</span><span className="mt-0.5 block text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{total} pendientes</span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{total} abiertas</span>
         <ChevronDown size={18} className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div id="task-summary-metrics" className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
@@ -288,7 +286,7 @@ function TaskListRow({ task, onClick }: { task: Task; onClick: () => void }) {
   const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const Icon = type.icon;
   const resource = getTaskResource(task);
-  const status = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+  const status = STATUS_CONFIG[visibleTaskStatus(task)] || STATUS_CONFIG.pendiente;
   const priority = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
   const due = getDueBadge(task);
   return <button type="button" onClick={onClick} aria-label={`Ver tarea ${task.title}`} className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 bg-white px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 focus-visible:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.7fr)_minmax(0,1.5fr)_105px_110px_20px] lg:gap-4 lg:px-5">
@@ -304,7 +302,7 @@ function TaskListRow({ task, onClick }: { task: Task; onClick: () => void }) {
     <span className="hidden min-w-0 lg:block"><span className="block text-[11px] text-slate-500">{resource.kind}</span><span className="mt-1 block truncate text-xs font-medium text-slate-800">{resource.name}</span></span>
     <span className="hidden min-w-0 items-center gap-2 lg:flex"><Avatar initials={task.responsibleAvatar} size="sm" /><span className="truncate text-xs text-slate-700">{task.responsible || 'Sin asignar'}</span></span>
     <span className="hidden lg:inline-flex"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${status.className}`}><span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />{status.label}</span></span>
-    <span className="hidden lg:block"><span className={`block text-xs font-semibold ${due.urgent ? 'text-red-600' : 'text-slate-800'}`}>{due.text}</span><span className="mt-1 block text-[11px] text-slate-500">{task.dueDate ? formatDate(task.dueDate) : 'Sin fecha límite'}</span></span>
+    <span className="hidden lg:block"><span className={`block text-xs font-semibold ${task.isOverdue ? 'text-red-600' : 'text-slate-800'}`}>{task.dueDate ? formatDate(task.dueDate) : 'Sin fecha límite'}</span>{task.dueDate && !isFinishedTask(task.status) && due.text !== formatDate(task.dueDate) && <span className={`mt-1 block text-[11px] ${task.isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{due.text === 'Vencida' ? 'Plazo vencido' : due.text}</span>}</span>
     <ChevronRight size={18} className="text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600" />
   </button>;
 }
@@ -313,7 +311,7 @@ function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const type = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const Icon = type.icon;
   const resource = getTaskResource(task);
-  const status = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+  const status = STATUS_CONFIG[visibleTaskStatus(task)] || STATUS_CONFIG.pendiente;
   const priority = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.media;
   const due = getDueBadge(task);
   const completed = task.checklist.filter(item => item.done).length;
@@ -323,7 +321,7 @@ function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
     <span className="mt-1.5 line-clamp-2 min-h-9 text-xs leading-[18px] text-slate-500">{task.description || taskGuidance(task)}</span>
     <span className="mt-4 flex w-full min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5"><FileText size={15} className="shrink-0 text-slate-500" /><span className="min-w-0"><span className="block text-[10px] uppercase tracking-wide text-slate-500">{resource.kind}</span><span className="block truncate text-xs font-medium text-slate-800">{resource.name}</span></span></span>
     {task.checklist.length > 0 && <span className="mt-3 flex w-full items-center gap-2 text-[11px] text-slate-500"><span>Avance {completed}/{task.checklist.length}</span><span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-blue-500" style={{ width: `${Math.round(completed / task.checklist.length * 100)}%` }} /></span></span>}
-    <span className="mt-auto flex w-full items-center justify-between gap-2 border-t border-slate-100 pt-3"><span className="flex min-w-0 items-center gap-2"><Avatar initials={task.responsibleAvatar} size="xs" /><span className="truncate text-[11px] text-slate-600">{task.responsible || 'Sin asignar'}</span></span><span className={`shrink-0 text-xs font-semibold ${due.urgent ? 'text-red-600' : 'text-slate-700'}`}>{!task.dueDate ? 'Sin fecha' : due.text === 'Vencida' ? 'Vencida' : /^\d+ días$/.test(due.text) ? `Vence en ${due.text}` : `${['completada', 'cancelada', 'rechazada'].includes(task.status) ? 'Límite' : 'Vence'} ${due.text.toLowerCase()}`}</span></span>
+    <span className="mt-auto flex w-full items-center justify-between gap-2 border-t border-slate-100 pt-3"><span className="flex min-w-0 items-center gap-2"><Avatar initials={task.responsibleAvatar} size="xs" /><span className="truncate text-[11px] text-slate-600">{task.responsible || 'Sin asignar'}</span></span><span className={`shrink-0 text-xs font-semibold ${due.urgent ? 'text-red-600' : 'text-slate-700'}`}>{!task.dueDate ? 'Sin fecha' : due.text === 'Vencida' ? 'Vencida' : /^\d+ días$/.test(due.text) ? `Vence en ${due.text}` : `${isFinishedTask(task.status) ? 'Límite' : 'Vence'} ${due.text.toLowerCase()}`}</span></span>
   </button>;
 }
 
@@ -393,7 +391,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
   const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
   const priorityInfo = PRIORITY_CONFIG[task.priority];
-  const statusInfo = STATUS_CONFIG[task.status];
+  const statusInfo = STATUS_CONFIG[visibleTaskStatus(task)];
   const TypeIcon = typeInfo.icon;
   const doneCount = checklist.filter(c => c.done).length;
   const blockingDependencies = dependencies.filter(dependency => dependency.status !== 'completada');
@@ -1076,14 +1074,14 @@ function KanbanView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: Ta
     { id: 'cancelada',   label: 'Cancelada',   color: 'border-t-slate-400',  bg: 'bg-slate-50/20' },
     { id: 'rechazada',   label: 'Rechazada',   color: 'border-t-rose-500',   bg: 'bg-rose-50/20' },
   ];
-  const visibleColumns = columns.filter(col => tasks.some(task => task.status === col.id));
+  const visibleColumns = columns.filter(col => tasks.some(task => visibleTaskStatus(task) === col.id));
 
   return (
     visibleColumns.length === 0 ? (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-12 text-center text-sm text-slate-500">Sin tareas para este tablero. Ajusta los filtros para ver otras etapas.</div>
     ) : <div className="flex gap-3 overflow-x-auto pb-3">
       {visibleColumns.map(col => {
-        const colTasks = tasks.filter(t => t.status === col.id);
+        const colTasks = tasks.filter(t => visibleTaskStatus(t) === col.id);
         return (
           <div key={col.id} className={`flex min-h-[240px] w-72 flex-shrink-0 flex-col rounded-lg border border-slate-200/90 border-t-4 bg-white ${col.color} shadow-[0_1px_2px_rgba(15,23,42,0.03)]`}>
             <div className="flex items-center justify-between px-4 py-3">
@@ -1215,7 +1213,7 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
             <div className="divide-y divide-slate-100">
               {docTasks.map(task => {
                 const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
-                const statusInfo = STATUS_CONFIG[task.status] || STATUS_CONFIG.pendiente;
+                const statusInfo = STATUS_CONFIG[visibleTaskStatus(task)] || STATUS_CONFIG.pendiente;
                 const TypeIcon = typeInfo.icon;
                 return (
                   <button key={task.id} type="button" onClick={() => onTaskClick(task)} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/80">
@@ -1242,19 +1240,22 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
 // ─── Quick Filters ────────────────────────────────────────────────────────────
 const QUICK_FILTERS = [
   { id: 'mis_tareas',       label: 'Mis tareas' },
-  { id: 'asignadas_por_mi', label: 'Asignadas por mí' },
+  { id: 'asignadas_por_mi', label: 'Creadas por mí' },
   { id: 'vencidas',         label: 'Vencidas' },
   { id: 'programadas',      label: 'Programadas' },
   { id: 'bloqueadas',       label: 'Bloqueadas' },
   { id: 'criticas',         label: 'Alta prioridad' },
   { id: 'automaticas',      label: 'Del sistema' },
 ];
+const QUICK_STATUS_FILTERS: Record<string, TaskStatus> = {
+  vencidas: 'vencida', programadas: 'programada', bloqueadas: 'bloqueada',
+};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PendingTasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [listLayout, setListLayout] = useState<'rows' | 'grid'>('rows');
-  const [statusScope, setStatusScope] = useState<TaskStatus | 'active' | 'all'>('active');
+  const [statusScope, setStatusScope] = useState<TaskStatusScope>('active');
   const [kindScope, setKindScope] = useState<'all' | 'accion' | 'actividad'>('all');
   const [typeScope, setTypeScope] = useState<string>('all');
   const [sortMode, setSortMode] = useState<'due' | 'recent' | 'priority'>('due');
@@ -1339,27 +1340,27 @@ export default function PendingTasksPage() {
   }, [supabase]);
 
   const toggleFilter = useCallback((id: string) => {
+    const status = QUICK_STATUS_FILTERS[id];
+    if (status) {
+      setStatusScope(previous => previous === status ? 'active' : status);
+      return;
+    }
     setActiveFilters(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
   }, []);
 
   const displayTasks = useMemo(() => tasks.map(task => taskAtTime(task, now)), [tasks, now]);
   const filtered = displayTasks.filter(task => {
     if (search) {
-      const q = search.toLowerCase();
+      const q = search.trim().toLocaleLowerCase('es');
       const searchable = [task.title, task.description, task.documentName, task.expedienteName,
         task.responsible, TASK_TYPE_CONFIG[task.type]?.label].filter(Boolean).join(' ').toLocaleLowerCase('es');
       if (!searchable.includes(q)) return false;
     }
-    if (statusScope === 'active' && ['completada','cancelada','rechazada'].includes(task.status)) return false;
-    if (statusScope === 'vencida' && !task.isOverdue && task.status !== 'vencida') return false;
-    if (statusScope !== 'all' && statusScope !== 'active' && statusScope !== 'vencida' && task.status !== statusScope) return false;
+    if (!matchesTaskStatus(task, statusScope)) return false;
     if (kindScope !== 'all' && task.workKind !== kindScope) return false;
     if (typeScope !== 'all' && task.type !== typeScope) return false;
     if (activeFilters.includes('mis_tareas') && task.assignedTo !== user?.id) return false;
-    if (activeFilters.includes('asignadas_por_mi') && task.createdBy !== user?.id) return false;
-    if (activeFilters.includes('vencidas') && !task.isOverdue && task.status !== 'vencida') return false;
-    if (activeFilters.includes('programadas') && task.status !== 'programada') return false;
-    if (activeFilters.includes('bloqueadas') && !task.isBlocked && task.status !== 'bloqueada') return false;
+    if (activeFilters.includes('asignadas_por_mi') && (task.createdBy !== user?.id || task.origin !== 'manual')) return false;
     if (activeFilters.includes('criticas') && !task.isCritical && !['critica','alta'].includes(task.priority)) return false;
     if (activeFilters.includes('automaticas') && task.origin !== 'sistema') return false;
     return true;
@@ -1368,6 +1369,10 @@ export default function PendingTasksPage() {
     : sortMode === 'priority'
       ? ['critica','alta','media','baja'].indexOf(a.priority) - ['critica','alta','media','baja'].indexOf(b.priority)
       : (a.dueDate ? new Date(a.dueDate).getTime() : Infinity) - (b.dueDate ? new Date(b.dueDate).getTime() : Infinity));
+  const hasAppliedFilters = Boolean(search.trim() || statusScope !== 'active' || kindScope !== 'all' || typeScope !== 'all' || activeFilters.length);
+  const resetFilters = () => {
+    setSearch(''); setStatusScope('active'); setKindScope('all'); setTypeScope('all'); setActiveFilters([]);
+  };
 
   const views: { id: ViewMode; label: string; icon: React.ElementType }[] = [
     { id: 'lista',      label: 'Lista',      icon: List },
@@ -1443,7 +1448,7 @@ export default function PendingTasksPage() {
             <button type="button" onClick={() => setListLayout('grid')} title="Vista de cuadrícula" aria-label="Vista de cuadrícula" aria-pressed={listLayout === 'grid'} className={`flex h-7 w-8 items-center justify-center rounded ${listLayout === 'grid' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-slate-700'}`}><LayoutGrid size={16} /></button>
           </div>}
           {!loading && filtered.length !== tasks.length && (
-            <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">{filtered.length} de {tasks.length}</span>
+            <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} · {tasks.length} totales</span>
           )}
         </div>
 
@@ -1452,7 +1457,7 @@ export default function PendingTasksPage() {
             <option value="all">Acciones y actividades</option><option value="accion">Acciones del proceso</option><option value="actividad">Actividades</option>
           </select>
           <select aria-label="Estado" value={statusScope} onChange={event => setStatusScope(event.target.value as typeof statusScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
-            <option value="active">Pendientes y en curso</option>
+            <option value="active">Todas las abiertas</option>
             {Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
             <option value="all">Todos los estados</option>
           </select>
@@ -1470,21 +1475,22 @@ export default function PendingTasksPage() {
             <button
               key={f.id}
               onClick={() => toggleFilter(f.id)}
+              aria-pressed={QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id)}
               className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm font-500 transition-colors ${
-                activeFilters.includes(f.id)
+                (QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id))
                   ? 'border-primary bg-primary text-white' :'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
               }`}
             >
-              {activeFilters.includes(f.id) && <X size={11} />}
+              {(QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id)) && <X size={11} />}
               {f.label}
             </button>
           ))}
-          {activeFilters.length > 0 && (
+          {hasAppliedFilters && (
             <button
-              onClick={() => setActiveFilters([])}
+              onClick={resetFilters}
               className="inline-flex h-8 items-center rounded-md border border-dashed border-slate-300 px-3 text-sm font-500 text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-800"
             >
-              Limpiar filtros
+              Restablecer filtros
             </button>
           )}
         </div>
@@ -1511,21 +1517,19 @@ export default function PendingTasksPage() {
 
         {/* Views */}
         {!loading && !error && (
-          <>
-            {viewMode === 'lista' && (
-              filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white py-16">
-                  <CheckSquare size={32} className="mb-3 text-slate-300" />
-                  <p className="text-sm font-600 text-slate-900">Sin tareas que coincidan</p>
-                  <p className="mt-1 text-xs text-slate-500">Ajusta los filtros o la búsqueda</p>
-                  <button
-                    onClick={() => setShowNewTask(true)}
-                    className="mt-4 flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
-                  >
-                    <Plus size={13} />Crear primera tarea
-                  </button>
-                </div>
-              ) : (
+          filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white py-16">
+              <CheckSquare size={32} className="mb-3 text-slate-300" />
+              <p className="text-sm font-semibold text-slate-900">{tasks.length ? 'Sin tareas que coincidan' : 'Aún no hay tareas'}</p>
+              <p className="mt-1 text-sm text-slate-500">{tasks.length ? 'Prueba con otro estado, tipo o término de búsqueda.' : 'Crea una tarea vinculada a un recurso existente.'}</p>
+              <button type="button" onClick={tasks.length ? resetFilters : () => setShowNewTask(true)}
+                className="mt-4 flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90">
+                {tasks.length ? 'Restablecer filtros' : <><Plus size={15} />Nueva tarea</>}
+              </button>
+            </div>
+          ) : (
+            <>
+              {viewMode === 'lista' && (
                 <section aria-label="Resultados de tareas" className={listLayout === 'grid' ? 'space-y-3' : 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]'}>
                   <div className={listLayout === 'grid' ? 'flex flex-wrap items-end justify-between gap-2' : 'border-b border-slate-100 px-4 py-3 lg:px-5'}>
                     <div><h2 className="text-sm font-semibold text-slate-900">{listLayout === 'grid' ? 'Tareas en tarjetas' : 'Lista de trabajo'}</h2><p className="mt-0.5 text-xs text-slate-500">{filtered.length} {filtered.length === 1 ? 'tarea disponible' : 'tareas disponibles'} · Selecciona una para ver el detalle y continuar.</p></div>
@@ -1543,17 +1547,17 @@ export default function PendingTasksPage() {
                     </>
                   )}
                 </section>
-              )
-            )}
-            {viewMode === 'kanban' && <KanbanView tasks={filtered} onTaskClick={setSelectedTask} />}
-            {viewMode === 'calendario' && <CalendarView tasks={filtered} onTaskClick={setSelectedTask} />}
-            {viewMode === 'documento' && <DocumentoView tasks={filtered} onTaskClick={setSelectedTask} />}
-          </>
+              )}
+              {viewMode === 'kanban' && <KanbanView tasks={filtered} onTaskClick={setSelectedTask} />}
+              {viewMode === 'calendario' && <CalendarView tasks={filtered} onTaskClick={setSelectedTask} />}
+              {viewMode === 'documento' && <DocumentoView tasks={filtered} onTaskClick={setSelectedTask} />}
+            </>
+          )
         )}
 
         {!loading && !error && (
           <p className="mt-3 text-right text-xs text-slate-500">
-            Mostrando {filtered.length} de {tasks.length} tareas
+            Mostrando {filtered.length} {filtered.length === 1 ? 'tarea' : 'tareas'} · {tasks.length} en total
           </p>
         )}
         </div>
