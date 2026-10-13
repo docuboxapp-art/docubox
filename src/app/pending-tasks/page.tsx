@@ -315,7 +315,7 @@ function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
 // ─── Task Detail Drawer (45% lateral) ────────────────────────────────────────
 type DrawerTab = 'info' | 'checklist' | 'comentarios' | 'historial' | 'dependencias';
 
-function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceId, userId, userName, canReassign }: {
+function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceId, userId, userName, canReassign, canModerateComments }: {
   task: Task;
   onClose: () => void;
   onTaskUpdated: (taskId: string) => void;
@@ -324,6 +324,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   userId: string | null;
   userName?: string;
   canReassign: boolean;
+  canModerateComments: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -850,7 +851,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                       <span className="text-xs font-semibold text-foreground">{c.author}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-muted-foreground">{formatDate(c.date)} {formatTime(c.date)}</span>
-                        {(c.authorId === userId || canManageTask) && <button onClick={() => handleDeleteComment(c.id)} aria-label={`Eliminar comentario de ${c.author}`} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
+                        {(c.authorId === userId || canModerateComments) && <button onClick={() => handleDeleteComment(c.id)} aria-label={`Eliminar comentario de ${c.author}`} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
                           <Trash2 size={11} />
                         </button>}
                       </div>
@@ -1452,6 +1453,7 @@ export default function PendingTasksPage() {
           userId={user?.id ?? null}
           userName={userName}
           canReassign={Boolean(activeWorkspace?.organizationEnabled && ['owner','admin'].includes(activeWorkspace.role))}
+          canModerateComments={Boolean(activeWorkspace && ['owner','admin'].includes(activeWorkspace.role))}
         />
       )}
 
