@@ -33,23 +33,12 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
     return reply('Completa la prueba de vida desde el móvil.', 400);
   const { data: form, error: formError } = await service
     .from('form_templates')
-    .select('id,name,status,settings,allowed_signature_types')
+    .select('id,name,status,settings')
     .eq('id', accessIdentity.formId)
     .maybeSingle();
   if (formError) return reply('No se pudo consultar el formulario.', 503);
   if (!form || form.status !== 'published')
     return reply('Este formulario público no está disponible.', 404);
-  const allowedTypes =
-    Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
-      ? form.allowed_signature_types
-      : form.settings?.allowedSignatureTypes;
-  if (
-    Array.isArray(allowedTypes) &&
-    allowedTypes.length &&
-    !allowedTypes.includes('autografa_digital')
-  )
-    return reply('La firma autógrafa no está habilitada para este formulario.', 409);
-
   const { data: invitee, error: inviteeError } = await service
     .from('form_public_invitees')
     .select('recipient_name,launch_prefill')
@@ -140,6 +129,7 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
       .update({
         liveness_verified_at: verifiedAt,
         liveness_reference: reference,
+        signature_type: accessIdentity.signatureType,
         launch_prefill: invitee?.launch_prefill || {},
         ...(invitee?.recipient_name ? { recipient_name: invitee.recipient_name } : {}),
       })
@@ -167,7 +157,7 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
     recipient_name: invitee?.recipient_name || accessIdentity.name || user.email,
     launch_prefill: invitee?.launch_prefill || {},
     signer_role: 'Participante',
-    signature_type: 'autografa_digital',
+    signature_type: accessIdentity.signatureType,
     require_liveness: false,
     liveness_verified_at: verifiedAt,
     liveness_reference: reference,

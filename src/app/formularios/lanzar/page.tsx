@@ -42,7 +42,6 @@ type FormChoice = {
   version_number: number | null;
   published_at: string | null;
   settings: Record<string, unknown> | null;
-  allowed_signature_types: SignatureType[] | null;
 };
 type Participant = {
   id: string;
@@ -87,6 +86,7 @@ const launchSteps = [
 ] as const;
 const publicLaunchSteps = [
   { label: 'Acceso y correo', icon: ShieldCheck, description: 'Escribe el correo que recibirá la invitación y el código.' },
+  { label: 'Firma', icon: CheckCircle2, description: 'Selecciona el tipo de firma requerido para esta respuesta.' },
   { label: 'Confirmar envío', icon: Send, description: 'Envía la invitación y el código en correos separados.' },
 ] as const;
 
@@ -157,7 +157,7 @@ function LaunchContent() {
       const [formResult, contactResult] = await Promise.all([
         supabase
           .from('form_templates')
-          .select('id,name,description,created_by,version_number,published_at,settings,allowed_signature_types')
+          .select('id,name,description,created_by,version_number,published_at,settings')
           .eq('workspace_id', activeWorkspace.id)
           .eq('status', 'published')
           .order('name'),
@@ -218,12 +218,6 @@ function LaunchContent() {
 
   const form = forms.find((item) => item.id === selectedId);
   const signatureOptions: SignatureType[] = ['click_sign', 'autografa_digital', 'efirma_sat'];
-  const canLaunchPublicly =
-    Array.isArray(form?.allowed_signature_types) && form.allowed_signature_types.length
-      ? form.allowed_signature_types.includes('autografa_digital')
-      : Array.isArray(form?.settings?.allowedSignatureTypes) && form.settings.allowedSignatureTypes.length
-        ? form.settings.allowedSignatureTypes.includes('autografa_digital')
-        : true;
   const hasConfiguredExpiration = form?.settings?.configureLinkExpiration === true;
   const configuredHours = Number(form?.settings?.expirationHours);
   const defaultHours =
@@ -289,7 +283,7 @@ function LaunchContent() {
     setError('');
   };
   const visibleSteps = accessMode === 'public' ? publicLaunchSteps : launchSteps;
-  const currentStepIndex = accessMode === 'public' ? (step === 3 ? 1 : 0) : step - 1;
+  const currentStepIndex = step - 1;
   const activeStep = visibleSteps[currentStepIndex];
   const ActiveStepIcon = activeStep.icon;
   const progress = Math.round((currentStepIndex / (visibleSteps.length - 1)) * 100);
@@ -297,7 +291,7 @@ function LaunchContent() {
   const goBack = () => {
     setError('');
     if (step === 1) setSelectedId('');
-    else setStep(accessMode === 'public' ? 1 : (step - 1) as 1 | 2);
+    else setStep((step - 1) as 1 | 2);
   };
   const advance = () => {
     if (step === 1 && accessMode === 'public') {
@@ -306,7 +300,7 @@ function LaunchContent() {
         return;
       }
       setError('');
-      setStep(3);
+      setStep(2);
     } else if (step === 1) next();
     else if (signatureType) {
       setError('');
@@ -388,8 +382,8 @@ function LaunchContent() {
     business_name: selectedParticipant?.businessName || '',
   });
   const activatePublicAccess = async () => {
-    if (!form || !canLaunchPublicly) {
-      setError('Este formulario necesita firma autógrafa digital para activar el acceso público.');
+    if (!form || !signatureType) {
+      setError('Selecciona el tipo de firma para este envío.');
       return;
     }
     if (!emailPattern.test(publicRecipientEmail.trim())) {
@@ -405,7 +399,7 @@ function LaunchContent() {
       const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient: { email: publicRecipientEmail.trim().toLowerCase() } }),
+        body: JSON.stringify({ recipient: { email: publicRecipientEmail.trim().toLowerCase() }, signatureType }),
         cache: 'no-store',
       });
       const result = await response.json();
@@ -558,7 +552,7 @@ function LaunchContent() {
               </button>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-500">El código permanece disponible para este formulario; volver a lanzarlo públicamente mostrará el mismo código.</p>
+          <p className="mt-3 text-xs text-slate-500">Cada nuevo envío genera un código individual para el correo indicado.</p>
           <div className="mt-6 flex justify-end">
             <button type="button" onClick={() => router.replace('/formularios')} className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">Finalizar</button>
           </div>
@@ -588,7 +582,7 @@ function LaunchContent() {
                 title={label}
                 disabled={busy || index >= currentStepIndex}
                 onClick={() => {
-                  setStep(accessMode === 'public' ? 1 : (index + 1) as 1 | 2);
+                  setStep((index + 1) as 1 | 2);
                   setError('');
                 }}
                 className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors sm:px-2.5 ${currentStepIndex === index ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : index < currentStepIndex ? 'text-slate-700 hover:bg-white hover:text-primary' : 'text-slate-400'} disabled:cursor-default`}
@@ -766,13 +760,12 @@ function LaunchContent() {
                               { value: 'private', title: 'Invitación privada', description: 'Solo la persona elegida podrá abrir el enlace con su cuenta y correo verificado.' },
                               { value: 'public', title: 'Formulario público con código', description: 'Se envían el enlace y un código individual en correos separados. El destinatario hará la prueba de vida sin iniciar sesión.' },
                             ] as const).map((option) => (
-                              <label key={option.value} className={`flex gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'} ${option.value === 'public' && !canLaunchPublicly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
-                                <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} disabled={option.value === 'public' && !canLaunchPublicly} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
+                              <label key={option.value} className={`flex cursor-pointer gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'}`}>
+                                <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
                                 <span><span className="block text-sm font-medium text-slate-900">{option.title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span></span>
                               </label>
                             ))}
                           </div>
-                          {!canLaunchPublicly && <p className="mt-2 text-xs text-amber-700">Para usar un código público, el formulario debe admitir firma autógrafa digital.</p>}
                           {accessMode === 'private' && <p className="mt-2 text-xs text-slate-500">Una invitación privada no revoca un código público que ya se haya compartido.</p>}
                         </fieldset>
                         {accessMode === 'private' ? <>
@@ -891,7 +884,8 @@ function LaunchContent() {
                               <button
                                 type="button"
                                 key={type}
-                                onClick={() => setSignatureType(type)}
+                                aria-pressed={signatureType === type}
+                                onClick={() => { setSignatureType(type); setError(''); }}
                                 className={`flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm ${signatureType === type ? 'border-primary bg-blue-50 text-primary' : 'border-slate-200'}`}
                               >
                                 <span className="flex items-center gap-3">
@@ -920,8 +914,8 @@ function LaunchContent() {
                           <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700">
                             <p><strong>Acceso:</strong> invitación con enlace y correo separado con código.</p>
                             <p className="mt-2"><strong>Identidad:</strong> código individual y prueba de vida obligatoria, sin inicio de sesión.</p>
-                            <p className="mt-2"><strong>Firma:</strong> firma autógrafa digital.</p>
-                            <p className="mt-4 text-xs text-slate-500">Si ya activaste un código para este formulario, se mostrará el mismo para conservar los accesos compartidos.</p>
+                            <p className="mt-2"><strong>Firma:</strong> {signatureType ? signatureLabels[signatureType] : 'Pendiente'}.</p>
+                            <p className="mt-4 text-xs text-slate-500">El destinatario recibirá un código individual nuevo para esta invitación.</p>
                           </div>
                         </div>
                       ) : (

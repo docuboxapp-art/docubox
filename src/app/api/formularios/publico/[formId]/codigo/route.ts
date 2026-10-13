@@ -37,7 +37,7 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   if (!user) return NextResponse.json({ error: 'Sesión no válida.' }, { status: 401, headers });
   const { data: form } = await service
     .from('form_templates')
-    .select('id,name,status,settings,created_by,workspace_id,allowed_signature_types,workspaces(name)')
+    .select('id,name,status,created_by,workspace_id,workspaces(name)')
     .eq('id', formId)
     .maybeSingle();
   if (!form || form.status !== 'published')
@@ -60,15 +60,14 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   const body = create ? await request.json().catch(() => ({})) : {};
   const recipient = body && typeof body === 'object' ? body.recipient : null;
   const recipientEmail = String(recipient?.email || '').trim().toLowerCase();
+  const signatureType = String(body?.signatureType || '');
   if (create && !emailPattern.test(recipientEmail))
     return NextResponse.json({ error: 'Escribe un correo electrónico válido.' }, { status: 400, headers });
   const resendKey = process.env.RESEND_API_KEY;
   if (create && !resendKey)
     return NextResponse.json({ error: 'El envío por correo no está configurado.' }, { status: 503, headers });
-  const allowedTypes = Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
-    ? form.allowed_signature_types : form.settings?.allowedSignatureTypes;
-  if (Array.isArray(allowedTypes) && allowedTypes.length && !allowedTypes.includes('autografa_digital'))
-    return NextResponse.json({ error: 'Habilita la firma autógrafa digital antes de activar el acceso público.' }, { status: 409, headers });
+  if (create && !['click_sign', 'autografa_digital', 'efirma_sat'].includes(signatureType))
+    return NextResponse.json({ error: 'Selecciona un tipo de firma válido.' }, { status: 400, headers });
   const { data: existing, error: lookupError } = await service
     .from('form_public_access_codes')
     .select('code_ciphertext,code_lookup,code_hash')
@@ -153,6 +152,7 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
       recipient_email: recipientEmail,
       recipient_name: '',
       launch_prefill: {},
+      signature_type: signatureType,
       invited_by: user.id,
       invited_at: new Date().toISOString(),
       code_lookup: publicCodeLookup(candidate),

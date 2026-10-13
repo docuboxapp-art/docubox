@@ -11,17 +11,18 @@ const source = ts.transpileModule(readFileSync('src/lib/forms/public-code-access
 const formId = '11111111-1111-4111-8111-111111111111';
 const request = { headers: new Headers({ 'x-forwarded-for': '203.0.113.10' }) };
 
-function fixture({ failures = 0, boundCode = true, profile = true, legacy = false } = {}) {
+function fixture({ failures = 0, boundCode = true, profile = true, legacy = false,
+  signatureType = 'autografa_digital', allowedTypes = ['autografa_digital'] } = {}) {
   const attempts = [];
   const rows = {
     form_public_invitees: [{ form_id: formId, recipient_email: 'ana@example.com',
       recipient_name: 'Ana', code_lookup: boundCode ? 'ABCD2345' : null,
-      code_hash: boundCode ? 'matching-hash' : null }],
+      code_hash: boundCode ? 'matching-hash' : null, signature_type: signatureType }],
     form_public_access_codes: legacy ? [{ form_id: formId, code_lookup: 'ABCD2345',
       code_hash: 'matching-hash' }] : [],
     user_profiles: profile ? [{ id: 'user-1', email: 'ana@example.com', full_name: 'Ana' }] : [],
     form_templates: [{ id: formId, status: 'published', settings: {},
-      allowed_signature_types: ['autografa_digital'] }],
+      allowed_signature_types: allowedTypes }],
   };
   const service = {
     from(table) {
@@ -63,6 +64,7 @@ test('the individual code identifies its invitee without an app session', async 
     { code: 'ABCD2345', email: 'ANA@example.com', formId });
   assert.equal(access.userId, 'user-1');
   assert.equal(access.recipientBound, true);
+  assert.equal(access.signatureType, 'autografa_digital');
   assert.equal(current.attempts[0].succeeded, true);
 });
 
@@ -95,4 +97,19 @@ test('too many failed attempts stop code checks before identity lookup', async (
   await assert.rejects(current.exports.verifyPublicCode(current.service, request,
     { code: 'ABCD2345', email: 'ana@example.com', formId }), { status: 429 });
   assert.equal(current.attempts.length, 0);
+});
+
+test('the individual code carries its configured signature method', async () => {
+  for (const signatureType of ['click_sign', 'efirma_sat']) {
+    const current = fixture({ signatureType });
+    const access = await current.exports.verifyPublicCode(current.service, request,
+      { code: 'ABCD2345', email: 'ana@example.com', formId });
+    assert.equal(access.signatureType, signatureType);
+  }
+});
+
+test('the code cannot be claimed with an unknown signature method', async () => {
+  const current = fixture({ signatureType: 'unknown' });
+  await assert.rejects(current.exports.verifyPublicCode(current.service, request,
+    { code: 'ABCD2345', email: 'ana@example.com', formId }), { status: 409 });
 });

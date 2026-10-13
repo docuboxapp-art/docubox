@@ -16,6 +16,7 @@ export type PublicCodeAccess = {
   userId: string | null;
   name: string | null;
   recipientBound: boolean;
+  signatureType: 'click_sign' | 'autografa_digital' | 'efirma_sat';
 };
 export class PublicCodeError extends Error {
   constructor(
@@ -65,7 +66,7 @@ export async function verifyPublicCode(
   const lookup = publicCodeLookup(code);
   const { data: recipientCode, error: recipientCodeError } = await service
     .from('form_public_invitees')
-    .select('form_id,recipient_name,code_hash')
+    .select('form_id,recipient_name,code_hash,signature_type')
     .eq('code_lookup', lookup)
     .eq('recipient_email', email)
     .maybeSingle();
@@ -91,7 +92,7 @@ export async function verifyPublicCode(
     !bound && codeMatches
       ? await service
           .from('form_public_invitees')
-          .select('recipient_name,code_hash')
+          .select('recipient_name,code_hash,signature_type')
           .eq('form_id', access!.form_id)
           .eq('recipient_email', email)
           .maybeSingle()
@@ -118,27 +119,21 @@ export async function verifyPublicCode(
 
   const { data: form, error: formError } = await service
     .from('form_templates')
-    .select('status,settings,allowed_signature_types')
+    .select('status')
     .eq('id', formId)
     .maybeSingle();
   if (formError) throw new PublicCodeError('No se pudo consultar el formulario.', 503);
   if (form?.status !== 'published')
     throw new PublicCodeError('Este formulario ya no está disponible.', 404);
-  const allowedTypes =
-    Array.isArray(form.allowed_signature_types) && form.allowed_signature_types.length
-      ? form.allowed_signature_types
-      : form.settings?.allowedSignatureTypes;
-  if (
-    Array.isArray(allowedTypes) &&
-    allowedTypes.length &&
-    !allowedTypes.includes('autografa_digital')
-  )
-    throw new PublicCodeError('La firma autógrafa no está habilitada para este formulario.', 409);
+  const signatureType = invitee?.signature_type || 'autografa_digital';
+  if (!['click_sign', 'autografa_digital', 'efirma_sat'].includes(signatureType))
+    throw new PublicCodeError('La firma de esta invitación no es válida.', 409);
   return {
     formId,
     email,
     userId: profile?.id || null,
     name: profile?.full_name || invitee?.recipient_name || null,
     recipientBound: bound,
+    signatureType,
   };
 }

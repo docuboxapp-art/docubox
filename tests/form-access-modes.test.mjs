@@ -22,14 +22,17 @@ function fixture({
   mobileFormId = formId,
   captureApproved = true,
   enrollmentApproved = true,
+  signatureType = 'autografa_digital',
+  allowedTypes = ['autografa_digital'],
 } = {}) {
   const inserted = [];
+  const updated = [];
   const form = {
     id: formId,
     name: 'Solicitud',
     status: 'published',
     settings: { accessMode },
-    allowed_signature_types: ['autografa_digital'],
+    allowed_signature_types: allowedTypes,
   };
   const chain = (result) => {
     const query = {
@@ -61,7 +64,7 @@ function fixture({
         return { ...chain({ data: prior, error: null }), insert: async (row) => {
           inserted.push(row);
           return { error: null };
-        } };
+        }, update: (row) => { updated.push(row); return chain({ error: null }); } };
       if (table === 'mobile_upload_sessions') return chain({ data: {
         id: 'mobile-session-1', user_id: user?.id, status: mobileStatus,
         expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -97,7 +100,7 @@ function fixture({
         PublicCodeError: class PublicCodeError extends Error { constructor(message, status) { super(message); this.status = status; } },
         verifyPublicCode: async (_service, _request, body) => {
           if (!codeExists) throw new Error('El código no corresponde a esta invitación.');
-          return { formId: body.formId, email: user?.email || 'ana@example.com', userId: user?.id || null, name: 'Ana invitada' };
+          return { formId: body.formId, email: user?.email || 'ana@example.com', userId: user?.id || null, name: 'Ana invitada', signatureType };
         },
       };
     if (name === '@/lib/security/capability-token')
@@ -108,7 +111,7 @@ function fixture({
     headers: new Headers(),
     json: async () => ({ code: publicCode, email: 'ana@example.com', mobileSessionToken: 'a'.repeat(64) }),
   };
-  return { exports, request, inserted };
+  return { exports, request, inserted, updated };
 }
 
 const previousEnv = {
@@ -178,7 +181,19 @@ test('an existing response cannot claim another public link', async () => {
   assert.equal(current.inserted.length, 0);
 });
 
-function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'], recipientEmail = 'ana@example.com' } = {}) {
+test('a reused unsubmitted link updates the selected signature method', async () => {
+  const current = fixture({ signatureType: 'efirma_sat', prior: {
+    token: 'previous-token', used_at: null,
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  } });
+  const response = await current.exports.claimPublicForm(current.request, formId);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.url, '/form/previous-token');
+  assert.equal(current.updated[0].signature_type, 'efirma_sat');
+  assert.equal(current.inserted.length, 0);
+});
+
+function codeRouteFixture({ existing = false, authorized = true, allowedTypes = ['autografa_digital'], recipientEmail = 'ana@example.com', signatureType = 'autografa_digital' } = {}) {
   const inserts = [];
   const updates = [];
   const invitees = [];
@@ -245,7 +260,7 @@ function codeRouteFixture({ existing = false, authorized = true, allowedTypes = 
     invitees,
     request: { headers: new Headers({ Authorization: 'Bearer owner-token' }),
       nextUrl: { origin: 'https://docubox.example' },
-      json: async () => ({ recipient: { email: recipientEmail } }) },
+      json: async () => ({ recipient: { email: recipientEmail }, signatureType }) },
     context: { params: Promise.resolve({ formId }) },
   };
 }
@@ -268,6 +283,7 @@ test('the launcher activates a code on a private-capable published form', async 
   assert.equal(current.invitees[0].recipient_email, 'ana@example.com');
   assert.equal(current.invitees[0].recipient_name, '');
   assert.deepEqual(current.invitees[0].launch_prefill, {});
+  assert.equal(current.invitees[0].signature_type, 'autografa_digital');
   assert.equal(deliveredBatch.length, 2);
   assert.deepEqual(deliveredBatch.map((mail) => mail.to), [['ana@example.com'], ['ana@example.com']]);
   assert.doesNotMatch(deliveredBatch[0].html, /ABCDEFGH/);
@@ -326,8 +342,21 @@ test('existing long codes become short without discarding the legacy verifier', 
   assert.equal((await denied.exports.POST(denied.request, denied.context)).status, 403);
 });
 
-test('public launch requires autograph signatures', async () => {
-  const current = codeRouteFixture({ allowedTypes: ['click_sign'] });
-  assert.equal((await current.exports.POST(current.request, current.context)).status, 409);
-  assert.equal(current.inserts.length, 0);
+test('public launch offers the same signature methods as private launch', async () => {
+  for (const signatureType of ['click_sign', 'efirma_sat']) {
+    const current = codeRouteFixture({ signatureType });
+    assert.equal((await current.exports.POST(current.request, current.context)).status, 200);
+    assert.equal(current.invitees[0].signature_type, signatureType);
+    const claimed = fixture({ signatureType });
+    assert.equal((await claimed.exports.claimPublicForm(claimed.request, formId)).status, 200);
+    assert.equal(claimed.inserted[0].signature_type, signatureType);
+  }
+});
+
+test('public launch rejects missing or unknown signature types', async () => {
+  for (const [signatureType, expectedStatus] of [['', 400], ['unknown', 400]]) {
+    const current = codeRouteFixture({ signatureType });
+    assert.equal((await current.exports.POST(current.request, current.context)).status, expectedStatus);
+    assert.equal(current.invitees.length, 0);
+  }
 });
