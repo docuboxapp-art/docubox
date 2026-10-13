@@ -54,6 +54,8 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { FittedSignatureStamp } from '@/components/signatures/SignatureStampDisplay';
+import { getDefaultSignatureStampStyle } from '@/lib/signatures/stamp-sizing';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
@@ -550,7 +552,20 @@ interface ParticipationResponse {
   campos_completados: Array<{ campo_id: string; label: string; value: string }>;
   firma_data: string | null;
   firma_completada: boolean;
+  firma_completada_at?: string | null;
+  signature_method?: string | null;
   signature_stamp_style?: string | null;
+  signature_hash?: string | null;
+  signature_ip?: string | null;
+  stamp_metadata?: {
+    rfc?: string | null;
+    curp?: string | null;
+    participant_role?: string | null;
+    participant_act?: string | null;
+    verification_url?: string | null;
+    certificate_serial?: string | null;
+    certificate_valid_until?: string | null;
+  } | null;
 }
 
 interface DocumentNote {
@@ -1257,6 +1272,8 @@ export default function VisorDocumentoPage() {
       nom151LookupComplete &&
       !signedPdfReadyForDownload
   );
+  const formFinalPdfProviderMissing =
+    formFinalPdfPending && evidenceV2?.errorCode === 'NOM151_PROVIDER_NOT_CONFIGURED';
   const formStampStyle = participationResponses.find((response) => response.firma_completada)
     ?.signature_stamp_style?.trim().toUpperCase() || null;
   const formStampOmitsQr = formStampStyle === 'AC1' || formStampStyle === 'AC2';
@@ -3514,7 +3531,7 @@ export default function VisorDocumentoPage() {
           const { data, error } = await supabase
             .from('participation_responses')
             .select(
-              'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada'
+              'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, firma_completada_at, signature_method, signature_stamp_style, signature_hash'
             )
             .eq('documento_id', docId);
           if (!error && data && data.length > 0) {
@@ -4399,9 +4416,7 @@ export default function VisorDocumentoPage() {
   };
 
   const estadoInfo = document
-    ? formFinalPdfPending
-      ? { label: 'Firma registrada', color: 'text-amber-700', bg: 'bg-amber-50' }
-      : estadoConfig[document.estado] || {
+    ? estadoConfig[document.estado] || {
         label: document.estado?.toUpperCase() || '—',
         color: 'text-gray-700',
         bg: 'bg-gray-100',
@@ -4851,8 +4866,8 @@ export default function VisorDocumentoPage() {
   // A signature may only be rendered when its assigned participant can be
   // resolved unambiguously. Rendering a different participant's trace is worse
   // than leaving an unassigned legacy field as a placeholder.
-  const getFirmaDataForCampo = React.useCallback(
-    (campo: CampoSolicitado): string | null => {
+  const getFirmaResponseForCampo = React.useCallback(
+    (campo: CampoSolicitado): ParticipationResponse | null => {
       const configuredParticipantId = String(campo.participantId || '').trim();
       const assignedParticipantId =
         configuredParticipantId.toLowerCase() === 'current-user'
@@ -4869,15 +4884,18 @@ export default function VisorDocumentoPage() {
       const resp = participationResponses.find(
         (r) =>
           r.firma_completada &&
-          Boolean(r.firma_data) &&
           (String(r.participante_id || '')
             .trim()
             .toLowerCase() === normalizedAssignedId ||
             (resolvedEmail && r.participante_email.trim().toLowerCase() === resolvedEmail))
       );
-      return resp?.firma_data || null;
+      return resp || null;
     },
     [document?.owner_id, participationResponses, participantes]
+  );
+  const getFirmaDataForCampo = React.useCallback(
+    (campo: CampoSolicitado): string | null => getFirmaResponseForCampo(campo)?.firma_data || null,
+    [getFirmaResponseForCampo]
   );
 
   // Field values must be linked to the assigned participant and a unique field
@@ -5193,28 +5211,40 @@ export default function VisorDocumentoPage() {
     // Hide the preview overlay only when the verified final PDF is displayed.
     if (isFirma && document?.estado === 'completado' && finalDeliverableAvailable) return null;
     const filledValue = getFilledValueForCampo(campo);
-    const firmaData = isFirma ? getFirmaDataForCampo(campo) : null;
+    const firmaResponse = isFirma ? getFirmaResponseForCampo(campo) : null;
+    const firmaData = firmaResponse?.firma_data || null;
+    const savedStyle = firmaResponse?.signature_stamp_style?.trim().toUpperCase() || '';
+    const savedMethod = firmaResponse?.signature_method?.trim().toLowerCase();
+    const signatureType = savedMethod === 'efirma' || savedMethod === 'autografa' || savedMethod === 'clicksign'
+      ? savedMethod
+      : savedStyle.startsWith('E') ? 'efirma' : savedStyle.startsWith('C') ? 'clicksign' : 'autografa';
 
-    // If firma field and we have signature data — show the stamp
-    if (isFirma && firmaData) {
+    // Preview the selected design in the original PDF while certification is pending.
+    // The verified PDF embeds this same style and is shown without an overlay.
+    if (isFirma && firmaResponse && (firmaData || signatureType !== 'autografa')) {
       return (
         <div
           key={`${keyPrefix}-${campo.id || campo.label}-${idx}`}
           style={{ ...style, zIndex: 10 }}
-          className="absolute"
+          className="absolute overflow-hidden bg-white"
+          aria-label={`Vista previa de la estampa de firma ${savedStyle || getDefaultSignatureStampStyle(signatureType)}`}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={firmaData}
-            alt="Firma capturada, vista previa pendiente del PDF final"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              background: 'rgba(255,255,255,0.88)',
-              borderRadius: '3px',
-              border: `1.5px solid ${borderColor || '#2dd4bf'}`,
-            }}
+          <FittedSignatureStamp
+            stampStyle={savedStyle || getDefaultSignatureStampStyle(signatureType)}
+            signatureType={signatureType}
+            signatureUrl={firmaData}
+            userName={firmaResponse.participante_nombre}
+            userRfc={firmaResponse.stamp_metadata?.rfc || ''}
+            userCurp={firmaResponse.stamp_metadata?.curp || ''}
+            participantRole={firmaResponse.stamp_metadata?.participant_role || undefined}
+            participantAct={firmaResponse.stamp_metadata?.participant_act || undefined}
+            signatureHash={firmaResponse.signature_hash || ''}
+            signedAt={firmaResponse.firma_completada_at || ''}
+            ipAddress={firmaResponse.signature_ip || ''}
+            coordinates={null}
+            efirmaSerial={firmaResponse.stamp_metadata?.certificate_serial || null}
+            efirmaVigenciaFin={firmaResponse.stamp_metadata?.certificate_valid_until || null}
+            verificationUrl={firmaResponse.stamp_metadata?.verification_url || undefined}
           />
         </div>
       );
@@ -6233,8 +6263,12 @@ export default function VisorDocumentoPage() {
                     </div>
                   )}
                   {formFinalPdfPending && (
-                    <div role="status" className="w-full max-w-[800px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-                      <strong>Firma registrada; PDF final pendiente.</strong> Estás viendo el PDF original con el trazo capturado como vista previa. La estampa seleccionada se incorporará al PDF descargable cuando finalice la certificación.{formStampOmitsQr && ' El diseño elegido para esta firma no incluye QR.'}
+                    <div role="status" className={`w-full max-w-[800px] rounded-lg border px-4 py-3 text-xs leading-5 ${formFinalPdfProviderMissing ? 'border-red-200 bg-red-50 text-red-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                      {formFinalPdfProviderMissing ? (
+                        <><strong>Documento completado; el PDF certificado requiere atención.</strong> Falta configurar el proveedor de constancias NOM-151. Estás viendo el PDF original con la estampa elegida como vista previa.</>
+                      ) : (
+                        <><strong>Documento completado; PDF certificado pendiente.</strong> Estás viendo el PDF original con la estampa elegida como vista previa. El PDF descargable estará disponible cuando finalice la certificación.{formStampOmitsQr && ' El diseño elegido para esta firma no incluye QR.'}</>
+                      )}
                     </div>
                   )}
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
@@ -6931,7 +6965,7 @@ export default function VisorDocumentoPage() {
                           type="button"
                           onClick={() => void saveDocumentPermission()}
                           disabled={!permissionSelectedUser || permissionSaving}
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {permissionSaving ? (
                             <RefreshCw size={14} className="animate-spin" />
@@ -7265,7 +7299,7 @@ export default function VisorDocumentoPage() {
                           <button
                             type="button"
                             onClick={() => router.push(`/formularios/capturado/${encodeURIComponent(document.id)}`)}
-                            className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
                           >
                             <Eye size={16} /> Ver formulario capturado
                           </button>
@@ -7805,7 +7839,7 @@ export default function VisorDocumentoPage() {
                                       setSelectedParticipantIndex(idx);
                                       loadParticipantDetails(idx);
                                     }}
-                                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:underline"
+                                    className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
                                   >
                                     <Eye size={14} /> Ver evidencia de firma
                                   </button>
@@ -9798,28 +9832,28 @@ export default function VisorDocumentoPage() {
                         <div className="flex flex-col gap-2">
                           <button
                             onClick={() => handleOpenEditModal('datos')}
-                            className="flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
+                            className="flex w-full items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
                           >
                             <Edit3 size={15} />
                             Editar datos del documento
                           </button>
                           <button
                             onClick={() => handleOpenEditModal('archivo')}
-                            className="flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
+                            className="flex w-full items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
                           >
                             <Upload size={15} />
                             Reemplazar archivo
                           </button>
                           <button
                             onClick={() => handleOpenEditModal('participantes')}
-                            className="flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
+                            className="flex w-full items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
                           >
                             <Users size={15} />
                             Editar participantes
                           </button>
                           <button
                             onClick={() => handleOpenEditModal('ajustes')}
-                            className="flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
+                            className="flex w-full items-center gap-2 px-4 py-3 rounded-xl border border-border bg-white hover:bg-muted/50 transition-colors text-sm font-medium text-foreground"
                           >
                             <StickyNote size={15} />
                             Editar ajustes y campos

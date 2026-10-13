@@ -4688,7 +4688,7 @@ function NuevaPlantillaPage() {
       )}
 
       {/* ── Top header ── */}
-      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
         <AppLogo size={34} imageClassName="max-sm:w-24" />
         <nav aria-label="Pasos de creación de plantilla" className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1">
           {WIZARD_STEPS.map((step, idx) => {

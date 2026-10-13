@@ -328,7 +328,7 @@ function PublicHeader() {
     }
   };
 
-  return <header className="sticky top-0 z-40 border-b border-[#EBEBF0] bg-white/95 backdrop-blur">
+  return <header className="sticky top-0 z-40 border-b border-[#EBEBF0] bg-white">
     <div className="grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
       <AppLogo size={34} imageClassName="max-sm:w-24" />
       <div className="col-start-3 flex items-center justify-end gap-2">
@@ -358,14 +358,27 @@ function SigningHandoff({ documentId, responseId, onRetrySignature, preparingSig
       <div className="rounded-xl border border-[#DCE4F0] bg-white p-6 shadow-sm sm:p-8">
         <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={23} /></span>
         <h1 className="mt-5 text-xl font-semibold">Tus respuestas están guardadas</h1>
-        <p className="mt-2 text-sm leading-6 text-[#64748B]">Al continuar, pasarás al proceso de firma del PDF generado con tus respuestas. No tendrás que llenar otro formulario.</p>
+        <p className="mt-2 text-sm leading-6 text-[#64748B]">Completaste el formulario. Ahora pasarás a firmar el PDF generado con tus respuestas, sin tener que llenarlo de nuevo.</p>
         <div className="mt-6 border-y border-[#E2E8F0] py-5 text-sm">
-          <p className="flex items-center gap-3 text-emerald-700"><CheckCircle2 size={18} /> Formulario enviado</p>
-          <p className="mt-5 font-semibold text-[#334155]">Después, en el proceso de firma:</p>
-          <ol start={2} className="mt-3 space-y-3">
-            <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">2</span> Revisar el documento y aceptar el consentimiento</li>
-            <li className="flex items-center gap-3 text-[#334155]"><span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#94A3B8] text-[10px]">3</span> Confirmar la firma en el campo indicado</li>
-          </ol>
+          <div className="flex items-start gap-3">
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-700" />
+            <div>
+              <p className="font-semibold text-emerald-700">Etapa 1 · Formulario completado</p>
+              <p className="mt-1 text-[#64748B]">Tus respuestas quedaron guardadas.</p>
+            </div>
+          </div>
+          <div className="mt-5 flex items-start gap-3 border-t border-[#E2E8F0] pt-5">
+            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[#1E6BFF] text-[10px] font-semibold text-[#1E6BFF]">2</span>
+            <div>
+              <p className="font-semibold text-[#334155]">Etapa 2 · Firma del documento</p>
+              <p className="mt-2 leading-6 text-[#64748B]">En el proceso de firma:</p>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 leading-6 text-[#334155]">
+                <li>Revisa el PDF generado con tus respuestas y acepta el consentimiento.</li>
+                <li>Confirma la firma configurada en el campo indicado.</li>
+              </ol>
+              <p className="mt-2 leading-6 text-[#64748B]">El proceso concluirá cuando completes la firma.</p>
+            </div>
+          </div>
         </div>
         {documentId ? <a href={`/firmar-documento/${documentId}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-3 text-sm font-semibold text-white">Ir al proceso de firma <ChevronRight size={16} /></a>
           : responseId ? <button type="button" onClick={onRetrySignature} disabled={preparingSignature} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1E6BFF] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{preparingSignature && <Loader2 size={16} className="animate-spin" />} Preparar PDF para firmar</button>

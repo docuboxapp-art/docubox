@@ -297,7 +297,7 @@ function ResponsesContent() {
     return (
       <AppLayout noPadding>
         <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-          <div className="mx-auto w-full max-w-[1560px]">
+          <div className="mx-auto w-full max-w-[1560px] min-[1920px]:max-w-[1800px]">
             <Link
               href="/formularios"
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
@@ -316,7 +316,7 @@ function ResponsesContent() {
   return (
     <AppLayout noPadding>
       <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <header className="mx-auto flex w-full max-w-[1560px] items-center justify-between gap-4 border-b border-slate-200 pb-5 dark:border-border">
+        <header className="mx-auto flex w-full max-w-[1560px] items-center justify-between gap-4 border-b border-slate-200 pb-5 dark:border-border min-[1920px]:max-w-[1800px]">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950 dark:text-foreground">
               Respuestas
@@ -332,7 +332,7 @@ function ResponsesContent() {
             <X size={16} /> Cerrar
           </Link>
         </header>
-        <div className="mx-auto grid w-full max-w-[1560px] gap-4 py-5 xl:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="mx-auto grid w-full max-w-[1560px] gap-4 py-5 min-[1920px]:max-w-[1800px] xl:grid-cols-[minmax(0,1fr)_460px]">
           <section
             aria-label="Lista de respuestas"
             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"

@@ -1338,7 +1338,7 @@ export default function RegistroParticipantePage() {
     <PublicTokenLayout token={token as string} luciaScope="external_registration">
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-4 bg-white/80 backdrop-blur-sm border-b border-border/50">
+      <header className="flex items-center justify-between px-8 py-4 bg-white border-b border-border/50">
         <AppLogo size={32} />
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">¿Ya tienes cuenta?</span>

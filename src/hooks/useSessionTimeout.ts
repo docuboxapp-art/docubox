@@ -55,6 +55,7 @@ export interface SessionTimeoutOptions {
   onShowWarning: () => void;
   onHideWarning: () => void;
   onBeforeSignOut?: () => void;
+  warningVisible?: boolean;
 }
 
 function parsePolicy(value: unknown): SessionPolicy | null {
@@ -95,13 +96,22 @@ export function useSessionTimeout(
     path.endsWith('/') ? pathname.startsWith(path) : pathname === path || pathname.startsWith(`${path}/`)
   );
   const sessionPolicyEnabled = isAuthenticated && !isSessionBootstrapPath;
-  const { onShowWarning, onHideWarning, onBeforeSignOut } = options;
+  const { onShowWarning, onHideWarning, onBeforeSignOut, warningVisible } = options;
+  const warningVisibleRef = useRef(false);
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const signedOutRef = useRef(false);
   const previousPathnameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    warningVisibleRef.current = !!warningVisible;
+    if (warningVisible && activityDebounceRef.current) {
+      clearTimeout(activityDebounceRef.current);
+      activityDebounceRef.current = null;
+    }
+  }, [warningVisible]);
 
   const clearTimers = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
@@ -146,7 +156,7 @@ export function useSessionTimeout(
     if (!Number.isFinite(inactivityExpiry) || !Number.isFinite(absoluteExpiry)) return;
 
     clearTimers();
-    onHideWarning();
+    if (!warningVisibleRef.current) onHideWarning();
 
     const expiresAt = Math.min(inactivityExpiry, absoluteExpiry);
     const reason: SessionExpiryReason = absoluteExpiry <= inactivityExpiry ? 'absolute' : 'inactivity';
@@ -203,7 +213,9 @@ export function useSessionTimeout(
   }, [executeSignOut, scheduleTimers, sessionPolicyEnabled]);
 
   const recordHumanActivity = useCallback(() => {
-    if (!sessionPolicyEnabled || signedOutRef.current) return;
+    // Interacting with the warning (including its preference form) must not
+    // dismiss it before the user explicitly continues, saves, or signs out.
+    if (!sessionPolicyEnabled || signedOutRef.current || warningVisibleRef.current) return;
     if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
     activityDebounceRef.current = setTimeout(() => {
       void synchronizePolicy(true);
@@ -266,8 +278,10 @@ export function useSessionTimeout(
   }, [clearTimers, onBeforeSignOut, onHideWarning, sessionPolicyEnabled]);
 
   const continueSession = useCallback(async () => {
-    return synchronizePolicy(true);
-  }, [synchronizePolicy]);
+    const continued = await synchronizePolicy(true);
+    if (continued) onHideWarning();
+    return continued;
+  }, [onHideWarning, synchronizePolicy]);
 
   const signOutNow = useCallback(async () => {
     await executeSignOut('inactivity');

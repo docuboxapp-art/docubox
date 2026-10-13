@@ -270,9 +270,11 @@ const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt
 const TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set(['PGRST002']);
 const TRANSIENT_SESSION_HTTP_STATUSES = new Set([0, 502, 503, 504]);
 const SESSION_POLICY_RETRY_DELAY_MS = 350;
-const SESSION_POLICY_SCHEMA_RETRY_DELAY_MS = 1_200;
-const SESSION_VALIDATION_TIMEOUT_MS = 8_000;
+const SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200;
+// The policy RPC's observed p99 is above eight seconds during gateway pressure.
+const SESSION_VALIDATION_TIMEOUT_MS = 12_000;
 const SESSION_POLICY_FAILURE_BACKOFF_MS = 2_000;
+const SESSION_PAGE_RETRY_DELAYS_SECONDS = [5, 15, 30, 60, 60] as const;
 const inFlightSessionPolicyValidations = new Map<string, Promise<SessionPolicyValidationResult>>();
 const sessionPolicyFailureUntil = new Map<string, number>();
 
@@ -382,6 +384,14 @@ function isTransientSessionPolicyError(error: SessionPolicyError | null) {
   );
 }
 
+function shouldRetrySessionCheckAfterBackoff(error: SessionPolicyError | null) {
+  return Boolean(
+    error &&
+      (error.code === 'PGRST002' ||
+        (typeof error.status === 'number' && [502, 503, 504].includes(error.status)))
+  );
+}
+
 function waitForSessionPolicyRetry(delayMs = SESSION_POLICY_RETRY_DELAY_MS) {
   return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
@@ -468,8 +478,9 @@ function unavailableSessionPolicyResponse(
   }
 
   const retryCount = Number(request.cookies.get(SESSION_RETRY_COOKIE_NAME)?.value || 0);
-  const autoRetry = Number.isFinite(retryCount) && retryCount < 2;
-  const retryAfterSeconds = retryCount === 0 ? 5 : 15;
+  const autoRetry = Number.isInteger(retryCount) && retryCount >= 0 &&
+    retryCount < SESSION_PAGE_RETRY_DELAYS_SECONDS.length;
+  const retryAfterSeconds = SESSION_PAGE_RETRY_DELAYS_SECONDS[retryCount] || 60;
 
   const unavailableResponse = new NextResponse(
     `<!doctype html>
@@ -493,7 +504,7 @@ function unavailableSessionPolicyResponse(
     <main>
       <section>
         <h1>No fue posible verificar la sesión</h1>
-        <p>No cerramos tu sesión. La conexión tardó más de lo esperado. ${autoRetry ? `Intentaremos de nuevo en ${retryAfterSeconds} segundos.` : 'Intenta nuevamente.'}</p>
+        <p>No cerramos tu sesión. El servicio de verificación no respondió correctamente. ${autoRetry ? `Intentaremos de nuevo en ${retryAfterSeconds} segundos.` : 'Intenta nuevamente.'}</p>
         <a href="">Reintentar</a>
       </section>
     </main>
@@ -515,7 +526,7 @@ function unavailableSessionPolicyResponse(
   if (autoRetry) {
     unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, String(retryCount + 1), {
       path: '/',
-      maxAge: 60,
+      maxAge: 600,
       sameSite: 'lax',
       httpOnly: true,
     });
@@ -633,6 +644,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     if (isTransientSessionPolicyError(result.error)) {
       await waitForSessionPolicyRetry();
       result = await supabase.auth.getClaims(accessToken);
+      if (shouldRetrySessionCheckAfterBackoff(result.error)) {
+        await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
+        result = await supabase.auth.getClaims(accessToken);
+      }
     }
     claimsData = result.data;
     claimsError = result.error;
@@ -687,9 +702,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
         result = await supabase.rpc('enforce_docubox_session_policy', {
           p_record_user_activity: false,
         });
-        if (result.error?.code === 'PGRST002') {
-          // Give a schema-cache reload one more short window to finish.
-          await waitForSessionPolicyRetry(SESSION_POLICY_SCHEMA_RETRY_DELAY_MS);
+        if (shouldRetrySessionCheckAfterBackoff(result.error)) {
+          // Brief gateway outages also need time to recover before the last attempt.
+          await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
           result = await supabase.rpc('enforce_docubox_session_policy', {
             p_record_user_activity: false,
           });

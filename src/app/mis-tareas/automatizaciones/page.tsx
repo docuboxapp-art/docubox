@@ -1,18 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import {
-  ArrowLeft,
-  CalendarClock,
-  Eye,
-  History,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { CalendarClock, Eye, History, Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -188,29 +177,42 @@ export default function TaskAutomationsPage() {
 
   const updateSystem = async (rule: SystemRule, patch: Partial<SystemRule>) => {
     if (!workspaceId || !canManage) return;
-    const { error: updateError } = await supabase
+    const { data, error: updateError } = await supabase
       .from('task_system_rules')
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId)
-      .eq('rule_key', rule.rule_key);
+      .eq('rule_key', rule.rule_key)
+      .select('rule_key')
+      .maybeSingle();
     if (updateError) setError(updateError.message);
+    else if (!data) setError('No se actualizó la regla. Comprueba tus permisos en este espacio.');
     else void load();
   };
   const updateCustom = async (rule: CustomRule, enabled: boolean) => {
-    const { error: updateError } = await supabase
+    if (!workspaceId || !canManage) return;
+    const { data, error: updateError } = await supabase
       .from('task_custom_rules')
       .update({ enabled, updated_at: new Date().toISOString() })
-      .eq('id', rule.id);
+      .eq('id', rule.id)
+      .eq('workspace_id', workspaceId)
+      .select('id')
+      .maybeSingle();
     if (updateError) setError(updateError.message);
+    else if (!data) setError('No se actualizó el flujo. Comprueba tus permisos en este espacio.');
     else void load();
   };
   const removeCustom = async (rule: CustomRule) => {
+    if (!workspaceId || !canManage) return;
     if (!window.confirm(`¿Eliminar la automatización “${rule.name}”?`)) return;
-    const { error: deleteError } = await supabase
+    const { data, error: deleteError } = await supabase
       .from('task_custom_rules')
       .delete()
-      .eq('id', rule.id);
+      .eq('id', rule.id)
+      .eq('workspace_id', workspaceId)
+      .select('id')
+      .maybeSingle();
     if (deleteError) setError(deleteError.message);
+    else if (!data) setError('No se eliminó el flujo. Comprueba tus permisos en este espacio.');
     else void load();
   };
   const previewCustom = async (rule: CustomRule) => {
@@ -258,24 +260,15 @@ export default function TaskAutomationsPage() {
   return (
     <AppLayout noPadding>
       <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto max-w-6xl space-y-5">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Link
-                href="/mis-tareas"
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white"
-                aria-label="Volver a tareas"
-              >
-                <ArrowLeft size={17} />
-              </Link>
-              <div>
-                <h1 className="text-2xl font-semibold text-slate-950">
-                  Automatizaciones de tareas
-                </h1>
-                <p className="text-sm text-slate-500">
-                  Reglas del sistema y flujos configurados para este espacio de trabajo.
-                </p>
-              </div>
+        <div className="mx-auto w-full max-w-[1600px] space-y-5">
+          <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-600 leading-tight text-slate-950">
+                Automatizaciones de tareas
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Reglas del sistema y flujos configurados para este espacio de trabajo.
+              </p>
             </div>
             {canManage && (
               <button
@@ -283,9 +276,9 @@ export default function TaskAutomationsPage() {
                   setEditingRule(null);
                   setBuilder(true);
                 }}
-                className="flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white"
+                className="inline-flex h-9 items-center gap-1.5 self-start rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90 sm:self-auto"
               >
-                <Plus size={16} />
+                <Plus size={15} />
                 Nueva automatización
               </button>
             )}

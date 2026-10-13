@@ -1,7 +1,20 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bell, Check, ListChecks, ShieldCheck, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bell,
+  Check,
+  CheckCircle2,
+  Clock3,
+  GitBranch,
+  ListChecks,
+  ListFilter,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
+import AppLogo from '@/components/ui/AppLogo';
 import { createClient } from '@/lib/supabase/client';
 import { flowStagesError, type FlowStage } from '@/lib/tasks/flow-stages';
 import TaskFlowStagesEditor from './TaskFlowStagesEditor';
@@ -107,6 +120,29 @@ export const actionLabels: Record<CustomRule['action_kind'], string> = {
   create_followup: 'Crear seguimiento',
 };
 
+const wizardSteps = [
+  {
+    label: 'Condición',
+    description: 'Define cuándo debe ejecutarse la automatización.',
+    icon: Clock3,
+  },
+  {
+    label: 'Filtros',
+    description: 'Delimita los recursos o tareas a los que se aplicará.',
+    icon: ListFilter,
+  },
+  {
+    label: 'Acción inicial',
+    description: 'Elige las acciones que realizará el sistema.',
+    icon: Bell,
+  },
+  {
+    label: 'Decisiones',
+    description: 'Configura etapas y ramas opcionales para el flujo.',
+    icon: GitBranch,
+  },
+] as const;
+
 export default function TaskRuleBuilder({
   workspaceId,
   userId,
@@ -147,11 +183,14 @@ export default function TaskRuleBuilder({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const fieldClass = 'mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm';
+  const fieldClass =
+    'mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15';
   const isResource = form.target_kind !== 'task';
   const selectedResource = isResource
     ? (form.target_kind as Exclude<CustomRule['target_kind'], 'task'>)
     : null;
+  const ActiveStepIcon = wizardSteps[step].icon;
+  const progress = Math.round((step / (wizardSteps.length - 1)) * 100);
   const update = (patch: Partial<Form>) => setForm((value) => ({ ...value, ...patch }));
   const save = async () => {
     if (
@@ -197,15 +236,25 @@ export default function TaskRuleBuilder({
           .update(payload)
           .eq('id', existing.id)
           .eq('workspace_id', workspaceId)
+          .select('id')
+          .maybeSingle()
       : await supabase
           .from('task_custom_rules')
-          .insert({ ...payload, workspace_id: workspaceId, created_by: userId });
+          .insert({ ...payload, workspace_id: workspaceId, created_by: userId })
+          .select('id')
+          .maybeSingle();
     setSaving(false);
     if (result.error) {
       setError(
         result.error.code === '23505'
           ? 'Ya existe una automatización con ese nombre en este espacio.'
           : result.error.message
+      );
+      return;
+    }
+    if (!result.data) {
+      setError(
+        'No se guardó la automatización. Comprueba que sigues teniendo acceso a este espacio.'
       );
       return;
     }
@@ -216,388 +265,462 @@ export default function TaskRuleBuilder({
       role="dialog"
       aria-modal="true"
       aria-label={existing ? 'Editar automatización' : 'Nueva automatización'}
-      className="fixed inset-0 z-[80] overflow-y-auto bg-white"
+      className="fixed inset-0 z-[80] flex h-dvh flex-col overflow-hidden bg-slate-50 text-slate-950"
     >
-      <div className="mx-auto min-h-screen w-full max-w-4xl bg-white">
-        <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold">
-              {existing ? 'Editar' : 'Nueva'} automatización
-            </h2>
-            <p className="text-sm text-slate-500">
-              Condición → filtros → acción inicial → decisiones
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm"
-          >
-            <X size={16} />
-            Cerrar
-          </button>
-        </header>
-        <div className="space-y-6 p-6">
-          <div className="flex gap-2">
-            {['Condición', 'Filtros', 'Acción inicial', 'Decisiones'].map((label, index) => (
-              <span
-                key={label}
-                className={`rounded-full px-3 py-1 text-xs ${step === index ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
-              >
-                {index + 1}. {label}
-              </span>
-            ))}
-          </div>
-          {error && (
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
-          )}
-          {step === 0 && (
-            <>
-              <h3 className="font-semibold">¿Cuándo debe ejecutarse?</h3>
-              <label className="block text-sm">
-                Nombre del flujo
-                <input
-                  maxLength={120}
-                  value={form.name}
-                  onChange={(e) => update({ name: e.target.value })}
-                  placeholder="Ej. Recordar revisiones inactivas"
-                  className={fieldClass}
-                />
-              </label>
-              <label className="block text-sm">
-                Aplicar a
-                <select
-                  value={form.target_kind}
-                  className={fieldClass}
-                  onChange={(e) => {
-                    const target_kind = e.target.value as Form['target_kind'];
-                    update({
-                      target_kind,
-                      trigger_kind: target_kind === 'task' ? 'due_soon' : 'resource_condition',
-                      condition_kind: 'inactive',
-                      entity_status_filter: null,
-                      action_kind: target_kind === 'task' ? 'notify_assignee' : 'create_followup',
-                      additional_action_kinds: [],
-                      generated_task_type:
-                        target_kind === 'task'
-                          ? 'revisar_documento'
-                          : resourceTypes[target_kind][0],
-                    });
-                  }}
+      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+        <AppLogo size={34} imageClassName="max-sm:w-24" />
+        <nav
+          aria-label="Pasos de la automatización"
+          className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1"
+        >
+          {wizardSteps.map(({ label, icon: StepIcon }, index) => {
+            const isActive = index === step;
+            const isCompleted = index < step;
+            return (
+              <div key={label} className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+                <button
+                  type="button"
+                  onClick={() => isCompleted && setStep(index)}
+                  disabled={!isCompleted}
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={label}
+                  title={label}
+                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal transition-colors sm:px-2.5 ${isActive ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)]' : isCompleted ? 'cursor-pointer text-slate-700 hover:bg-white hover:text-primary' : 'cursor-default text-slate-400'}`}
                 >
-                  {Object.entries(resourceLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm">
-                Condición
-                {isResource ? (
-                  <select
-                    value={form.condition_kind}
-                    className={fieldClass}
-                    onChange={(e) =>
-                      update({ condition_kind: e.target.value as Form['condition_kind'] })
-                    }
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isActive ? 'bg-primary text-white' : isCompleted ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
                   >
-                    {Object.entries(conditionLabels)
-                      .filter(
-                        ([value]) =>
-                          !['due_soon', 'overdue'].includes(value) ||
-                          ['document', 'case_file'].includes(form.target_kind)
-                      )
-                      .map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                  </select>
-                ) : (
-                  <select
-                    value={form.trigger_kind}
-                    className={fieldClass}
-                    onChange={(e) =>
-                      update({ trigger_kind: e.target.value as Form['trigger_kind'] })
-                    }
-                  >
-                    {Object.entries(triggerLabels)
-                      .filter(([value]) => value !== 'resource_condition')
-                      .map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                  </select>
-                )}
-              </label>
-              {((isResource && ['inactive', 'due_soon'].includes(form.condition_kind)) ||
-                (!isResource && ['due_soon', 'inactive'].includes(form.trigger_kind))) && (
-                <label className="block text-sm">
-                  {(isResource ? form.condition_kind : form.trigger_kind) === 'inactive'
-                    ? 'Días sin cambios'
-                    : 'Días de anticipación'}
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={form.lead_days}
-                    onChange={(e) => update({ lead_days: Number(e.target.value) })}
-                    className={fieldClass}
+                    {isCompleted ? <CheckCircle2 size={13} /> : <StepIcon size={13} />}
+                  </span>
+                  <span className="hidden md:inline">{label}</span>
+                </button>
+                {index < wizardSteps.length - 1 && (
+                  <span
+                    aria-hidden="true"
+                    className={`h-px w-1.5 shrink-0 sm:w-3 ${isCompleted ? 'bg-primary/50' : 'bg-slate-200'}`}
                   />
-                </label>
-              )}
-            </>
-          )}
-          {step === 1 && (
-            <>
-              <h3 className="font-semibold">¿A qué {isResource ? 'recursos' : 'tareas'} aplica?</h3>
-              <p className="text-sm text-slate-500">
-                Los filtros vacíos incluyen cualquier valor; los seleccionados deben cumplirse a la
-                vez.
+                )}
+              </div>
+            );
+          })}
+        </nav>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:px-3"
+        >
+          <X size={16} />
+          <span className="hidden sm:inline">Cerrar</span>
+        </button>
+      </header>
+      <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-2 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center gap-x-4 gap-y-1.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <ActiveStepIcon size={16} />
+            </span>
+            <h1 className="min-w-0 text-[20px] font-normal text-slate-950">
+              {wizardSteps[step].label}
+            </h1>
+            <span className="shrink-0 rounded-md bg-slate-200/70 px-1.5 py-0.5 text-sm font-normal text-slate-600">
+              Paso {step + 1} de {wizardSteps.length}
+            </span>
+            <p className="hidden min-w-0 truncate text-sm text-slate-500 lg:block">
+              {wizardSteps[step].description}
+            </p>
+          </div>
+          <div className="flex w-full items-center gap-2 text-sm font-normal text-slate-500 sm:w-44">
+            <div
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200"
+              role="progressbar"
+              aria-label="Progreso de la automatización"
+              aria-valuenow={progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="w-8 text-right tabular-nums">{progress}%</span>
+          </div>
+          <p className="w-full truncate text-sm text-slate-500 lg:hidden">
+            {wizardSteps[step].description}
+          </p>
+        </div>
+      </section>
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1120px] px-4 py-5 sm:px-6 lg:py-8">
+          <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
+            {error && (
+              <p role="alert" className="text-sm text-red-600">
+                {error}
               </p>
-              {isResource && selectedResource && (
-                <label className="block max-w-md text-sm">
-                  Estado del recurso
-                  <select
-                    value={form.entity_status_filter || ''}
-                    onChange={(e) => update({ entity_status_filter: e.target.value || null })}
-                    className={fieldClass}
-                  >
-                    <option value="">Cualquier estado activo</option>
-                    {resourceStatuses[selectedResource].map((value) => (
-                      <option key={value} value={value}>
-                        {value.replaceAll('_', ' ')}
-                      </option>
-                    ))}
-                  </select>
-                  {form.condition_kind === 'status' && !form.entity_status_filter && (
-                    <span className="mt-1 block text-xs text-amber-700">
-                      Elige el estado que activa la regla.
-                    </span>
-                  )}
-                </label>
-              )}
-              {!isResource && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm">
-                    Clase
-                    <select
-                      value={form.work_kind || ''}
-                      onChange={(e) => update({ work_kind: e.target.value || null })}
+            )}
+            {step === 0 && (
+              <>
+                <div>
+                  <h2 className="text-base font-semibold">¿Cuándo debe ejecutarse?</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Configura el origen y la condición que iniciarán este flujo.
+                  </p>
+                </div>
+                <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
+                  <label className="block text-sm md:col-span-2">
+                    Nombre del flujo
+                    <input
+                      maxLength={120}
+                      value={form.name}
+                      onChange={(e) => update({ name: e.target.value })}
+                      placeholder="Ej. Recordar revisiones inactivas"
                       className={fieldClass}
-                    >
-                      <option value="">Acciones y actividades</option>
-                      <option value="accion">Acciones</option>
-                      <option value="actividad">Actividades</option>
-                    </select>
+                    />
                   </label>
-                  <label className="text-sm">
-                    Tipo
+                  <label className="block text-sm">
+                    Aplicar a
                     <select
-                      value={form.task_type || ''}
-                      onChange={(e) => update({ task_type: e.target.value || null })}
+                      value={form.target_kind}
                       className={fieldClass}
+                      onChange={(e) => {
+                        const target_kind = e.target.value as Form['target_kind'];
+                        update({
+                          target_kind,
+                          trigger_kind: target_kind === 'task' ? 'due_soon' : 'resource_condition',
+                          condition_kind: 'inactive',
+                          entity_status_filter: null,
+                          action_kind:
+                            target_kind === 'task' ? 'notify_assignee' : 'create_followup',
+                          additional_action_kinds: [],
+                          generated_task_type:
+                            target_kind === 'task'
+                              ? 'revisar_documento'
+                              : resourceTypes[target_kind][0],
+                        });
+                      }}
                     >
-                      <option value="">Todos los tipos</option>
-                      {typeOptions.map(([value, label]) => (
+                      {Object.entries(resourceLabels).map(([value, label]) => (
                         <option key={value} value={value}>
                           {label}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <label className="text-sm">
-                    Prioridad
-                    <select
-                      value={form.priority_filter || ''}
-                      onChange={(e) => update({ priority_filter: e.target.value || null })}
-                      className={fieldClass}
-                    >
-                      <option value="">Todas</option>
-                      {['critica', 'alta', 'media', 'baja'].map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
+                  <label className="block text-sm">
+                    Condición
+                    {isResource ? (
+                      <select
+                        value={form.condition_kind}
+                        className={fieldClass}
+                        onChange={(e) =>
+                          update({ condition_kind: e.target.value as Form['condition_kind'] })
+                        }
+                      >
+                        {Object.entries(conditionLabels)
+                          .filter(
+                            ([value]) =>
+                              !['due_soon', 'overdue'].includes(value) ||
+                              ['document', 'case_file'].includes(form.target_kind)
+                          )
+                          .map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={form.trigger_kind}
+                        className={fieldClass}
+                        onChange={(e) =>
+                          update({ trigger_kind: e.target.value as Form['trigger_kind'] })
+                        }
+                      >
+                        {Object.entries(triggerLabels)
+                          .filter(([value]) => value !== 'resource_condition')
+                          .map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                      </select>
+                    )}
                   </label>
-                  <label className="text-sm">
-                    Estado
+                  {((isResource && ['inactive', 'due_soon'].includes(form.condition_kind)) ||
+                    (!isResource && ['due_soon', 'inactive'].includes(form.trigger_kind))) && (
+                    <label className="block text-sm">
+                      {(isResource ? form.condition_kind : form.trigger_kind) === 'inactive'
+                        ? 'Días sin cambios'
+                        : 'Días de anticipación'}
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={form.lead_days}
+                        onChange={(e) => update({ lead_days: Number(e.target.value) })}
+                        className={fieldClass}
+                      />
+                    </label>
+                  )}
+                </div>
+              </>
+            )}
+            {step === 1 && (
+              <>
+                <h3 className="font-semibold">
+                  ¿A qué {isResource ? 'recursos' : 'tareas'} aplica?
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Los filtros vacíos incluyen cualquier valor; los seleccionados deben cumplirse a
+                  la vez.
+                </p>
+                {isResource && selectedResource && (
+                  <label className="block max-w-md text-sm">
+                    Estado del recurso
                     <select
-                      value={form.status_filter || ''}
-                      onChange={(e) => update({ status_filter: e.target.value || null })}
+                      value={form.entity_status_filter || ''}
+                      onChange={(e) => update({ entity_status_filter: e.target.value || null })}
                       className={fieldClass}
                     >
-                      <option value="">Todos los activos</option>
-                      {[
-                        'nueva',
-                        'pendiente',
-                        'en_proceso',
-                        'bloqueada',
-                        'en_revision',
-                        'vencida',
-                        'escalada',
-                      ].map((value) => (
+                      <option value="">Cualquier estado activo</option>
+                      {resourceStatuses[selectedResource].map((value) => (
                         <option key={value} value={value}>
                           {value.replaceAll('_', ' ')}
                         </option>
                       ))}
                     </select>
+                    {form.condition_kind === 'status' && !form.entity_status_filter && (
+                      <span className="mt-1 block text-xs text-amber-700">
+                        Elige el estado que activa la regla.
+                      </span>
+                    )}
                   </label>
-                  <label className="text-sm">
-                    Origen
-                    <select
-                      value={form.origin_filter || ''}
-                      onChange={(e) => update({ origin_filter: e.target.value || null })}
-                      className={fieldClass}
-                    >
-                      <option value="">Manual y sistema</option>
-                      <option value="manual">Manual</option>
-                      <option value="sistema">Sistema</option>
-                    </select>
-                  </label>
-                  <label className="text-sm">
-                    Recurso
-                    <select
-                      value={form.source_filter || ''}
-                      onChange={(e) => update({ source_filter: e.target.value || null })}
-                      className={fieldClass}
-                    >
-                      <option value="">Todos los recursos</option>
-                      {[
-                        ['document', 'Documento'],
-                        ['form_template', 'Formulario'],
-                        ['template', 'Plantilla'],
-                        ['case_file', 'Expediente'],
-                        ['form_response', 'Respuesta'],
-                        ['user', 'Usuario'],
-                        ['task', 'Tarea'],
-                        ['form_token', 'Invitación'],
-                        ['participant_requirement', 'Anexo'],
-                      ].map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-            </>
-          )}
-          {step === 2 && (
-            <>
-              <h3 className="font-semibold">¿Qué debe hacer el sistema?</h3>
-              <p className="text-sm text-slate-500">
-                Puedes elegir varias acciones. Cada una se ejecuta una vez por coincidencia; los
-                avisos tienen control de duplicados.
-              </p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {Object.entries(actionLabels)
-                  .filter(([value]) => !isResource || value !== 'raise_priority')
-                  .map(([value, label]) => (
-                    <button
-                      key={value}
-                      onClick={() => {
-                        const selected = [form.action_kind, ...form.additional_action_kinds];
-                        const next = selected.includes(value as Form['action_kind'])
-                          ? selected.filter((item) => item !== value)
-                          : [...selected, value as Form['action_kind']];
-                        if (!next.length) return;
-                        update({ action_kind: next[0], additional_action_kinds: next.slice(1) });
-                      }}
-                      aria-pressed={
-                        form.action_kind === value ||
-                        form.additional_action_kinds.includes(value as Form['action_kind'])
-                      }
-                      className={`rounded-lg border p-4 text-left ${form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind']) ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
-                    >
-                      {value === 'notify_assignee' ? (
-                        <Bell size={19} />
-                      ) : value === 'create_followup' ? (
-                        <ListChecks size={19} />
-                      ) : (
-                        <ShieldCheck size={19} />
-                      )}
-                      <span className="mt-2 block text-sm font-semibold">{label}</span>
-                    </button>
-                  ))}
-              </div>
-              {isResource && selectedResource && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {(form.action_kind === 'create_followup' ||
-                    form.additional_action_kinds.includes('create_followup') ||
-                    form.workflow_stages.some((stage) =>
-                      [...stage.onTrue, ...stage.onFalse].includes('create_followup')
-                    )) && (
+                )}
+                {!isResource && (
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <label className="text-sm">
-                      Tipo de acción que se creará
+                      Clase
                       <select
-                        value={form.generated_task_type}
-                        onChange={(e) => update({ generated_task_type: e.target.value })}
+                        value={form.work_kind || ''}
+                        onChange={(e) => update({ work_kind: e.target.value || null })}
                         className={fieldClass}
                       >
-                        {resourceTypes[selectedResource].map((value) => (
+                        <option value="">Acciones y actividades</option>
+                        <option value="accion">Acciones</option>
+                        <option value="actividad">Actividades</option>
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      Tipo
+                      <select
+                        value={form.task_type || ''}
+                        onChange={(e) => update({ task_type: e.target.value || null })}
+                        className={fieldClass}
+                      >
+                        <option value="">Todos los tipos</option>
+                        {typeOptions.map(([value, label]) => (
                           <option key={value} value={value}>
-                            {typeOptions.find(([key]) => key === value)?.[1] ||
-                              value.replaceAll('_', ' ')}
+                            {label}
                           </option>
                         ))}
                       </select>
                     </label>
-                  )}
-                  <label className="text-sm">
-                    Prioridad
-                    <select
-                      value={form.generated_priority}
-                      onChange={(e) =>
-                        update({ generated_priority: e.target.value as Form['generated_priority'] })
-                      }
-                      className={fieldClass}
-                    >
-                      {(['baja', 'media', 'alta', 'critica'] as const).map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <label className="text-sm">
+                      Prioridad
+                      <select
+                        value={form.priority_filter || ''}
+                        onChange={(e) => update({ priority_filter: e.target.value || null })}
+                        className={fieldClass}
+                      >
+                        <option value="">Todas</option>
+                        {['critica', 'alta', 'media', 'baja'].map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      Estado
+                      <select
+                        value={form.status_filter || ''}
+                        onChange={(e) => update({ status_filter: e.target.value || null })}
+                        className={fieldClass}
+                      >
+                        <option value="">Todos los activos</option>
+                        {[
+                          'nueva',
+                          'pendiente',
+                          'en_proceso',
+                          'bloqueada',
+                          'en_revision',
+                          'vencida',
+                          'escalada',
+                        ].map((value) => (
+                          <option key={value} value={value}>
+                            {value.replaceAll('_', ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      Origen
+                      <select
+                        value={form.origin_filter || ''}
+                        onChange={(e) => update({ origin_filter: e.target.value || null })}
+                        className={fieldClass}
+                      >
+                        <option value="">Manual y sistema</option>
+                        <option value="manual">Manual</option>
+                        <option value="sistema">Sistema</option>
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      Recurso
+                      <select
+                        value={form.source_filter || ''}
+                        onChange={(e) => update({ source_filter: e.target.value || null })}
+                        className={fieldClass}
+                      >
+                        <option value="">Todos los recursos</option>
+                        {[
+                          ['document', 'Documento'],
+                          ['form_template', 'Formulario'],
+                          ['template', 'Plantilla'],
+                          ['case_file', 'Expediente'],
+                          ['form_response', 'Respuesta'],
+                          ['user', 'Usuario'],
+                          ['task', 'Tarea'],
+                          ['form_token', 'Invitación'],
+                          ['participant_requirement', 'Anexo'],
+                        ].map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+              </>
+            )}
+            {step === 2 && (
+              <>
+                <h3 className="font-semibold">¿Qué debe hacer el sistema?</h3>
+                <p className="text-sm text-slate-500">
+                  Puedes elegir varias acciones. Cada una se ejecuta una vez por coincidencia; los
+                  avisos tienen control de duplicados.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {Object.entries(actionLabels)
+                    .filter(([value]) => !isResource || value !== 'raise_priority')
+                    .map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => {
+                          const selected = [form.action_kind, ...form.additional_action_kinds];
+                          const next = selected.includes(value as Form['action_kind'])
+                            ? selected.filter((item) => item !== value)
+                            : [...selected, value as Form['action_kind']];
+                          if (!next.length) return;
+                          update({ action_kind: next[0], additional_action_kinds: next.slice(1) });
+                        }}
+                        aria-pressed={
+                          form.action_kind === value ||
+                          form.additional_action_kinds.includes(value as Form['action_kind'])
+                        }
+                        className={`rounded-lg border p-4 text-left ${form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind']) ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
+                      >
+                        {value === 'notify_assignee' ? (
+                          <Bell size={19} />
+                        ) : value === 'create_followup' ? (
+                          <ListChecks size={19} />
+                        ) : (
+                          <ShieldCheck size={19} />
+                        )}
+                        <span className="mt-2 block text-sm font-semibold">{label}</span>
+                      </button>
+                    ))}
                 </div>
-              )}
-              <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">
-                {resourceLabels[form.target_kind]} ·{' '}
-                {isResource
-                  ? conditionLabels[form.condition_kind]
-                  : triggerLabels[form.trigger_kind]}
-                {' → '}
-                {[form.action_kind, ...form.additional_action_kinds]
-                  .map((value) => actionLabels[value])
-                  .join(' + ')}
-                . Las ejecuciones se concilian cada 30 minutos; los seguimientos se cierran con
-                historial cuando deja de cumplirse la condición.
-              </p>
-            </>
-          )}
-          {step === 3 && (
-            <TaskFlowStagesEditor
-              stages={form.workflow_stages}
-              targetKind={form.target_kind}
-              onChange={(workflow_stages) => update({ workflow_stages })}
-            />
-          )}
+                {isResource && selectedResource && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {(form.action_kind === 'create_followup' ||
+                      form.additional_action_kinds.includes('create_followup') ||
+                      form.workflow_stages.some((stage) =>
+                        [...stage.onTrue, ...stage.onFalse].includes('create_followup')
+                      )) && (
+                      <label className="text-sm">
+                        Tipo de acción que se creará
+                        <select
+                          value={form.generated_task_type}
+                          onChange={(e) => update({ generated_task_type: e.target.value })}
+                          className={fieldClass}
+                        >
+                          {resourceTypes[selectedResource].map((value) => (
+                            <option key={value} value={value}>
+                              {typeOptions.find(([key]) => key === value)?.[1] ||
+                                value.replaceAll('_', ' ')}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="text-sm">
+                      Prioridad
+                      <select
+                        value={form.generated_priority}
+                        onChange={(e) =>
+                          update({
+                            generated_priority: e.target.value as Form['generated_priority'],
+                          })
+                        }
+                        className={fieldClass}
+                      >
+                        {(['baja', 'media', 'alta', 'critica'] as const).map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">
+                  {resourceLabels[form.target_kind]} ·{' '}
+                  {isResource
+                    ? conditionLabels[form.condition_kind]
+                    : triggerLabels[form.trigger_kind]}
+                  {' → '}
+                  {[form.action_kind, ...form.additional_action_kinds]
+                    .map((value) => actionLabels[value])
+                    .join(' + ')}
+                  . Las ejecuciones se concilian cada 30 minutos; los seguimientos se cierran con
+                  historial cuando deja de cumplirse la condición.
+                </p>
+              </>
+            )}
+            {step === 3 && (
+              <TaskFlowStagesEditor
+                stages={form.workflow_stages}
+                targetKind={form.target_kind}
+                onChange={(workflow_stages) => update({ workflow_stages })}
+              />
+            )}
+          </div>
         </div>
-        <footer className="flex justify-between border-t border-slate-200 px-6 py-4">
+      </main>
+      <footer className="z-20 shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-[1008px] items-center justify-between gap-4">
           <button
+            type="button"
             onClick={() => (step === 0 ? onClose() : setStep(step - 1))}
-            className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm"
+            className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
           >
             <ArrowLeft size={15} />
             {step === 0 ? 'Cancelar' : 'Atrás'}
           </button>
           <button
+            type="button"
             onClick={() => (step === 3 ? void save() : setStep(step + 1))}
             disabled={
               saving ||
@@ -609,7 +732,7 @@ export default function TaskRuleBuilder({
                 !form.entity_status_filter) ||
               (step === 3 && Boolean(flowStagesError(form.workflow_stages, form.target_kind)))
             }
-            className="flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            className="flex h-10 items-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {step === 3 ? (
               <>
@@ -623,8 +746,8 @@ export default function TaskRuleBuilder({
               </>
             )}
           </button>
-        </footer>
-      </div>
+        </div>
+      </footer>
     </div>
   );
 }

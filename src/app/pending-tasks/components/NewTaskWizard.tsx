@@ -198,7 +198,7 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
   const formatDate = (value: string) => value ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '';
 
   return <div role="dialog" aria-modal="true" aria-label="Nueva tarea" className="fixed inset-0 z-[70] flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950">
-    <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+    <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
       <AppLogo size={34} imageClassName="max-sm:w-24" />
       <nav aria-label="Pasos de creación de tarea" className="mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/80 p-1 sm:gap-1">
         {steps.map((item, index) => { const Icon = item.icon; const active = index === step; const done = index < step; return <span key={item.label} className="flex shrink-0 items-center gap-0.5 sm:gap-1">

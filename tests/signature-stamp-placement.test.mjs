@@ -11,6 +11,7 @@ const viewerPath = new URL('../src/app/visor-documento/[id]/page.tsx', import.me
 const nom151RoutePath = new URL('../src/app/api/nom151/generate/route.ts', import.meta.url);
 const nom151ServicePath = new URL('../src/lib/nom151/service.ts', import.meta.url);
 const signingPagePath = new URL('../src/app/firmar-documento/[id]/page.tsx', import.meta.url);
+const stampDisplayPath = new URL('../src/components/signatures/SignatureStampDisplay.tsx', import.meta.url);
 const evidenceOrchestratorPath = new URL('../src/lib/evidence-v2/orchestrator.ts', import.meta.url);
 const autographSelectorPath = new URL(
   '../src/app/mi-perfil/components/AutografaStampSelector.tsx',
@@ -92,13 +93,21 @@ test('signature stamps require an explicit field type or an exact legacy signatu
   assert.doesNotMatch(viewerSource, /\/firma\/i\.test/);
 });
 
-test('viewer does not paint the raw autograph over a stamp already embedded in the sealed PDF', async () => {
-  const viewerSource = await readFile(viewerPath, 'utf8');
+test('viewer previews the selected stamp and does not overlay the verified final PDF', async () => {
+  const [viewerSource, displaySource, responseSource] = await Promise.all([
+    readFile(viewerPath, 'utf8'),
+    readFile(stampDisplayPath, 'utf8'),
+    readFile(new URL('../src/app/api/documentos/participation-responses/route.ts', import.meta.url), 'utf8'),
+  ]);
   assert.match(
     viewerSource,
-    /if \(isFirma && document\?\.estado === 'completado' && document\.sealed_pdf_path\) return null;/
+    /if \(isFirma && document\?\.estado === 'completado' && finalDeliverableAvailable\) return null;/
   );
-  assert.match(viewerSource, /if \(isFirma && firmaData\) \{/);
+  assert.match(viewerSource, /getFirmaResponseForCampo\(campo\)/);
+  assert.match(viewerSource, /firmaResponse\?\.signature_stamp_style\?\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(viewerSource, /<FittedSignatureStamp[\s\S]*?stampStyle=\{savedStyle/);
+  assert.match(displaySource, /function SignatureStampDisplay/);
+  assert.match(responseSource, /signature_stamp_style, signature_hash/);
   assert.match(viewerSource, /renderCampoOverlay\(campo, idx, 'main'\)/);
   assert.match(viewerSource, /renderCampoOverlay\(campo, idx, 'modal'\)/);
 });
@@ -245,11 +254,13 @@ test('short autograph stamps preserve the selected AC0-AC5 layout and complete h
 });
 
 test('medium autograph stamps preserve AM1-AM5 fields, authentication and complete hash', async () => {
-  const [stampSource, selectorSource, signingSource] = await Promise.all([
+  const [stampSource, selectorSource, signingSource, stampDisplaySource] = await Promise.all([
     readFile(stampPath, 'utf8'),
     readFile(autographSelectorPath, 'utf8'),
     readFile(signingPagePath, 'utf8'),
+    readFile(stampDisplayPath, 'utf8'),
   ]);
+  assert.match(stampDisplaySource, /stampStyle === 'AM3'/);
 
   assert.match(stampSource, /async function drawAutografaMediumStamp/);
   assert.match(stampSource, /method === 'autografa' && \/\^AM\[1-5\]\$\/.test\(style\)/);
@@ -295,10 +306,11 @@ test('medium autograph stamps preserve AM1-AM5 fields, authentication and comple
 });
 
 test('long autograph stamps preserve AL1-AL4 structured data and complete hash', async () => {
-  const [stampSource, selectorSource, signingSource] = await Promise.all([
+  const [stampSource, selectorSource, signingSource, stampDisplaySource] = await Promise.all([
     readFile(stampPath, 'utf8'),
     readFile(autographSelectorPath, 'utf8'),
     readFile(signingPagePath, 'utf8'),
+    readFile(stampDisplayPath, 'utf8'),
   ]);
 
   assert.match(stampSource, /async function drawAutografaLongStamp/);
@@ -341,14 +353,14 @@ test('long autograph stamps preserve AL1-AL4 structured data and complete hash',
   assert.match(signingSource, /participant_act:/);
   assert.match(signingSource, /document_reference:/);
   assert.match(signingSource, /curp: userProfile\.curp/);
-  assert.match(signingSource, /userCurp\?: string/);
-  assert.match(signingSource, /participantRole\?: string/);
-  assert.match(signingSource, /participantAct\?: string/);
-  assert.doesNotMatch(signingSource, /documentReference\?: string/);
-  const signingAutographStart = signingSource.indexOf("if (signatureType === 'autografa')");
-  const signingLongStart = signingSource.indexOf('// Largas', signingAutographStart);
-  const signingLongEnd = signingSource.indexOf('// ── Click & Sign stamps', signingLongStart);
-  const signingLongPreviews = signingSource.slice(signingLongStart, signingLongEnd);
+  assert.match(stampDisplaySource, /userCurp\?: string/);
+  assert.match(stampDisplaySource, /participantRole\?: string/);
+  assert.match(stampDisplaySource, /participantAct\?: string/);
+  assert.doesNotMatch(stampDisplaySource, /documentReference\?: string/);
+  const signingAutographStart = stampDisplaySource.indexOf("if (signatureType === 'autografa')");
+  const signingLongStart = stampDisplaySource.indexOf('// Largas', signingAutographStart);
+  const signingLongEnd = stampDisplaySource.indexOf('// ── Click & Sign stamps', signingLongStart);
+  const signingLongPreviews = stampDisplaySource.slice(signingLongStart, signingLongEnd);
   assert.match(signingLongPreviews, /evidenceHashBlock/);
   assert.match(signingLongPreviews, /RFC \(OPCIONAL\)/);
   assert.match(signingLongPreviews, /CURP \(OPCIONAL\)/);
@@ -519,7 +531,7 @@ test('NOM-151 status keeps polling until issuance or a terminal failure', async 
   const source = await readFile(viewerPath, 'utf8');
 
   assert.match(source, /cache: 'no-store'/);
-  assert.match(source, /const maxPollAttempts = 24/);
+  assert.match(source, /const maxPollAttempts = document\.source_form_response_id \? 120 : 24/);
   // A persisted but unverified row is not terminal; polling stops only after
   // verified evidence or an explicit terminal failure.
   assert.match(source, /return Boolean\(\(json\.data && json\.verified\) \|\| json\.failed\)/);

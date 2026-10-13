@@ -101,9 +101,15 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
 
   if (action === 'remind') {
     if (!task.assigned_to) return Response.json({ error: 'Asigna una persona antes de recordar.' }, { status: 409 });
-    const { data: recent } = await service.from('task_history').select('id').eq('tarea_id', taskId)
-      .eq('action', 'Recordatorio enviado').gte('created_at', new Date(Date.now() - 24 * 3600000).toISOString()).limit(1);
-    if (recent?.length) return Response.json({ error: 'Ya se envió un recordatorio en las últimas 24 horas.' }, { status: 429 });
+    const { data: recent, error: reminderCheckError } = await service.from('notifications').select('created_at')
+      .eq('workspace_id', workspaceId).eq('entity_id', taskId).eq('event_type', 'task.reminder')
+      .gte('created_at', new Date(Date.now() - 24 * 3600000).toISOString())
+      .order('created_at', { ascending: false }).limit(1);
+    if (reminderCheckError) return Response.json({ error: 'No se pudo verificar cuándo se envió el último recordatorio.' }, { status: 500 });
+    if (recent?.length) return Response.json({
+      error: 'Ya se envió un recordatorio en las últimas 24 horas.',
+      retryAt: new Date(new Date(recent[0].created_at).getTime() + 24 * 3600000).toISOString(),
+    }, { status: 429 });
     const { error } = await service.from('notifications').insert({
       user_id: task.assigned_to, workspace_id: workspaceId, type: 'task_reminder',
       title: 'Recordatorio de tarea', description: task.title, priority: 'medium',

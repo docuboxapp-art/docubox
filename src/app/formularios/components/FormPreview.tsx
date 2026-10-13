@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { FileCheck2, Hash, QrCode, ShieldCheck } from 'lucide-react';
+import { FileCheck2, QrCode } from 'lucide-react';
 import type { FormTemplate } from '@/contexts/FormBuilderContext';
 import type { SignatureType } from '@/lib/forms/schema';
 import { getPdfFieldLabel, sampleValueForField } from '@/lib/forms/schema';
@@ -171,13 +171,19 @@ function PdfMirror({ template, values, example, designPreview, signatureType }: 
 
         {(pdf.showHash || pdf.showQr || pdf.showAuditTrail || pdf.showEvidenceSheet) && (
           <section className="mt-10 border-t border-[#E2E8F0] pt-5">
-            <div className="flex items-start gap-5">
-              {pdf.showQr && <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center border border-[#CBD5E1] bg-white"><QrCode size={54} className="text-[#0F172A]" /></div>}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-600" /><p className="text-xs font-semibold text-[#0F172A]">Evidencia e integridad</p></div>
-                {pdf.showEvidenceSheet && <p className="mt-2 text-[9px] leading-4 text-[#64748B]">ID de respuesta · {pdf.showFolio ? `Folio ${folio} · ` : ''}fecha y dispositivo de envío</p>}
-                {pdf.showHash && <div className="mt-2 flex gap-2 text-[9px] leading-4 text-[#64748B]"><Hash size={11} className="mt-0.5 flex-shrink-0" /><span className="break-all">SHA-256 de respuestas: {hash}</span></div>}
-                {pdf.showAuditTrail && <p className="mt-2 text-[9px] leading-4 text-[#64748B]">Bitácora: eventos registrados para esta respuesta.</p>}
+            <p className="text-xs font-semibold text-[#0F172A]">Evidencia e integridad</p>
+            <div className="mt-3 flex items-start gap-4">
+              {pdf.showQr && <div className="w-20 flex-shrink-0 text-center"><div className="flex h-20 w-20 items-center justify-center bg-white"><QrCode size={70} className="text-[#0F172A]" /></div><p className="mt-1 text-[9px] text-[#64748B]">Verificar PDF</p></div>}
+              <div className="min-w-0 flex-1 space-y-0.5 break-words text-[9px] leading-[1.35] text-[#64748B]">
+                {pdf.showEvidenceSheet && <>
+                  <p>ID de respuesta: ejemplo-respuesta</p>
+                  {pdf.showFolio && <p>Folio: {folio}</p>}
+                  <p>Fecha y hora de envío (UTC): 2026-10-13T18:30:00Z</p>
+                  <p>Navegador y dispositivo: navegador del participante</p>
+                  {pdf.showIp && <p>IP: 192.0.2.1</p>}
+                </>}
+                {pdf.showHash && <p className="break-all">SHA-256 de respuestas: {hash}</p>}
+                {pdf.showAuditTrail && <><p>Bitácora del envío (1 evento):</p><p>2026-10-13T18:30:00 · Respuesta registrada</p></>}
               </div>
             </div>
           </section>

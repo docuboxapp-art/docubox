@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
-      const { data: { user: tokenUser }, error: tokenError } = await supabaseAdmin.auth.getUser(token);
+      const {
+        data: { user: tokenUser },
+        error: tokenError,
+      } = await supabaseAdmin.auth.getUser(token);
       if (!tokenError && tokenUser) {
         user = tokenUser;
       }
@@ -46,9 +49,7 @@ export async function GET(request: NextRequest) {
     const participantes: any[] = doc.participantes || [];
     const userEmail = user.email?.toLowerCase() || '';
     const isParticipant = participantes.some(
-      (p: any) =>
-        (p.email && p.email.toLowerCase() === userEmail) ||
-        p.id === user.id
+      (p: any) => (p.email && p.email.toLowerCase() === userEmail) || p.id === user.id
     );
 
     if (!isOwner && !isParticipant) {
@@ -58,7 +59,9 @@ export async function GET(request: NextRequest) {
     // Fetch all participation responses using service role (bypasses RLS)
     const { data: responses, error } = await supabaseAdmin
       .from('participation_responses')
-      .select('participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, signature_stamp_style, aprobacion_completada')
+      .select(
+        'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, firma_completada_at, signature_method, signature_stamp_style, signature_hash, signature_ip, signature_metadata, aprobacion_completada'
+      )
       .eq('documento_id', documentoId);
 
     if (error) {
@@ -66,7 +69,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: responses || [] });
+    const data = (responses || []).map((response) => {
+      const { signature_metadata, ...visibleResponse } = response;
+      const metadata =
+        signature_metadata && typeof signature_metadata === 'object'
+          ? (signature_metadata as Record<string, unknown>)
+          : {};
+      const stampText = (key: string) => (typeof metadata[key] === 'string' ? metadata[key] : null);
+      return {
+        ...visibleResponse,
+        stamp_metadata: {
+          rfc: stampText('rfc'),
+          curp: stampText('curp'),
+          participant_role: stampText('participant_role'),
+          participant_act: stampText('participant_act'),
+          verification_url: stampText('verification_url'),
+          certificate_serial: stampText('certificate_serial'),
+          certificate_valid_until: stampText('certificate_valid_until'),
+        },
+      };
+    });
+
+    return NextResponse.json({ data });
   } catch (err: any) {
     console.error('[api/participation-responses] Error:', err);
     return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 });

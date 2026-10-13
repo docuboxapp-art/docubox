@@ -230,7 +230,7 @@ serve(async (req) => {
     const folio = responseRow.folio || `FORM-${new Date().getFullYear()}-${response_id.slice(0, 8).toUpperCase()}`;
     const validationUrl = `${siteUrl}/validar-formulario/${response_id}`;
     const answers = responseRow.response_data || {};
-    const answerHash = pdfSchema.showHash !== false
+    const answerHash = pdfSchema.showHash === true
       ? await sha256Hex(new TextEncoder().encode(JSON.stringify(canonicalAnswerData(answers)))) : '';
 
     const pdf = await PDFDocument.create();
@@ -304,10 +304,10 @@ serve(async (req) => {
     y -= 22;
     page.drawLine({ start: { x: PAGE.margin, y }, end: { x: PAGE.width - PAGE.margin, y }, thickness: 1, color: rgb(0.92, 0.92, 0.94) });
     y -= 24;
-    if (pdfSchema.showRespondentEmail !== false || pdfSchema.showIp !== false) {
+    if (pdfSchema.showRespondentEmail === true || pdfSchema.showIp === true) {
       const metadata = [
-        ...(pdfSchema.showRespondentEmail !== false ? [`Correo del participante: ${submittedEmail(responseRow, fields)}`] : []),
-        ...(pdfSchema.showIp !== false ? [`Dirección IP: ${responseRow.ip_address || 'No disponible'}`] : []),
+        ...(pdfSchema.showRespondentEmail === true ? [`Correo del participante: ${submittedEmail(responseRow, fields)}`] : []),
+        ...(pdfSchema.showIp === true ? [`Dirección IP: ${responseRow.ip_address || 'No disponible'}`] : []),
       ];
       for (const item of metadata) {
         for (const line of wrapText(item, Math.max(35, Math.floor((PAGE.width - PAGE.margin * 2) / 5)))) {
@@ -444,53 +444,53 @@ serve(async (req) => {
       }
     }
 
-    if (pdfSchema.showEvidenceSheet !== false || pdfSchema.showQr !== false || pdfSchema.showHash !== false || pdfSchema.showAuditTrail !== false) {
-      newPage();
-      page.drawText('EVIDENCIA DEL ENVÍO', { x: PAGE.margin, y, size: 14, font: bold, color: primary });
-      y -= 30;
-      const evidence = pdfSchema.showEvidenceSheet !== false ? [
-        ['ID de respuesta', response_id],
-        ...(pdfSchema.showFolio !== false ? [['Folio', folio]] : []),
-        ['Fecha y hora de envío (UTC)', responseRow.submitted_at || new Date().toISOString()],
-        ['Navegador y dispositivo', responseRow.user_agent || 'No disponible'],
-      ] : [];
-      if (pdfSchema.showEvidenceSheet !== false && pdfSchema.showIp !== false) evidence.push(['IP', responseRow.ip_address || 'No disponible']);
-      for (const [label, value] of evidence) {
-        ensureSpace(35);
-        page.drawText(label, { x: PAGE.margin, y, size: 9, font: bold, color: rgb(0.44, 0.44, 0.48) }); y -= 14;
-        for (const line of wrapText(String(value), 76)) { ensureSpace(15); page.drawText(line, { x: PAGE.margin, y, size: 10, font: regular, color: rgb(0.15, 0.15, 0.17) }); y -= 14; }
-        y -= 8;
+    if (pdfSchema.showEvidenceSheet === true || pdfSchema.showQr === true || pdfSchema.showHash === true || pdfSchema.showAuditTrail === true) {
+      const showQr = pdfSchema.showQr === true;
+      const detailX = PAGE.margin + (showQr ? 96 : 0);
+      const detailWidth = PAGE.width - PAGE.margin - detailX;
+      const maxChars = Math.max(35, Math.floor(detailWidth / 4.1));
+      const evidenceLines: string[] = [];
+      const addDetail = (label: string, value: unknown) => {
+        evidenceLines.push(...wrapText(`${label}: ${String(value || 'No disponible')}`, maxChars));
+      };
+      if (pdfSchema.showEvidenceSheet === true) {
+        addDetail('ID de respuesta', response_id);
+        if (pdfSchema.showFolio !== false) addDetail('Folio', folio);
+        addDetail('Fecha y hora de envío (UTC)', responseRow.submitted_at || new Date().toISOString());
+        addDetail('Navegador y dispositivo', String(responseRow.user_agent || 'No disponible').slice(0, 180));
+        if (pdfSchema.showIp === true) addDetail('IP', responseRow.ip_address);
       }
-      if (pdfSchema.showHash !== false) {
-        ensureSpace(45);
-        page.drawText('SHA-256 de respuestas', { x: PAGE.margin, y, size: 9, font: bold }); y -= 15;
-        page.drawText(answerHash, { x: PAGE.margin, y, size: 9, font: regular }); y -= 26;
-      }
-      if (pdfSchema.showAuditTrail !== false) {
+      if (pdfSchema.showHash === true) addDetail('SHA-256 de respuestas', answerHash);
+      if (pdfSchema.showAuditTrail === true) {
         const { data: auditEvents, error: auditError } = await supabase.from('form_audit_logs').select('action,created_at').eq('response_id', response_id).order('created_at', { ascending: true });
         if (auditError) throw auditError;
-        ensureSpace(35);
-        page.drawText('BITÁCORA DEL ENVÍO', { x: PAGE.margin, y, size: 10, font: bold, color: primary }); y -= 18;
         const events = [
           ...(responseRow.submitted_at ? [{ action: 'Respuesta registrada', created_at: responseRow.submitted_at }] : []),
           ...(auditEvents || []),
         ];
         if (!events.length) events.push({ action: 'Respuesta disponible', created_at: new Date().toISOString() });
-        for (const event of events) {
-          ensureSpace(18);
-          page.drawText(`${String(event.created_at || '').slice(0, 19)} · ${String(event.action || '').slice(0, 70)}`, { x: PAGE.margin, y, size: 9, font: regular });
-          y -= 16;
+        evidenceLines.push(`Bitácora del envío (${events.length} ${events.length === 1 ? 'evento' : 'eventos'}):`);
+        for (const event of events.slice(-3)) {
+          evidenceLines.push(...wrapText(`${String(event.created_at || '').slice(0, 19)} · ${String(event.action || '').slice(0, 70)}`, maxChars));
         }
-        y -= 8;
       }
-      if (pdfSchema.showQr !== false) {
+      const blockHeight = 28 + Math.max(showQr ? 92 : 0, evidenceLines.length * 10);
+      ensureSpace(blockHeight);
+      y -= 12;
+      page.drawLine({ start: { x: PAGE.margin, y }, end: { x: PAGE.width - PAGE.margin, y }, thickness: 0.6, color: rgb(0.88, 0.9, 0.93) });
+      y -= 19;
+      page.drawText('Evidencia e integridad', { x: PAGE.margin, y, size: 10, font: bold, color: rgb(0.09, 0.09, 0.11) });
+      const detailsTop = y - 16;
+      if (showQr) {
         const qrDataUrl = await QRCode.toDataURL(validationUrl, { margin: 1, width: 220 });
         const qr = await pdf.embedPng(Uint8Array.from(atob(qrDataUrl.split(',')[1]), (char) => char.charCodeAt(0)));
-        ensureSpace(140);
-        page.drawImage(qr, { x: PAGE.margin, y: y - 110, width: 110, height: 110 });
-        y -= 118;
-        page.drawText('Escanea para verificar el PDF de respuestas', { x: PAGE.margin, y, size: 9, font: regular, color: rgb(0.44, 0.44, 0.48) });
+        page.drawImage(qr, { x: PAGE.margin, y: detailsTop - 80, width: 80, height: 80 });
+        page.drawText('Verificar PDF', { x: PAGE.margin, y: detailsTop - 89, size: 6, font: regular, color: rgb(0.44, 0.44, 0.48) });
       }
+      evidenceLines.forEach((line, index) => page.drawText(line, {
+        x: detailX, y: detailsTop - index * 10, size: 7.5, font: regular, color: rgb(0.34, 0.38, 0.45),
+      }));
+      y = detailsTop - Math.max(showQr ? 92 : 0, evidenceLines.length * 10);
     }
 
     const pages = pdf.getPages();

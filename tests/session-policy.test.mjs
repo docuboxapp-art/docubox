@@ -147,26 +147,27 @@ test('timeout modal actions close only explicitly invalid browser sessions', () 
 
 test('temporary policy or permission errors do not erase an otherwise valid session', () => {
   assert.doesNotMatch(middleware, /permission denied for function enforce_docubox_session_policy/);
-  assert.match(middleware, /No cerramos tu sesión\. La conexión tardó más de lo esperado\./);
+  assert.match(middleware, /No cerramos tu sesión\. El servicio de verificación no respondió correctamente\./);
   assert.match(middleware, /status: 503/);
   assert.match(middleware, /'Retry-After': String\(retryAfterSeconds\)/);
   assert.match(middleware, /<a href="">Reintentar<\/a>/);
   assert.match(middleware, /SESSION_RETRY_COOKIE_NAME/);
-  assert.match(middleware, /retryCount < 2/);
-  assert.match(middleware, /retryAfterSeconds === 0 \? 5 : 15|retryCount === 0 \? 5 : 15/);
+  assert.match(middleware, /SESSION_PAGE_RETRY_DELAYS_SECONDS = \[5, 15, 30, 60, 60\]/);
+  assert.match(middleware, /retryCount < SESSION_PAGE_RETRY_DELAYS_SECONDS\.length/);
+  assert.match(middleware, /retryAfterSeconds = SESSION_PAGE_RETRY_DELAYS_SECONDS\[retryCount\] \|\| 60/);
   assert.match(middleware, /setTimeout\(function \(\) \{ window\.location\.reload\(\); \}, \$\{retryAfterSeconds \* 1000\}\)/);
-  assert.match(middleware, /maxAge: 60/);
+  assert.match(middleware, /maxAge: 600/);
 });
 
-test('a transient PostgREST schema-cache miss receives bounded retries', () => {
+test('transient PostgREST and gateway failures receive bounded retries', () => {
   assert.match(middleware, /TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set\(\['PGRST002'\]\)/);
   assert.match(middleware, /SESSION_POLICY_RETRY_DELAY_MS = 350/);
-  assert.match(middleware, /SESSION_POLICY_SCHEMA_RETRY_DELAY_MS = 1_200/);
+  assert.match(middleware, /SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200/);
   assert.match(middleware, /if \(isTransientSessionPolicyError\(result\.error\)\)/);
   assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
-  assert.match(middleware, /if \(result\.error\?\.code === 'PGRST002'\)/);
-  assert.match(middleware, /waitForSessionPolicyRetry\(SESSION_POLICY_SCHEMA_RETRY_DELAY_MS\)/);
-  assert.match(middleware, /persistent failure still blocks protected traffic/);
+  assert.match(middleware, /shouldRetrySessionCheckAfterBackoff\(result\.error\)/);
+  assert.match(middleware, /waitForSessionPolicyRetry\(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS\)/);
+  assert.match(middleware, /if \(policyError\)/);
 });
 
 test('concurrent requests from one session share only the policy validation in progress', () => {
@@ -178,10 +179,10 @@ test('concurrent requests from one session share only the policy validation in p
   assert.doesNotMatch(middleware, /SESSION_POLICY_SUCCESS_CACHE_TTL/);
 });
 
-test('temporary auth gateway failures receive one bounded retry without trusting the session', () => {
+test('temporary auth gateway failures receive bounded retries without trusting the session', () => {
   assert.match(middleware, /TRANSIENT_SESSION_HTTP_STATUSES = new Set\(\[0, 502, 503, 504\]\)/);
   assert.match(middleware, /error\.name === 'AuthRetryableFetchError'/);
-  assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 8_000/);
+  assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 12_000/);
   assert.match(middleware, /fetchWithSessionValidationTimeout/);
   assert.match(
     middleware,

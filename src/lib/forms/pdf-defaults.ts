@@ -18,7 +18,7 @@ export const PDF_CONTENT_OPTIONS = [
   ['showHash', 'SHA-256 de respuestas'],
   ['showAttachments', 'Anexos'],
   ['showAuditTrail', 'Bitácora'],
-  ['showEvidenceSheet', 'Hoja de evidencia legal'],
+  ['showEvidenceSheet', 'Evidencia del envío'],
   ['consentPage', 'Hoja de consentimiento'],
 ] as const satisfies ReadonlyArray<readonly [keyof PdfSchema, string]>;
 

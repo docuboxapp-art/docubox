@@ -247,6 +247,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     onShowWarning: showSessionTimeoutWarning,
     onHideWarning: hideSessionTimeoutWarning,
     onBeforeSignOut: hideSessionTimeoutWarning,
+    warningVisible: showTimeoutWarning,
   });
 
   // ── Auth methods ──────────────────────────────────────────────────────────

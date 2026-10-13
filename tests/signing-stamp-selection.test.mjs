@@ -25,6 +25,10 @@ const [signingSource, autographSource, efirmaSource, clickSignSource, migrationS
       'utf8'
     ),
   ]);
+const stampDisplaySource = await readFile(
+  new URL('../src/components/signatures/SignatureStampDisplay.tsx', import.meta.url),
+  'utf8'
+);
 
 test('signing flow offers a persisted save-prompt preference and compact actions', () => {
   assert.match(signingSource, /signature_save_prompt_dismissed/);
@@ -68,12 +72,12 @@ test('document previews render the selected stamp inside signature fields', asyn
     /signatureStamp=\{[\s\S]*?displayFirmaData\s*\?\s*\(?\s*<FittedSignatureStamp \{\.\.\.completedStampProps\}/
   );
   assert.match(
-    signingSource,
+    stampDisplaySource,
     /const scale = Math\.min\([\s\S]*?container\.clientWidth \/ width,[\s\S]*?container\.clientHeight \/ height/
   );
   assert.match(templateSource, /onFieldsMeasured=\{signatureStamp \? handleFieldsMeasured/);
   assert.match(templateSource, /signatureFieldIds\?\.includes\(field\.id\)/);
-  assert.match(signingSource, /flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1/);
-  assert.match(signingSource, /className="block h-full w-full object-contain"/);
+  assert.match(stampDisplaySource, /flex h-10 w-full items-center justify-center overflow-hidden bg-slate-50 p-1/);
+  assert.match(stampDisplaySource, /className="block h-full w-full object-contain"/);
   assert.doesNotMatch(templateSource, /border border-blue-500 bg-white/);
 });

@@ -38,7 +38,7 @@ const runtime = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText.replaceAll('globalThis.Deno', 'Deno');
 
-async function generateFixture({ pageSize = 'a4', orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, fieldCount = 12, legalContent, declarationContent, includeSignature = false, requireSignature = false, returnLayout = false, signatureLabel = 'Firma', signaturePdfLabel, fieldPdfLabel, fieldPdfLabelExplicit = false } = {}) {
+async function generateFixture({ pageSize = 'a4', orientation = 'portrait', coverPage = false, columns = 'one', flags = {}, responseData = {}, fieldPageBreak = false, sectionPageBreak = false, fieldCount = 12, legalContent, declarationContent, includeSignature = false, requireSignature = false, returnLayout = false, signatureLabel = 'Firma', signaturePdfLabel, fieldPdfLabel, fieldPdfLabelExplicit = false } = {}) {
   let handler;
   let savedBytes;
   let savedLayout;
@@ -52,7 +52,7 @@ async function generateFixture({ pageSize = 'a4', orientation = 'portrait', cove
   if (legalContent) Object.assign(fields.at(-1), legalContent);
   if (declarationContent) fields.push({ id: 'declaration', sectionId: 'section-general', label: 'Declaración', type: 'declaration', ...declarationContent });
   fields.push({ id: 'attachment', sectionId: 'section-general', label: 'Anexo', type: 'documento' });
-  if (includeSignature) fields.push({ id: 'signature', sectionId: 'section-general', label: signatureLabel, type: 'signature_block', pdf: signaturePdfLabel ? { label: signaturePdfLabel } : undefined });
+  if (includeSignature) fields.push({ id: 'signature', sectionId: sectionPageBreak ? 'section-signature' : 'section-general', label: signatureLabel, type: 'signature_block', pdf: signaturePdfLabel ? { label: signaturePdfLabel } : undefined });
   if (fieldPageBreak) fields[1].pdf = { pageBreakBefore: true };
   const row = {
     workspace_id: 'fixture',
@@ -60,7 +60,10 @@ async function generateFixture({ pageSize = 'a4', orientation = 'portrait', cove
     response_data: { 'field-0': 'Respuesta de prueba', ...responseData },
     form_templates: {
       id: 'fixture', name: 'Formulario de muestra', description: 'Descripción visible en el PDF',
-      form_schema: { fields, sections: [{ id: 'section-general', title: 'Datos generales' }] },
+      form_schema: { fields, sections: [
+        { id: 'section-general', title: 'Datos generales' },
+        ...(sectionPageBreak ? [{ id: 'section-signature', title: 'Firma', pageBreakBefore: true }] : []),
+      ] },
       pdf_schema: {
         pageSize, orientation, coverPage, columns, margins: 'normal',
         typography: 'serif', headerAlignment: 'center', showUnanswered: true,
@@ -244,7 +247,7 @@ test('el PDF generado usa las dimensiones de cada tamaño de hoja en ambas orien
   }
 });
 
-test('las hojas opcionales y los anexos modifican el PDF generado', async () => {
+test('la evidencia configurada se integra en la página actual y los anexos conservan su hoja', async () => {
   const base = await generateFixture();
   const withConsent = await generateFixture({ flags: { consentPage: true } });
   const withHash = await generateFixture({ flags: { showHash: true } });
@@ -253,15 +256,23 @@ test('las hojas opcionales y los anexos modifican el PDF generado', async () => 
   const baseForBreak = await generateFixture({ fieldCount: 2 });
   const withFieldBreak = await generateFixture({ fieldCount: 2, fieldPageBreak: true });
   assert.equal(withConsent.getPageCount(), base.getPageCount() + 1);
-  assert.equal(withHash.getPageCount(), base.getPageCount() + 1);
-  assert.equal(withAudit.getPageCount(), base.getPageCount() + 1);
-  assert.equal(withQr.getPageCount(), base.getPageCount() + 1);
+  assert.equal(withHash.getPageCount(), base.getPageCount());
+  assert.equal(withAudit.getPageCount(), base.getPageCount());
+  assert.equal(withQr.getPageCount(), base.getPageCount());
   assert.equal(withFieldBreak.getPageCount(), baseForBreak.getPageCount() + 1);
   assert.ok(contentOperators(withHash).includes(encodedText('SHA-256 de respuestas')));
-  assert.ok(contentOperators(withAudit).includes(encodedText('BITÁCORA')));
+  assert.ok(contentOperators(withAudit).includes(encodedText('Bitácora del envío')));
   const evidence = await generateFixture({ flags: { showEvidenceSheet: true, showFolio: false } });
+  assert.equal(evidence.getPageCount(), base.getPageCount());
   assert.ok(contentOperators(evidence).includes(encodedText('ID de respuesta')));
   assert.ok(!contentOperators(evidence).includes(encodedText('Folio:')));
+
+  const signed = await generateFixture({
+    fieldCount: 1, includeSignature: true, requireSignature: true, sectionPageBreak: true,
+    flags: { showUnanswered: false, showEvidenceSheet: true, showQr: true, showHash: true, showAuditTrail: true },
+  });
+  assert.equal(signed.getPageCount(), 2, 'la evidencia debe compartir la página de la firma configurada');
+  assert.ok(contentOperators(signed).includes(encodedText('Evidencia e integridad')));
 
   const attachmentData = `data:application/pdf;base64,${Buffer.from('adjunto de prueba').toString('base64')}`;
   const withAttachments = await generateFixture({ flags: { showAttachments: true }, responseData: { attachment: attachmentData } });

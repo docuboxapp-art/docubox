@@ -378,6 +378,9 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const [savingEdit, setSavingEdit] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [reminderRetryAt, setReminderRetryAt] = useState<string | null>(null);
+  const [reminderClock, setReminderClock] = useState(() => Date.now());
+  const [reminderHistoryStatus, setReminderHistoryStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reassignOpen, setReassignOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -399,6 +402,16 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
   const canEditStructure = canActTask && !['completada', 'cancelada', 'rechazada'].includes(task.status);
   const completionNeedsAttestation = task.origin === 'manual' && completionMode(task.type, task.sourceType) === 'attested';
+  const lastReminder = history.filter(entry => entry.action === 'Recordatorio enviado')
+    .reduce((latest, entry) => Math.max(latest, new Date(entry.date).getTime() || 0), 0);
+  const reminderAvailableAt = Math.max(lastReminder ? lastReminder + 24 * 60 * 60 * 1000 : 0,
+    reminderRetryAt ? new Date(reminderRetryAt).getTime() || 0 : 0);
+  const reminderOnCooldown = reminderAvailableAt > reminderClock;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setReminderClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const ruleId = task.automationKey?.startsWith('custom:') ? task.automationKey.slice(7) : null;
@@ -479,7 +492,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
         assigneeId: action === 'reassign' ? newAssignee : undefined }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setActionError(result.error || 'No se pudo realizar la acción.'); setActionBusy(false); return; }
+    if (!response.ok) {
+      if (action === 'remind' && response.status === 429 && typeof result.retryAt === 'string') {
+        setReminderRetryAt(result.retryAt);
+        setReminderClock(Date.now());
+      } else setActionError(result.error || 'No se pudo realizar la acción.');
+      setActionBusy(false);
+      return;
+    }
     if (action === 'open' && result.href) {
       if (result.href.startsWith('/mis-tareas?task=')) {
         const linkedId = new URL(result.href, window.location.origin).searchParams.get('task');
@@ -492,6 +512,10 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       return;
     }
     setReassignOpen(false); setCancelOpen(false); setCancelReason(''); setCompleteOpen(false); setCompletionReason('');
+    if (action === 'remind') {
+      setReminderRetryAt(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+      setReminderClock(Date.now());
+    }
     onTaskUpdated(task.id);
     const { data: latestHistory } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
     if (latestHistory) setHistory(latestHistory.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
@@ -517,11 +541,11 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
     // Load history from dedicated table
     supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false })
-      .then(({ data }) => {
-        if (data) {
-          setHistory(data.map((r: any) => ({ id: r.id, action: r.action, user: r.actor_name, date: r.created_at, icon: ICON_MAP[r.icon_name] || Plus, color: r.color })));
-        }
-      });
+      .then(({ data, error }) => {
+        if (error || !data) { setReminderHistoryStatus('error'); return; }
+        setHistory(data.map((r: any) => ({ id: r.id, action: r.action, user: r.actor_name, date: r.created_at, icon: ICON_MAP[r.icon_name] || Plus, color: r.color })));
+        setReminderHistoryStatus('ready');
+      }, () => setReminderHistoryStatus('error'));
 
     // Load dependencies
     supabase.from('task_dependencies').select('depends_on_id, tareas!task_dependencies_depends_on_id_fkey(id, title, estado)').eq('tarea_id', task.id)
@@ -552,9 +576,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   };
 
   const refreshHistory = async () => {
-    const { data } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
-    if (data) setHistory(data.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
-      date: entry.created_at, icon: ICON_MAP[entry.icon_name] || Plus, color: entry.color })));
+    setReminderHistoryStatus('loading');
+    try {
+      const { data, error } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
+      if (error || !data) { setReminderHistoryStatus('error'); return; }
+      setHistory(data.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
+        date: entry.created_at, icon: ICON_MAP[entry.icon_name] || Plus, color: entry.color })));
+      setReminderHistoryStatus('ready');
+    } catch { setReminderHistoryStatus('error'); }
   };
 
   // ── Checklist operations ──
@@ -670,15 +699,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   return (
     <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-white">
       <div className="flex h-full w-full flex-col overflow-hidden bg-white">
-        <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+        <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-2.5 sm:px-6 lg:px-8">
           <AppLogo size={34} imageClassName="max-sm:w-24" />
-          <span className="truncate text-center text-sm font-medium text-slate-600">Mis Tareas <span className="text-slate-400">/</span> Detalle</span>
           <button type="button" onClick={handleClose} className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:px-3">
             <X size={16} /><span className="hidden sm:inline">Cerrar</span>
           </button>
         </header>
 
-        <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-3 lg:px-6">
+        <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-3 sm:px-6 lg:px-8">
           <div className="mx-auto flex w-full max-w-[1480px] items-start gap-3">
             <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${typeInfo.bg} ${typeInfo.border}`}><TypeIcon size={18} className={typeInfo.color} /></span>
             <div className="min-w-0 flex-1">
@@ -696,7 +724,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
           </div>
         </section>
 
-        <nav aria-label="Secciones de la tarea" className="flex shrink-0 gap-0 overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6">
+        <nav aria-label="Secciones de la tarea" className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto flex w-full max-w-[1480px] gap-0">
           {tabs.map(t => {
             const TIcon = t.icon;
             return (
@@ -718,11 +747,13 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               </button>
             );
           })}
+          </div>
         </nav>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto bg-white px-4 py-6 sm:px-8 lg:px-10">
-          <div className="mx-auto w-full max-w-[1080px] space-y-8 pb-12">
+        <main className="flex-1 overflow-y-auto bg-white px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1480px] pb-12">
+          <div className="w-full max-w-[1080px] space-y-8">
           {actionError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
           {/* ── Info / Edit ── */}
@@ -827,10 +858,17 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         {task.status !== 'programada' && task.type !== 'retomar_borrador' && ['pendiente','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Marcar en proceso</button>}
                         {task.status !== 'programada' && (task.origin === 'manual' || canCompleteSystem) && <button onClick={() => setCompleteOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
                         {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Users size={16} />Reasignar</button>}
-                        {task.status !== 'programada' && <button onClick={() => runAction('remind')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Bell size={16} />Recordatorio</button>}
+                        {task.status !== 'programada' && <button onClick={() => runAction('remind')} disabled={actionBusy || reminderOnCooldown || !task.assignedTo || reminderHistoryStatus !== 'ready'} aria-describedby="task-reminder-help" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"><Bell size={16} />Recordatorio</button>}
                         {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"><XCircle size={16} />Cancelar</button>}
                       </>}
                     </div>
+                    {task.status !== 'programada' && !['completada','cancelada','rechazada'].includes(task.status) && <p id="task-reminder-help" className="text-xs leading-5 text-slate-500">
+                      {!task.assignedTo ? 'Asigna una persona para enviarle un recordatorio.' : reminderOnCooldown
+                        ? `Ya se envió un recordatorio. Podrás enviar otro el ${formatDate(new Date(reminderAvailableAt).toISOString())} a las ${formatTime(new Date(reminderAvailableAt).toISOString())}`
+                        : reminderHistoryStatus === 'loading' ? 'Comprobando cuándo se envió el último recordatorio…'
+                        : reminderHistoryStatus === 'error' ? <span>No se pudo comprobar el último recordatorio. <button type="button" onClick={() => void refreshHistory()} className="font-medium text-primary hover:underline">Reintentar</button></span>
+                        : 'Envía una notificación al responsable de la tarea. Se permite una cada 24 horas.'}
+                    </p>}
                     {completeOpen && <div className="mt-6 max-w-2xl space-y-2">
                       <p className="text-sm font-semibold text-slate-900">Confirmar el resultado</p>
                       <p className="mt-1 text-sm leading-6 text-slate-600">{completionNeedsAttestation
@@ -1052,6 +1090,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               )}
             </section>
           )}
+          </div>
           </div>
         </main>
       </div>

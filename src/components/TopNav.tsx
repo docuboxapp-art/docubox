@@ -917,7 +917,7 @@ export default function TopNav() {
     <>
       {/* TopNav header — primary bar always visible; secondary nav bar hidden when sidebar is open */}
       <header
-        className={`fixed top-0 left-0 right-0 z-30 flex-shrink-0 bg-background/95 backdrop-blur-xl ${
+        className={`fixed top-0 left-0 right-0 z-30 flex-shrink-0 bg-white dark:bg-background ${
           usesWorkspaceChrome ? 'shadow-none' : 'shadow-sm'
         }`}
       >
@@ -1315,13 +1315,49 @@ export default function TopNav() {
                 onClick={() => { setQuickActionsOpen(open => !open); setBellOpen(false); setAvatarOpen(false); }}
                 className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${quickActionsOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}>
                 <CheckSquare className="h-5 w-5" />
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{priorityTaskCount > 99 ? '99+' : priorityTaskCount}</span>
+                <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-0.5">
+                  <span className="topnav-notification-count text-[9px] font-600 leading-none text-white">
+                    {priorityTaskCount > 99 ? '99+' : priorityTaskCount}
+                  </span>
+                </span>
               </button>
-              {quickActionsOpen && <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.14)]">
-                <div className="border-b border-slate-200 px-4 py-3"><p className="text-sm font-semibold text-slate-950">Tareas prioritarias</p><p className="mt-0.5 text-xs text-slate-500">Pendientes del espacio de trabajo actual.</p></div>
-                <div className="max-h-80 overflow-y-auto p-1.5">{priorityTasks.map(task => <button key={task.id} onClick={() => { setQuickActionsOpen(false); router.push(`/mis-tareas?task=${task.id}`); }} className="flex w-full items-start gap-2 rounded-md px-3 py-2.5 text-left hover:bg-slate-50"><span className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${task.prioridad === 'critica' || task.is_critical ? 'bg-red-500' : 'bg-amber-500'}`} /><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-900">{task.title}</span><span className="text-xs text-slate-500">{task.prioridad === 'critica' || task.is_critical ? 'Crítica' : 'Alta'}{task.due_date ? ` · ${new Date(task.due_date).toLocaleDateString('es-MX')}` : ''}</span></span></button>)}</div>
-                <button onClick={() => { setQuickActionsOpen(false); router.push('/mis-tareas'); }} className="w-full border-t border-slate-200 px-4 py-3 text-left text-sm font-semibold text-primary hover:bg-slate-50">Ver todas las tareas</button>
-              </div>}
+              {quickActionsOpen && (
+                <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900">
+                  <div className="border-b border-border px-4 py-3">
+                    <p className="text-base font-600 text-foreground">Tareas prioritarias</p>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {priorityTasks.map((task) => {
+                      const critical = task.prioridad === 'critica' || task.is_critical;
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => { setQuickActionsOpen(false); router.push(`/mis-tareas?task=${task.id}`); }}
+                          className="group flex w-full items-start gap-2 border-b border-border/50 px-3 py-3 text-left transition-colors duration-150 last:border-0 hover:bg-primary/[0.06]"
+                        >
+                          <span className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${critical ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>
+                            <CheckSquare size={14} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="line-clamp-2 text-sm font-500 leading-5 text-foreground [overflow-wrap:anywhere]">{task.title}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {critical ? 'Crítica' : 'Alta'}{task.due_date ? ` · ${new Date(task.due_date).toLocaleDateString('es-MX')}` : ''}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-border">
+                    <button
+                      onClick={() => { setQuickActionsOpen(false); router.push('/mis-tareas'); }}
+                      className="flex w-full items-center justify-center py-3 text-sm font-600 text-primary transition-colors duration-150 hover:bg-primary/5 hover:text-primary/80"
+                    >
+                      Ver todas las tareas
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>}
             {/* 3. Centro de ayuda */}
             <button

@@ -54,6 +54,7 @@ function database(seed = {}) {
         return query;
       },
       limit(value) { maximum = value; return query; },
+      order() { return query; },
       insert(value) { operation = 'insert'; payload = value; return query; },
       update(value) { operation = 'update'; payload = value; return query; },
       maybeSingle() { return Promise.resolve(execute(true)); },
@@ -126,7 +127,11 @@ test('a reminder is delivered once and rate-limited for 24 hours', async () => {
   assert.equal((await action('remind')).status, 200);
   assert.equal(rows.notifications.length, 1);
   assert.equal(rows.notifications[0].user_id, memberId);
-  assert.equal((await action('remind')).status, 429);
+  rows.task_history.length = 0; // Delivery remains authoritative if history is unavailable.
+  const limited = await action('remind');
+  const retry = await limited.json();
+  assert.equal(limited.status, 429);
+  assert.ok(new Date(retry.retryAt).getTime() > Date.now());
   assert.equal(rows.notifications.length, 1);
 });
 

@@ -602,6 +602,35 @@ hr.page-break::after {
   letter-spacing: 0;
 }
 
+/* Full-width actions in the viewer tabs share the compact constancia button size. */
+.document-viewer-panel :is(button, a).w-full:not(.text-left):not(.flex-col) {
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  text-align: center;
+}
+
+/* Compact inline actions use the same height; square icon controls keep their own size. */
+.document-viewer-panel button:is(.h-8, .h-9, .h-10):not(.w-full):not(.w-8):not(.w-9):not(.w-10):not(.text-left):not(.rounded-full) {
+  height: 34px;
+  min-height: 34px;
+  padding-inline: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
 /* The viewer can be narrow even on a desktop viewport when its global sidebar
  * is open or browser zoom is elevated. Switch the section rail to a compact
  * horizontal strip based on the workspace width, not the window breakpoint. */
