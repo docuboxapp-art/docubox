@@ -7,7 +7,7 @@
   "crons": [
     {
       "path": "/api/notifications/expiry-check",
-      "schedule": "0 * * * *"
+      "schedule": "0 2 * * *"
     },
     {
       "path": "/api/colabora/automations/process",
