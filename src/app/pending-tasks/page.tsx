@@ -395,6 +395,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const doneCount = checklist.filter(c => c.done).length;
   const canManageTask = Boolean(canReassign || (userId && task.createdBy === userId));
   const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
+  const canEditStructure = canActTask && !['completada', 'cancelada', 'rechazada'].includes(task.status);
   const completionNeedsAttestation = task.origin === 'manual' && completionMode(task.type, task.sourceType) === 'attested';
 
   useEffect(() => {
@@ -536,6 +537,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
   // ── Checklist operations ──
   const handleChecklistToggle = async (itemId: string) => {
+    if (!canEditStructure) return;
     const item = checklist.find(c => c.id === itemId);
     if (!item) return;
     const newDone = !item.done;
@@ -546,7 +548,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   };
 
   const handleAddCheckItem = async () => {
-    if (!newCheckItem.trim() || !workspaceId) return;
+    if (!canEditStructure || !newCheckItem.trim() || !workspaceId) return;
     setAddingCheck(true);
     const newItem = { id: crypto.randomUUID(), text: newCheckItem.trim(), done: false, position: checklist.length };
     const { error } = await supabase.from('task_checklist_items').insert({
@@ -559,6 +561,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   };
 
   const handleDeleteCheckItem = async (itemId: string) => {
+    if (!canEditStructure) return;
     const { error } = await supabase.from('task_checklist_items').delete().eq('id', itemId);
     if (error) setActionError(error.message);
     else { setChecklist(prev => prev.filter(c => c.id !== itemId)); await refreshHistory(); }
@@ -587,7 +590,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
   // ── Dependency operations ──
   const handleAddDependency = async () => {
-    if (!selectedDepTask || !workspaceId) return;
+    if (!canEditStructure || !selectedDepTask || !workspaceId) return;
     const depTask = availableTasks.find(t => t.id === selectedDepTask);
     if (!depTask) return;
     setAddingDep(true);
@@ -602,6 +605,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   };
 
   const handleRemoveDependency = async (depId: string) => {
+    if (!canEditStructure) return;
     const { error } = await supabase.from('task_dependencies').delete().eq('tarea_id', task.id).eq('depends_on_id', depId);
     if (error) setActionError(error.message);
     else { setDependencies(prev => prev.filter(d => d.id !== depId)); await refreshHistory(); }
@@ -833,7 +837,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               </div>
 
               {/* Add new item */}
-              {canActTask && <div className="flex gap-2 mb-4">
+              {canEditStructure && <div className="flex gap-2 mb-4">
                 <input
                   value={newCheckItem}
                   onChange={e => setNewCheckItem(e.target.value)}
@@ -859,7 +863,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               )}
               {checklist.map(item => (
                 <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group">
-                  <button type="button" disabled={!canActTask} aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
+                  <button type="button" disabled={!canEditStructure} aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
                     onClick={() => handleChecklistToggle(item.id)}
                     className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${item.done ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
                   >
@@ -870,7 +874,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                   >
                     {item.text}
                   </span>
-                  {canActTask && <button
+                  {canEditStructure && <button
                     onClick={() => handleDeleteCheckItem(item.id)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all"
                   >
@@ -962,7 +966,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
           {tab === 'dependencias' && (
             <div className="space-y-3">
               {/* Add dependency */}
-              {canActTask && <div className="flex gap-2 mb-4">
+              {canEditStructure && <div className="flex gap-2 mb-4">
                 <select
                   value={selectedDepTask}
                   onChange={e => setSelectedDepTask(e.target.value)}
@@ -1001,7 +1005,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         <p className="text-[10px] text-muted-foreground">{d.taskId}</p>
                       </div>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s.className}`}>{s.label}</span>
-                      {canActTask && <button onClick={() => handleRemoveDependency(d.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
+                      {canEditStructure && <button onClick={() => handleRemoveDependency(d.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
                         <X size={12} />
                       </button>}
                     </div>
@@ -1105,7 +1109,7 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: 
     <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 className="text-sm font-600 text-slate-900">{MONTHS_ES[month]} {year}</h3>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2"><span className="hidden text-xs text-slate-500 sm:inline">Inicio programado · Fecha límite</span>
           <button onClick={prev} aria-label="Mes anterior" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronLeft size={15} /></button>
           <button onClick={next} aria-label="Mes siguiente" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><ChevronRight size={15} /></button>
         </div>
@@ -1117,7 +1121,11 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: 
         <div key={ri} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
           {row.map((cell, ci) => {
             const isToday = isSameDay(cell.date, today);
-            const dayTasks = tasks.filter(t => isSameDay(new Date(t.dueDate), cell.date));
+            const dayTasks = tasks.flatMap(task => {
+              const starts = Boolean(task.scheduledFor && isSameDay(new Date(task.scheduledFor), cell.date));
+              const due = Boolean(task.dueDate && isSameDay(new Date(task.dueDate), cell.date));
+              return starts || due ? [{ task, label: starts && due ? 'Inicio y límite' : starts ? 'Inicio' : 'Límite' }] : [];
+            });
             return (
               <div key={ci} className={`min-h-[80px] border-r border-slate-100 p-1.5 last:border-r-0 ${!cell.current ? 'bg-slate-50/70' : ''} ${isToday ? 'bg-primary/5' : ''}`}>
                 <div className="flex justify-start mb-1">
@@ -1127,9 +1135,9 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t: 
                   }
                 </div>
                 <div className="max-h-28 space-y-1 overflow-y-auto">
-                  {dayTasks.map(t => {
-                    const tc = TASK_TYPE_CONFIG[t.type] || TASK_TYPE_CONFIG.revisar_documento;
-                    return <button key={t.id} onClick={() => onTaskClick(t)} title={t.title} className={`block w-full truncate rounded px-1.5 py-1 text-left text-[11px] font-medium ${tc.bg} ${tc.color}`}>{t.title}</button>;
+                  {dayTasks.map(({ task, label }) => {
+                    const tc = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
+                    return <button key={task.id} onClick={() => onTaskClick(task)} title={`${label}: ${task.title}`} aria-label={`${label}: ${task.title}`} className={`block w-full truncate rounded px-1.5 py-1 text-left text-[11px] font-medium ${tc.bg} ${tc.color}`}><span className="font-semibold">{label} · </span>{task.title}</button>;
                   })}
                 </div>
               </div>

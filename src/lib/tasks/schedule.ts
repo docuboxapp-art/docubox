@@ -9,6 +9,10 @@ export function scheduleValidationError(
   dueDate: string | null | undefined,
   now = Date.now(),
 ): string | null {
+  if (dueDate) {
+    const due = new Date(dueDate).getTime();
+    if (!Number.isFinite(due) || due <= now) return 'La fecha límite debe ser una fecha futura.';
+  }
   if (!scheduledFor) return null;
   const start = new Date(scheduledFor).getTime();
   if (!Number.isFinite(start) || start <= now) return 'El inicio programado debe ser una fecha futura.';

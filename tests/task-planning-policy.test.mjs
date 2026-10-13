@@ -30,6 +30,8 @@ test('planned start must be future and precede its deadline', () => {
   assert.match(scheduleValidationError(new Date(now - 1000).toISOString(), later, now), /futura/);
   assert.match(scheduleValidationError(later, tomorrow, now), /posterior/);
   assert.equal(scheduleValidationError(tomorrow, later, now), null);
+  assert.match(scheduleValidationError(null, new Date(now - 1000).toISOString(), now), /fecha futura/);
+  assert.equal(scheduleValidationError(null, tomorrow, now), null);
 });
 
 test('due labels compare calendar dates, including later today', () => {
