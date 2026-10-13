@@ -9,6 +9,8 @@ import {
   requireDocumentAccess,
 } from '@/lib/security/document-access';
 import { createAnonClient } from '@/lib/supabase/server';
+import { sha256Hex } from '@/lib/certification/canonical';
+import { participationTermsText, type ParticipationRole } from '@/lib/signing/participation-terms';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -209,13 +211,38 @@ export async function POST(request: NextRequest) {
           { status: 422, headers }
         );
       }
+      const participant = Array.isArray(document.participantes)
+        ? document.participantes.find((candidate: Record<string, unknown>) => {
+            const candidateIds = [candidate.id, candidate.user_id].filter(Boolean).map(String);
+            return [reference.participant_json_id, reference.participant_user_id, user.id]
+              .filter(Boolean).map(String).some((id) => candidateIds.includes(id));
+          })
+        : null;
+      const rawRole = normalized(participant?.role || participant?.acto);
+      const role: ParticipationRole = rawRole === 'aprobador' || rawRole === 'testigo' || rawRole === 'observador'
+        ? rawRole : 'firmante';
+      const termsText = participationTermsText(document.participation_terms_text, role);
+      const termsVersion = document.participation_terms_text
+        ? 'docubox-participation-terms-custom-v1' : 'docubox-participation-terms-default-v1';
+      const clientMetadata = body.response.signature_metadata;
+      const metadata = clientMetadata && typeof clientMetadata === 'object' && !Array.isArray(clientMetadata)
+        ? clientMetadata as Record<string, unknown> : {};
+      const committedResponse = {
+        ...body.response,
+        signature_metadata: {
+          ...metadata,
+          consent_text: termsText,
+          consent_version: termsVersion,
+          participation_terms_sha256: sha256Hex(termsText.normalize('NFC')),
+        },
+      };
       const rpc = await service.rpc('commit_participant_completion', {
         p_attempt_id: attemptId,
         p_actor_user_id: user.id,
         p_actor_email: user.email || '',
         p_idempotency_key: idempotencyKey,
         p_signature_evidence_id: evidenceId,
-        p_response: body.response,
+        p_response: committedResponse,
       });
       if (rpc.error) throw rpc.error;
       return NextResponse.json({ success: true, data: rpc.data }, { headers });

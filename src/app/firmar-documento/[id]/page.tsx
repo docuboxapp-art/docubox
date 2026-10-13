@@ -92,6 +92,11 @@ import {
   saveStoredEfirmaKey,
 } from '@/lib/efirma/vault-storage';
 import { normalizeEfirmaHolderName } from '@/lib/efirma/certificate-holder';
+import {
+  DEFAULT_PARTICIPATION_INTRO,
+  DEFAULT_PARTICIPATION_FOOTER,
+  defaultParticipationClauses,
+} from '@/lib/signing/participation-terms';
 
 const AutografaStampSelector = dynamic(
   () => import('@/app/mi-perfil/components/AutografaStampSelector'),
@@ -218,6 +223,7 @@ interface DocumentData {
   file_type?: string;
   source_template_id?: string | null;
   source_form_response_id?: string | null;
+  participation_terms_text?: string | null;
   campos_solicitados?: CampoSolicitado[];
   participantes?: any[];
 }
@@ -5297,7 +5303,7 @@ export default function FirmarDocumentoPage() {
         const { data, error } = await supabase
           .from('documentos')
           .select(
-            'id, nombre, estado, owner_id, file_url, file_type, source_template_id, source_form_response_id, campos_solicitados, participantes'
+            'id, nombre, estado, owner_id, workspace_id, file_url, file_type, source_template_id, source_form_response_id, participation_terms_text, campos_solicitados, participantes'
           )
           .eq('id', docId)
           .single();
@@ -9262,50 +9268,15 @@ export default function FirmarDocumentoPage() {
                     <div
                       className={`p-4 max-h-64 overflow-y-auto text-sm space-y-3 leading-relaxed ${isDark ? 'text-gray-400 bg-gray-850' : 'text-muted-foreground'}`}
                     >
-                      <p>
-                        Al aceptar y participar en este documento, usted declara y acepta lo
-                        siguiente:
-                      </p>
-                      <ol className="list-decimal list-inside space-y-2 pl-2">
-                        <li>
-                          Que ha revisado el contenido completo del documento y comprende su alcance
-                          y obligaciones.
-                        </li>
-                        <li>
-                          Que la firma electrónica o aprobación que otorgue tiene plena validez
-                          legal conforme a la legislación aplicable.
-                        </li>
-                        <li>
-                          Que los datos proporcionados son verídicos y corresponden a su identidad.
-                        </li>
-                        <li>
-                          Que autoriza el tratamiento de sus datos personales para los fines del
-                          presente documento.
-                        </li>
-                        <li>
-                          Que la fecha y hora de su participación quedarán registradas de forma
-                          inmutable en el sistema.
-                        </li>
-                        {myRole === 'firmante' && (
-                          <li>
-                            Que su firma autógrafa digital es un acto voluntario y tiene el mismo
-                            valor que una firma manuscrita.
-                          </li>
-                        )}
-                        {(myRole === 'aprobador' || myRole === 'testigo') && (
-                          <li>
-                            {myRole === 'testigo'
-                              ? 'Que su participación registra un testimonio electrónico del acto, sin atribuir efectos notariales.'
-                              : 'Que su visto bueno constituye una aprobación formal del contenido del documento.'}
-                          </li>
-                        )}
-                      </ol>
-                      <p
-                        className={`text-xs pt-2 border-t ${isDark ? 'text-gray-500 border-gray-700' : 'text-muted-foreground/70 border-border'}`}
-                      >
-                        Este proceso está respaldado por la plataforma DocuBox y cumple con los
-                        estándares de firma electrónica avanzada.
-                      </p>
+                      {document.participation_terms_text ? (
+                        <p className="whitespace-pre-wrap">{document.participation_terms_text}</p>
+                      ) : <>
+                        <p>{DEFAULT_PARTICIPATION_INTRO}</p>
+                        <ol className="list-decimal list-inside space-y-2 pl-2">
+                          {defaultParticipationClauses(myRole).map((clause) => <li key={clause}>{clause}</li>)}
+                        </ol>
+                        <p className={`text-xs pt-2 border-t ${isDark ? 'text-gray-500 border-gray-700' : 'text-muted-foreground/70 border-border'}`}>{DEFAULT_PARTICIPATION_FOOTER}</p>
+                      </>}
                     </div>
                   </div>
 

@@ -12,6 +12,7 @@ import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDo
 import { FormPdfDefaultsPanel } from '@/components/forms/FormPdfDefaultsPanel';
 import { FormExperienceDefaultsPanel } from '@/components/forms/FormExperienceDefaultsPanel';
 import { FormAppearanceDefaultsPanel } from '@/components/forms/FormAppearanceDefaultsPanel';
+import { ParticipationTermsSettingsPanel } from '@/components/signing/ParticipationTermsSettingsPanel';
 import { WorkspaceManagementSection } from '@/components/workspaces/WorkspaceManagementSection';
 import {
   DEFAULT_TEMPLATE_DOCUMENT_SETTINGS,
@@ -32,7 +33,7 @@ import { createDefaultFormAppearance, type FormAppearance } from '@/lib/forms/sc
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'espacios-trabajo' | 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento' | 'plantillas' | 'formularios';
+type Section = 'espacios-trabajo' | 'delegacion' | 'auditoria' | 'integraciones' | 'regional' | 'notificaciones' | 'almacenamiento' | 'plantillas' | 'formularios' | 'participacion';
 
 interface ToggleProps {
   enabled: boolean;
@@ -182,6 +183,7 @@ const sidebarSections: { label: string; items: SidebarItem[] }[] = [
     items: [
       { type: 'section', id: 'plantillas', label: 'Plantillas', icon: FileText },
       { type: 'section', id: 'formularios', label: 'Formularios', icon: FileCog },
+      { type: 'section', id: 'participacion', label: 'Firma y participación', icon: ShieldCheck },
       { type: 'section', id: 'regional', label: 'Regional y marca', icon: Globe },
       { type: 'section', id: 'almacenamiento', label: 'Almacenamiento', icon: Globe2 },
     ],
@@ -1667,6 +1669,11 @@ export default function ConfiguracionPage() {
       case 'almacenamiento': return renderAlmacenamiento();
       case 'plantillas': return renderPlantillas();
       case 'formularios': return renderFormularios();
+      case 'participacion': return <div className="flex flex-col gap-6">
+        <SettingsSectionHeader title="Firma y participación" description="Configura las condiciones que aceptarán los participantes de los documentos nuevos." />
+        {currentWsId ? <ParticipationTermsSettingsPanel key={currentWsId} workspaceId={currentWsId} />
+          : <p className="text-sm text-slate-500">Selecciona un espacio de trabajo para configurar sus términos.</p>}
+      </div>;
       case 'regional': return renderRegional();
       default: return null;
     }
