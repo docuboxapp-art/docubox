@@ -530,8 +530,16 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       markLoginTiming('password-authentication', loginStartedAt);
 
       if (error) {
-        recordLoginAttempt(false, 'password');
-        setPasswordError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+        if (error.code === 'invalid_credentials') {
+          recordLoginAttempt(false, 'password');
+          setPasswordError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+        } else if ((error.status ?? 0) >= 500 || error.name === 'AuthRetryableFetchError') {
+          setPasswordError('El servicio de acceso no responde en este momento. Intenta nuevamente en unos minutos.');
+        } else if (error.code === 'email_not_confirmed') {
+          setPasswordError('Confirma tu correo electrónico antes de iniciar sesión.');
+        } else {
+          setPasswordError('No se pudo iniciar sesión. Intenta nuevamente.');
+        }
         setPasswordLoading(false);
         return;
       }
@@ -549,7 +557,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       router.replace(requestedRedirect());
     } catch (error) {
       setPasswordError(
-        error instanceof Error ? error.message : 'Error de conexión. Intenta nuevamente.'
+        error instanceof Error && error.message === 'No se pudieron validar los requisitos de seguridad de la cuenta.'
+          ? error.message
+          : 'No se pudo conectar con el servicio de acceso. Intenta nuevamente en unos minutos.'
       );
       setPasswordLoading(false);
     }
