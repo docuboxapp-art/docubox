@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 
 const schema = z.object({
   workspaceId: z.string().uuid(),
-  sourceKind: z.enum(['document', 'form_template', 'template', 'case_file', 'form_response', 'user', 'task']),
+  sourceKind: z.enum(['document', 'form_template', 'template', 'case_file', 'form_response', 'user', 'task', 'participant_requirement']),
   sourceId: z.string().uuid(),
   workKind: z.enum(['accion', 'actividad']),
   type: z.enum([
@@ -28,6 +28,7 @@ const sourceTable = {
   form_response: { table: 'form_responses', name: 'folio' },
   user: { table: 'user_profiles', name: 'full_name' },
   task: { table: 'tareas', name: 'title' },
+  participant_requirement: { table: 'participant_document_requirements', name: 'name' },
 } as const;
 
 const typeLabel: Record<z.infer<typeof schema>['type'], string> = {
@@ -48,11 +49,16 @@ export async function POST(request: Request) {
   const input = parsed.data;
   const auth = await authorizeTaskRequest(request, input.workspaceId);
   if (!auth) return Response.json({ error: 'No autorizado.' }, { status: 403 });
-  const { service, user, role } = auth;
+  const { service, scoped, user, role } = auth;
   const resource = sourceTable[input.sourceKind];
   const { data: source, error: sourceError } = await service.from(resource.table)
     .select('*').eq('id', input.sourceId).maybeSingle();
   if (sourceError || !source) return Response.json({ error: 'El recurso seleccionado ya no existe.' }, { status: 404 });
+  if (input.sourceKind !== 'user') {
+    const visible = await scoped.from(resource.table).select('id').eq('id', input.sourceId).maybeSingle();
+    if (visible.error || !visible.data)
+      return Response.json({ error: 'No tienes acceso al recurso seleccionado.' }, { status: 403 });
+  }
   if (input.sourceKind === 'user') {
     const { data: membership } = await service.from('workspace_members').select('user_id')
       .eq('workspace_id', input.workspaceId).eq('user_id', input.sourceId).eq('status', 'active').maybeSingle();
@@ -63,21 +69,51 @@ export async function POST(request: Request) {
       && workspace?.workspace_type === 'personal' && workspace.owner_id === user.id;
     if (!personalOwner) return Response.json({ error: 'El recurso no pertenece al espacio actual.' }, { status: 403 });
   }
-  if (input.sourceKind === 'case_file' && !['cerrar_expediente', 'revisar_expediente', 'subir_anexo', 'validar_identidad'].includes(input.type))
+  if (input.sourceKind === 'case_file' && !['cerrar_expediente', 'revisar_expediente'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a un expediente.' }, { status: 400 });
   if (input.sourceKind === 'form_template' && !['seguimiento_formulario', 'revisar_documento', 'aprobar_documento'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a un formulario.' }, { status: 400 });
   if (input.sourceKind === 'template' && !['revisar_documento', 'aprobar_documento'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a una plantilla.' }, { status: 400 });
-  if (input.sourceKind === 'document' && !['revisar_documento', 'aprobar_documento', 'firmar_documento', 'subir_anexo', 'corregir_datos', 'validar_identidad', 'revisar_vencimiento', 'confirmar_lectura'].includes(input.type))
+  if (input.sourceKind === 'document' && !['revisar_documento', 'aprobar_documento', 'firmar_documento', 'corregir_datos', 'revisar_vencimiento', 'confirmar_lectura', 'retomar_borrador', 'obtener_nom151'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a un documento.' }, { status: 400 });
   if (input.sourceKind === 'form_response' && !['revisar_documento', 'aprobar_documento', 'corregir_datos'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a una respuesta.' }, { status: 400 });
   if (input.sourceKind === 'user' && input.type !== 'validar_identidad')
     return Response.json({ error: 'El tipo seleccionado no corresponde a un usuario.' }, { status: 400 });
+  if (input.sourceKind === 'participant_requirement' && input.type !== 'subir_anexo')
+    return Response.json({ error: 'El tipo seleccionado no corresponde a un anexo requerido.' }, { status: 400 });
   if (input.sourceKind === 'task' && !['resolver_comentario', 'revisar_documento'].includes(input.type))
     return Response.json({ error: 'El tipo seleccionado no corresponde a una tarea.' }, { status: 400 });
+  if (input.type === 'retomar_borrador' && source.estado !== 'borrador')
+    return Response.json({ error: 'El documento ya no está en borrador.' }, { status: 409 });
+  if (input.type === 'firmar_documento' && source.estado === 'completado')
+    return Response.json({ error: 'El documento ya está completado.' }, { status: 409 });
+  if (input.type === 'cerrar_expediente' && (source.closed_at || source.status === 'closed'))
+    return Response.json({ error: 'El expediente ya está cerrado.' }, { status: 409 });
+  if (input.type === 'obtener_nom151') {
+    const issued = await service.from('nom151_constancias_doc').select('id')
+      .eq('documento_id', input.sourceId).eq('status', 'issued').limit(1);
+    if (issued.error) return Response.json({ error: 'No se pudo consultar la constancia NOM-151.' }, { status: 500 });
+    if (issued.data?.length) return Response.json({ error: 'Este documento ya cuenta con una constancia NOM-151.' }, { status: 409 });
+  }
+  if (input.sourceKind === 'participant_requirement' && (source.provided_at || ['accepted', 'waived'].includes(source.status)))
+    return Response.json({ error: 'El anexo requerido ya fue atendido.' }, { status: 409 });
+  if (input.type === 'validar_identidad' && input.sourceKind === 'user') {
+    const verification = await service.from('user_verification_status').select('biometric_verified')
+      .eq('user_id', input.sourceId).maybeSingle();
+    if (verification.error) return Response.json({ error: 'No se pudo consultar la validación de identidad.' }, { status: 500 });
+    if (verification.data?.biometric_verified)
+      return Response.json({ error: 'La identidad de esta persona ya está validada.' }, { status: 409 });
+  }
   const assignee = input.assigneeId || user.id;
+  if (input.type === 'firmar_documento') {
+    const signature = await service.from('signature_evidence').select('id')
+      .eq('document_id', input.sourceId).eq('captured_by', assignee)
+      .eq('is_voided', false).not('signed_at', 'is', null).limit(1);
+    if (signature.error) return Response.json({ error: 'No se pudo consultar la firma del responsable.' }, { status: 500 });
+    if (signature.data?.length) return Response.json({ error: 'La persona seleccionada ya firmó este documento.' }, { status: 409 });
+  }
   if (input.sourceKind === 'user' && assignee !== input.sourceId)
     return Response.json({ error: 'La validación de identidad debe asignarse a la persona seleccionada.' }, { status: 400 });
   const { data: member } = await service.from('workspace_members').select('user_id').eq('workspace_id', input.workspaceId)
@@ -92,6 +128,8 @@ export async function POST(request: Request) {
   const actor = names.data?.find(profile => profile.id === user.id);
   const responsible = names.data?.find(profile => profile.id === assignee);
   const resourceName = String(source[resource.name] || (input.sourceKind === 'user' ? source.email : null) || 'recurso');
+  const relatedDocument = input.sourceKind === 'participant_requirement'
+    ? (await service.from('documentos').select('nombre').eq('id', source.document_id).maybeSingle()).data : null;
   const { data: task, error } = await service.from('tareas').insert({
     workspace_id: input.workspaceId, created_by: user.id, assigned_to: assignee,
     title: `${typeLabel[input.type]}: ${resourceName}`, description: input.description || null,
@@ -99,8 +137,8 @@ export async function POST(request: Request) {
     riesgo: input.priority === 'critica' ? 'alto' : input.priority === 'alta' ? 'medio' : 'bajo',
     due_date: input.dueDate || new Date(Date.now() + 3 * 86400000).toISOString(),
     source_type: input.sourceKind, source_id: input.sourceId, origin: 'manual', work_kind: input.workKind,
-    document_id: input.sourceKind === 'document' ? input.sourceId : null,
-    document_name: input.sourceKind === 'document' ? resourceName : null,
+    document_id: input.sourceKind === 'document' ? input.sourceId : input.sourceKind === 'participant_requirement' ? source.document_id : null,
+    document_name: input.sourceKind === 'document' ? resourceName : relatedDocument?.nombre || null,
     expediente_id: input.sourceKind === 'case_file' ? input.sourceId : null,
     expediente_name: input.sourceKind === 'case_file' ? resourceName : null,
     responsible_name: responsible?.full_name || responsible?.email || 'Usuario',

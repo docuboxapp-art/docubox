@@ -9,5 +9,6 @@ export async function authorizeTaskRequest(request: Request, workspaceId: string
   const { data: membership } = await service.from('workspace_members')
     .select('role,status').eq('workspace_id', workspaceId).eq('user_id', auth.user.id).maybeSingle();
   if (!membership || membership.status !== 'active') return null;
-  return { user: auth.user, role: membership.role as 'owner' | 'admin' | 'member', service };
+  return { user: auth.user, role: membership.role as 'owner' | 'admin' | 'member', service,
+    scoped: createAnonClient(jwt) };
 }

@@ -10,6 +10,7 @@ export type CustomRule = {
   enabled: boolean;
   trigger_kind: 'due_soon' | 'overdue' | 'created' | 'inactive' | 'resource_condition';
   action_kind: 'notify_assignee' | 'raise_priority' | 'create_followup';
+  additional_action_kinds: Array<'notify_assignee' | 'raise_priority' | 'create_followup'>;
   lead_days: number;
   task_type: string | null;
   work_kind: string | null;
@@ -29,6 +30,7 @@ const defaults: Form = {
   name: '',
   trigger_kind: 'due_soon',
   action_kind: 'notify_assignee',
+  additional_action_kinds: [],
   lead_days: 2,
   task_type: null,
   work_kind: null,
@@ -128,6 +130,7 @@ export default function TaskRuleBuilder({
           name: existing.name,
           trigger_kind: existing.trigger_kind,
           action_kind: existing.action_kind,
+          additional_action_kinds: existing.additional_action_kinds || [],
           lead_days: existing.lead_days,
           task_type: existing.task_type,
           work_kind: existing.work_kind,
@@ -161,13 +164,17 @@ export default function TaskRuleBuilder({
       return;
     setSaving(true);
     setError('');
+    const selectedActions = [form.action_kind, ...form.additional_action_kinds];
+    const primaryAction = selectedActions.length > 1 && form.action_kind === 'raise_priority'
+      ? selectedActions.find(value => value !== 'raise_priority')! : form.action_kind;
     const payload = {
       ...form,
       name: form.name.trim(),
       updated_at: new Date().toISOString(),
       trigger_kind: isResource ? 'resource_condition' : form.trigger_kind,
-      action_kind:
-        isResource && form.action_kind === 'raise_priority' ? 'create_followup' : form.action_kind,
+      action_kind: isResource && primaryAction === 'raise_priority' ? 'create_followup' : primaryAction,
+      additional_action_kinds: selectedActions.filter(value =>
+        value !== primaryAction && (!isResource || value !== 'raise_priority')),
       entity_status_filter: isResource ? form.entity_status_filter : null,
       task_type: isResource ? null : form.task_type,
       work_kind: isResource ? null : form.work_kind,
@@ -187,7 +194,9 @@ export default function TaskRuleBuilder({
           .insert({ ...payload, workspace_id: workspaceId, created_by: userId });
     setSaving(false);
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error.code === '23505'
+        ? 'Ya existe una automatización con ese nombre en este espacio.'
+        : result.error.message);
       return;
     }
     onSaved();
@@ -257,6 +266,7 @@ export default function TaskRuleBuilder({
                       condition_kind: 'inactive',
                       entity_status_filter: null,
                       action_kind: target_kind === 'task' ? 'notify_assignee' : 'create_followup',
+                      additional_action_kinds: [],
                       generated_task_type:
                         target_kind === 'task'
                           ? 'revisar_documento'
@@ -469,14 +479,22 @@ export default function TaskRuleBuilder({
           {step === 2 && (
             <>
               <h3 className="font-semibold">¿Qué debe hacer el sistema?</h3>
+              <p className="text-sm text-slate-500">Puedes elegir varias acciones. Cada una se ejecuta una vez por coincidencia; los avisos tienen control de duplicados.</p>
               <div className="grid gap-3 sm:grid-cols-3">
                 {Object.entries(actionLabels)
                   .filter(([value]) => !isResource || value !== 'raise_priority')
                   .map(([value, label]) => (
                     <button
                       key={value}
-                      onClick={() => update({ action_kind: value as Form['action_kind'] })}
-                      className={`rounded-lg border p-4 text-left ${form.action_kind === value ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
+                      onClick={() => {
+                        const selected = [form.action_kind, ...form.additional_action_kinds];
+                        const next = selected.includes(value as Form['action_kind'])
+                          ? selected.filter(item => item !== value) : [...selected, value as Form['action_kind']];
+                        if (!next.length) return;
+                        update({ action_kind: next[0], additional_action_kinds: next.slice(1) });
+                      }}
+                      aria-pressed={form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind'])}
+                      className={`rounded-lg border p-4 text-left ${form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind']) ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
                     >
                       {value === 'notify_assignee' ? (
                         <Bell size={19} />
@@ -491,7 +509,7 @@ export default function TaskRuleBuilder({
               </div>
               {isResource && selectedResource && (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {form.action_kind === 'create_followup' && (
+                  {(form.action_kind === 'create_followup' || form.additional_action_kinds.includes('create_followup')) && (
                     <label className="text-sm">
                       Tipo de acción que se creará
                       <select
@@ -532,7 +550,7 @@ export default function TaskRuleBuilder({
                   ? conditionLabels[form.condition_kind]
                   : triggerLabels[form.trigger_kind]}
                 {' → '}
-                {actionLabels[form.action_kind]}. Las ejecuciones se concilian cada 30 minutos; los
+                {[form.action_kind, ...form.additional_action_kinds].map(value => actionLabels[value]).join(' + ')}. Las ejecuciones se concilian cada 30 minutos; los
                 seguimientos se cierran con historial cuando deja de cumplirse la condición.
               </p>
             </>

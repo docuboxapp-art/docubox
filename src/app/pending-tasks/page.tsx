@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import NewTaskWizard from './components/NewTaskWizard';
 import { fetchAllPages } from '@/lib/tasks/pagination';
+import { completionMode } from '@/lib/tasks/completion-policy';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -367,6 +368,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const [reassignOpen, setReassignOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [completionReason, setCompletionReason] = useState('');
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [newAssignee, setNewAssignee] = useState(task.assignedTo || '');
   const [sourceInfo, setSourceInfo] = useState<{ name: string; status: string } | null>(null);
@@ -379,6 +382,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const doneCount = checklist.filter(c => c.done).length;
   const canManageTask = Boolean(canReassign || (userId && task.createdBy === userId));
   const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
+  const completionNeedsAttestation = task.origin === 'manual' && completionMode(task.type, task.sourceType) === 'attested';
 
   useEffect(() => {
     const ruleId = task.automationKey?.startsWith('custom:') ? task.automationKey.slice(7) : null;
@@ -401,7 +405,13 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
           if (form) setSourceInfo({ name: form.name, status: token.used_at ? 'Respondida' : token.expires_at && new Date(token.expires_at) < new Date() ? 'Vencida' : 'Invitación pendiente' });
         });
     }
-    const sourceTable = task.sourceType === 'document' || task.sourceType === 'participant_requirement' ? 'documentos'
+    if (task.sourceType === 'participant_requirement' && task.sourceId) {
+      supabase.from('participant_document_requirements').select('name,status').eq('id', task.sourceId)
+        .maybeSingle().then(({ data }) => {
+          if (data) setSourceInfo({ name: data.name, status: data.status });
+        });
+    }
+    const sourceTable = task.sourceType === 'document' ? 'documentos'
       : task.sourceType === 'case_file' ? 'case_files'
       : task.sourceType === 'form_template' || task.sourceType === 'form_token' ? 'form_templates'
       : task.sourceType === 'template' ? 'plantillas'
@@ -433,7 +443,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     if (!jwt) { setActionError('Tu sesión expiró.'); setActionBusy(false); return; }
     const response = await fetch(`/api/tareas/${task.id}/action`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({ workspaceId, action, reason: action === 'cancel' ? cancelReason : undefined,
+      body: JSON.stringify({ workspaceId, action, reason: action === 'cancel' ? cancelReason : action === 'complete' ? completionReason || undefined : undefined,
         assigneeId: action === 'reassign' ? newAssignee : undefined }),
     });
     const result = await response.json();
@@ -449,7 +459,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       router.push(result.href);
       return;
     }
-    setReassignOpen(false); setCancelOpen(false); setCancelReason('');
+    setReassignOpen(false); setCancelOpen(false); setCancelReason(''); setCompleteOpen(false); setCompletionReason('');
     onTaskUpdated(task.id);
     const { data: latestHistory } = await supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false });
     if (latestHistory) setHistory(latestHistory.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
@@ -760,12 +770,26 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                       </button>
                       {!['completada','cancelada','rechazada'].includes(task.status) && <>
                         {task.type !== 'retomar_borrador' && ['pendiente','programada','nueva'].includes(task.status) && <button onClick={() => runAction('start')} disabled={actionBusy} className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Marcar en proceso</button>}
-                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => runAction('complete')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
+                        {(task.origin === 'manual' || canCompleteSystem) && <button onClick={() => setCompleteOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"><CheckCircle2 size={16} />Completar</button>}
                         {canReassign && task.sourceType !== 'user' && <button onClick={() => setReassignOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Users size={16} />Reasignar</button>}
                         <button onClick={() => runAction('remind')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Bell size={16} />Recordatorio</button>
                         {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"><XCircle size={16} />Cancelar</button>}
                       </>}
                     </div>
+                    {completeOpen && <div className="mt-4 max-w-2xl rounded-lg border border-green-200 bg-green-50/60 p-4">
+                      <p className="text-sm font-semibold text-slate-900">Confirmar el resultado</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">{completionNeedsAttestation
+                        ? 'Describe qué hiciste y cuál fue el resultado. Esta constancia quedará guardada en el historial de la tarea.'
+                        : 'Comprobaremos el resultado en el recurso vinculado antes de cerrar. Puedes agregar una nota para el historial.'}</p>
+                      {checklist.length > doneCount && <p className="mt-2 text-sm text-amber-700">Primero completa los {checklist.length - doneCount} elementos pendientes del checklist.</p>}
+                      <label className="mt-3 block text-sm font-medium text-slate-700">Nota de cierre{completionNeedsAttestation ? ' *' : ''}
+                        <textarea value={completionReason} onChange={event => setCompletionReason(event.target.value)} maxLength={1000} rows={3}
+                          placeholder={completionNeedsAttestation ? 'Ej. Revisé el documento y confirmé los datos solicitados…' : 'Información adicional sobre el resultado'}
+                          className="mt-1 w-full rounded-md border border-slate-200 bg-white p-3 text-sm font-normal" />
+                      </label>
+                      <button onClick={() => runAction('complete')} disabled={actionBusy || checklist.length > doneCount || (completionNeedsAttestation && completionReason.trim().length < 15)}
+                        className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-green-700 px-4 text-sm font-semibold text-white disabled:opacity-50"><CheckCircle2 size={16} />Confirmar cierre</button>
+                    </div>}
                     {reassignOpen && <div className="mt-3 flex max-w-lg gap-2"><select aria-label="Nuevo responsable" value={newAssignee} onChange={event => setNewAssignee(event.target.value)} className="h-10 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="">Selecciona un integrante</option>{members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button onClick={() => runAction('reassign')} disabled={!newAssignee || actionBusy} className="rounded-md bg-blue-600 px-4 text-sm text-white disabled:opacity-50">Guardar</button></div>}
                     {cancelOpen && <div className="mt-3 flex max-w-lg flex-col gap-2"><label className="text-sm text-slate-700">Motivo de cancelación<input value={cancelReason} onChange={event => setCancelReason(event.target.value)} minLength={5} maxLength={1000} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" placeholder="Explica por qué ya no se necesita" /></label><button onClick={() => runAction('cancel')} disabled={cancelReason.trim().length < 5 || actionBusy} className="self-start rounded-md bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50">Confirmar cancelación</button></div>}
                   </div> : <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Esta tarea está asignada a otra persona. Puedes consultar su avance aquí.</p>}

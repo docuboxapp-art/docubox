@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authorizeTaskRequest } from '@/lib/tasks/server';
 import { formInvitationPath, formResponsePath } from '@/lib/tasks/action-navigation';
+import { completionAttestationIsValid, completionMode } from '@/lib/tasks/completion-policy';
 
 export const runtime = 'nodejs';
 
@@ -153,41 +154,62 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
       if (pending.error) return Response.json({ error: 'No se pudieron verificar las dependencias.' }, { status: 500 });
       if (pending.data?.length) return Response.json({ error: 'Completa primero las tareas de las que depende esta acción.' }, { status: 409 });
     }
-    if (task.work_kind === 'accion' && task.origin === 'manual') {
-      let confirmed = true;
-      if (task.tipo === 'retomar_borrador' && task.document_id) {
-        const result = await service.from('documentos').select('estado').eq('id', task.document_id).maybeSingle();
-        confirmed = Boolean(result.data && result.data.estado !== 'borrador');
-      } else if (task.tipo === 'firmar_documento' && task.document_id) {
-        const [document, signature] = await Promise.all([
-          service.from('documentos').select('estado').eq('id', task.document_id).maybeSingle(),
-          service.from('signature_evidence').select('id').eq('document_id', task.document_id)
-            .eq('captured_by', task.assigned_to).eq('is_voided', false).not('signed_at', 'is', null).limit(1),
-        ]);
-        confirmed = document.data?.estado === 'completado' || Boolean(signature.data?.length);
-      } else if (task.tipo === 'responder_formulario' && task.source_type === 'form_token' && task.source_id) {
-        const result = await service.from('form_tokens').select('used_at').eq('id', task.source_id).maybeSingle();
-        confirmed = Boolean(result.data?.used_at);
-      } else if (task.tipo === 'validar_identidad' && task.source_type === 'user' && task.source_id) {
-        const result = await service.from('user_verification_status').select('biometric_verified')
-          .eq('user_id', task.source_id).maybeSingle();
-        confirmed = result.data?.biometric_verified === true;
-      } else if (task.tipo === 'cerrar_expediente' && task.source_type === 'case_file' && task.source_id) {
-        const result = await service.from('case_files').select('closed_at').eq('id', task.source_id).maybeSingle();
-        confirmed = Boolean(result.data?.closed_at);
-      } else if (task.tipo === 'subir_anexo' && task.source_type === 'participant_requirement' && task.source_id) {
-        const result = await service.from('participant_document_requirements').select('provided_at,status')
-          .eq('id', task.source_id).maybeSingle();
-        confirmed = Boolean(result.data?.provided_at || ['approved','accepted','completed','waived'].includes(result.data?.status || ''));
+    const checklist = await service.from('task_checklist_items').select('id,done')
+      .eq('tarea_id', taskId).eq('workspace_id', workspaceId);
+    if (checklist.error) return Response.json({ error: 'No se pudo comprobar el checklist.' }, { status: 500 });
+    if (checklist.data?.some(item => !item.done))
+      return Response.json({ error: 'Completa todos los elementos del checklist antes de cerrar esta tarea.' }, { status: 409 });
+    if (task.origin === 'manual') {
+      if (completionMode(task.tipo, task.source_type) === 'attested') {
+        if (!completionAttestationIsValid(reason))
+          return Response.json({ error: 'Describe el resultado realizado (mínimo 15 caracteres) para dejar constancia del cierre.' }, { status: 400 });
+      } else {
+        let confirmed = false;
+        if (task.tipo === 'retomar_borrador' && task.document_id) {
+          const result = await service.from('documentos').select('estado').eq('id', task.document_id).maybeSingle();
+          if (result.error) return Response.json({ error: 'No se pudo comprobar el documento.' }, { status: 500 });
+          confirmed = Boolean(result.data && result.data.estado !== 'borrador');
+        } else if (task.tipo === 'firmar_documento' && task.document_id) {
+          const signature = await service.from('signature_evidence').select('id').eq('document_id', task.document_id)
+            .eq('captured_by', task.assigned_to).eq('is_voided', false).not('signed_at', 'is', null)
+            .gte('signed_at', task.created_at).limit(1);
+          if (signature.error) return Response.json({ error: 'No se pudo comprobar la firma.' }, { status: 500 });
+          confirmed = Boolean(signature.data?.length);
+        } else if (task.tipo === 'responder_formulario' && task.source_type === 'form_token' && task.source_id) {
+          const result = await service.from('form_tokens').select('used_at').eq('id', task.source_id).maybeSingle();
+          if (result.error) return Response.json({ error: 'No se pudo comprobar la invitación.' }, { status: 500 });
+          confirmed = Boolean(result.data?.used_at);
+        } else if (task.tipo === 'validar_identidad' && task.source_type === 'user' && task.source_id) {
+          const result = await service.from('user_verification_status').select('biometric_verified')
+            .eq('user_id', task.source_id).maybeSingle();
+          if (result.error) return Response.json({ error: 'No se pudo comprobar la identidad.' }, { status: 500 });
+          confirmed = result.data?.biometric_verified === true;
+        } else if (task.tipo === 'cerrar_expediente' && task.source_type === 'case_file' && task.source_id) {
+          const result = await service.from('case_files').select('closed_at').eq('id', task.source_id).maybeSingle();
+          if (result.error) return Response.json({ error: 'No se pudo comprobar el expediente.' }, { status: 500 });
+          confirmed = Boolean(result.data?.closed_at);
+        } else if (task.tipo === 'subir_anexo' && task.source_type === 'participant_requirement' && task.source_id) {
+          const result = await service.from('participant_document_requirements').select('provided_at,status')
+            .eq('id', task.source_id).maybeSingle();
+          if (result.error) return Response.json({ error: 'No se pudo comprobar el anexo.' }, { status: 500 });
+          confirmed = Boolean(result.data?.provided_at || ['approved','accepted','completed','waived'].includes(result.data?.status || ''));
+        } else if (task.tipo === 'obtener_nom151' && task.document_id) {
+          const result = await service.from('nom151_constancias_doc').select('id')
+            .eq('documento_id', task.document_id).eq('status', 'issued').limit(1);
+          if (result.error) return Response.json({ error: 'No se pudo comprobar la constancia NOM-151.' }, { status: 500 });
+          confirmed = Boolean(result.data?.length);
+        }
+        if (!confirmed) return Response.json({ error: 'Completa primero la acción en el recurso vinculado; todavía no hay evidencia de que haya concluido.' }, { status: 409 });
       }
-      if (!confirmed) return Response.json({ error: 'Completa primero la acción en el recurso vinculado; todavía no hay evidencia de que haya concluido.' }, { status: 409 });
     }
   }
   const nextStatus = action === 'start' ? 'en_proceso' : action === 'complete' ? 'completada' : 'cancelada';
+  const completionNote = action === 'complete' && task.origin === 'manual'
+    ? reason || 'Resultado comprobado en el recurso vinculado.' : reason;
   const { error } = await service.from('tareas').update({
     estado: nextStatus, completed_at: action === 'complete' ? new Date().toISOString() : task.completed_at,
     cancelled_at: action === 'cancel' ? new Date().toISOString() : task.cancelled_at,
-    resolution_note: reason || task.resolution_note,
+    resolution_note: completionNote || task.resolution_note,
   }).eq('id', taskId);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   await audit(action === 'start' ? 'Trabajo iniciado' : action === 'complete' ? 'Actividad completada' : `Tarea cancelada: ${reason}`);
