@@ -677,13 +677,13 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-white px-5 py-6 sm:px-6 lg:px-10">
-          <div className="mx-auto max-w-[1240px] space-y-6">
+        <div className="flex-1 overflow-y-auto bg-white px-5 py-8 sm:px-8 lg:px-12">
+          <div className="mx-auto w-full max-w-[1080px] space-y-8 pb-12">
           {actionError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
           {/* ── Info / Edit ── */}
           {tab === 'info' && (
-            <div className="space-y-4">
+            <div className="space-y-8">
               {editMode ? (
                 <div className="space-y-4">
                   <div>
@@ -716,23 +716,24 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                 </div>
               ) : (
                 <>
-                  <div className="border-l-[3px] border-primary bg-blue-50/50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad'} · {task.origin === 'sistema' ? 'Generada por el sistema' : 'Creada manualmente'}</p>
-                    <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{canCompleteSystem ? 'Esta acción surgió al crearse el recurso. Puedes completarla después de atenderla.' : task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
-                  </div>
-                  <div className="grid gap-6 border-b border-slate-200 pb-6 lg:grid-cols-2 lg:gap-10">
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Descripción</h3>
-                      <p className="text-[15px] leading-relaxed text-slate-800">{task.description || 'Sin descripción.'}</p>
+                  <section aria-labelledby="task-detail-heading" className="space-y-8">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad'} · {task.origin === 'sistema' ? 'Generada por el sistema' : 'Creada manualmente'}</p>
+                      <p className="text-sm leading-6 text-slate-600">{canCompleteSystem ? 'Esta acción surgió al crearse el recurso. Puedes completarla después de atenderla.' : task.origin === 'sistema' ? 'Esta acción se cerrará automáticamente cuando se resuelva la condición del recurso vinculado.' : task.workKind === 'accion' ? 'Abre el recurso vinculado para realizar la acción y registra aquí el seguimiento.' : 'Puedes registrar avances y completar esta actividad desde aquí.'}</p>
                     </div>
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Qué sigue</h3>
-                      <p className="text-[15px] leading-relaxed text-slate-800">{taskGuidance(task)}</p>
+                    <div className="grid gap-x-12 gap-y-7 lg:grid-cols-2">
+                      <div className="min-w-0 space-y-2">
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Descripción</h3>
+                        <p className="break-words text-sm leading-6 text-slate-800">{task.description || 'Sin descripción.'}</p>
+                      </div>
+                      <div className="min-w-0 space-y-2">
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Qué sigue</h3>
+                        <p className="break-words text-sm leading-6 text-slate-800">{taskGuidance(task)}</p>
+                      </div>
                     </div>
-                  </div>
-                  <section aria-labelledby="task-detail-heading">
-                    <h3 id="task-detail-heading" className="mb-2 text-base font-semibold text-slate-900">Información de la tarea</h3>
-                    <dl className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="space-y-5">
+                    <h3 id="task-detail-heading" className="text-base font-semibold text-slate-900">Información de la tarea</h3>
+                    <dl className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
                       {[
                         { label: 'Tipo de tarea', value: typeInfo.label },
                         { label: 'Estado', value: statusInfo.label },
@@ -744,12 +745,13 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         { label: 'Recurso vinculado', value: sourceInfo?.name || task.documentName || task.expedienteName || '—' },
                         { label: 'Estado del recurso', value: sourceInfo?.status || 'Estado no disponible' },
                       ].filter(item => Boolean(item.value)).map(item => (
-                        <div key={item.label} className="min-w-0 border-b border-slate-200 py-3">
-                          <dt className="mb-1 text-xs font-medium text-slate-500">{item.label}</dt>
-                          <dd className="break-words text-sm font-medium leading-5 text-slate-900">{item.value}</dd>
+                        <div key={item.label} className="min-w-0 space-y-1">
+                          <dt className="text-xs font-medium text-slate-500">{item.label}</dt>
+                          <dd className="break-words text-sm font-medium leading-6 text-slate-900">{item.value}</dd>
                         </div>
                       ))}
                     </dl>
+                    </div>
                   </section>
                   {task.tags.length > 0 && (
                     <div>
@@ -761,8 +763,8 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                       </div>
                     </div>
                   )}
-                  {task.resolutionNote && <div className="rounded-md border border-green-200 bg-green-50 p-3"><p className="text-xs font-semibold text-green-800">Motivo de cierre</p><p className="mt-1 text-sm text-green-900">{task.resolutionNote}</p></div>}
-                  {canActTask ? <div className="border-t border-slate-200 pt-5">
+                  {task.resolutionNote && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motivo de cierre</p><p className="text-sm leading-6 text-slate-800">{task.resolutionNote}</p></div>}
+                  {canActTask ? <div className="space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Acciones</p>
                     <div className="flex flex-wrap gap-2">
                       <button onClick={() => runAction('open')} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
@@ -776,7 +778,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         {canManageTask && <button onClick={() => setCancelOpen(value => !value)} disabled={actionBusy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"><XCircle size={16} />Cancelar</button>}
                       </>}
                     </div>
-                    {completeOpen && <div className="mt-4 max-w-2xl rounded-lg border border-green-200 bg-green-50/60 p-4">
+                    {completeOpen && <div className="mt-6 max-w-2xl space-y-2">
                       <p className="text-sm font-semibold text-slate-900">Confirmar el resultado</p>
                       <p className="mt-1 text-sm leading-6 text-slate-600">{completionNeedsAttestation
                         ? 'Describe qué hiciste y cuál fue el resultado. Esta constancia quedará guardada en el historial de la tarea.'
