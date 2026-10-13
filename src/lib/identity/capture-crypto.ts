@@ -45,6 +45,12 @@ export function normalizeImageBase64(value: unknown) {
     .replace(/\s/g, '');
 }
 
+export function normalizeVideoBase64(value: unknown) {
+  return String(value || '')
+    .replace(/^data:video\/[-+\w.]+(?:;[-+\w.]+=[-+\w.]+)*;base64,/, '')
+    .replace(/\s/g, '');
+}
+
 export function validImageBase64(value: string) {
   return value.length >= 256 && value.length <= 16_000_000 && /^[A-Za-z0-9+/=]+$/.test(value);
 }

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { ChevronRight, ChevronLeft, Camera, CheckCircle2, AlertCircle, Loader2, Check, RefreshCw, Video, UserX, ShieldCheck, ShieldAlert, AlertTriangle, X } from 'lucide-react';
 import AppImage from '@/components/ui/AppImage';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
+import { createMobileCapturePayload, MAX_MOBILE_CAPTURE_PAYLOAD_CHARS } from '@/lib/identity/mobile-capture-payload';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 
 // ─── Camera Hook ──────────────────────────────────────────────────────────────
 
-function useCamera(facingMode: 'environment' | 'user' = 'environment') {
+function useCamera(facingMode: 'environment' | 'user' = 'environment', videoSize = { width: 1920, height: 1080 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -131,7 +132,7 @@ function useCamera(facingMode: 'environment' | 'user' = 'environment') {
     setIsReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { facingMode, width: { ideal: videoSize.width }, height: { ideal: videoSize.height } },
         audio: false,
       });
       streamRef.current = stream;
@@ -144,7 +145,7 @@ function useCamera(facingMode: 'environment' | 'user' = 'environment') {
       else if (err.name === 'NotFoundError') setError('No se detectó cámara en este dispositivo.');
       else setError('No se pudo acceder a la cámara.');
     }
-  }, [facingMode]);
+  }, [facingMode, videoSize.width, videoSize.height]);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -495,7 +496,7 @@ const VIDEO_STEPS = [
 ];
 
 function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, videoBase64: string) => void; onBack: () => void }) {
-  const { videoRef, stream: streamRef, error: camError, isReady, startCamera, stopCamera } = useCamera('user');
+  const { videoRef, stream: streamRef, error: camError, isReady, startCamera, stopCamera } = useCamera('user', { width: 640, height: 480 });
   const ovalRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -573,7 +574,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
       ? 'video/mp4' : '';
 
     try {
-      const recorder = new MediaRecorder(s, mimeType ? { mimeType } : undefined);
+      const recorder = new MediaRecorder(s, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 500_000 });
       mediaRecorderRef.current = recorder;
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data); };
       recorder.onstop = () => {
@@ -1402,24 +1403,32 @@ export default function CapturaIdMovilPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      // The approved ID is already stored server-side. Sending it twice with the
+      // selfie and video can exceed the mobile browser and Vercel request limits.
+      const payload = createMobileCapturePayload({
+        token,
+        anverso: captureData.anverso,
+        reverso: captureData.reverso,
+        selfiePhoto: captureData.selfiePhoto,
+        selfieVideo: captureData.selfieVideo,
+        curp: captureData.curp,
+        nombre: captureData.nombre,
+        apellidoPaterno: captureData.apellidoPaterno,
+        apellidoMaterno: captureData.apellidoMaterno,
+        profileCurp: userProfile?.curp || null,
+        usingStoredId,
+      });
+      if (payload.length > MAX_MOBILE_CAPTURE_PAYLOAD_CHARS) {
+        setSubmitError('La captura es demasiado grande para enviarse. Regresa y vuelve a grabar el video.');
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch('/api/mobile-upload/submit-id-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          anversoData: captureData.anverso,
-          reversoData: captureData.reverso,
-          selfieData: captureData.selfiePhoto,
-          selfieVideo: captureData.selfieVideo || null,
-          curpExtracted: captureData.curp || null,
-          nombreExtracted: captureData.nombre
-            ? `${captureData.nombre} ${captureData.apellidoPaterno} ${captureData.apellidoMaterno}`.trim()
-            : null,
-          curpProfileFallback: userProfile?.curp || null,
-          usingStoredId: usingStoredId || false,
-        }),
+        body: payload,
       });
-      let data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.status === 422 && data.identity_mismatch) {
         setNubariumSimilitud(typeof data.nubarium_similitud === 'number' ? data.nubarium_similitud : null);
@@ -1430,7 +1439,9 @@ export default function CapturaIdMovilPage() {
       }
 
       if (!res.ok) {
-        setSubmitError(data.error || 'Error al enviar los datos.');
+        setSubmitError(res.status === 413
+          ? 'La captura es demasiado grande para enviarse. Regresa y vuelve a grabar el video.'
+          : data.error || 'No se pudieron guardar las capturas. Intenta nuevamente.');
         setSubmitting(false);
         return;
       }
@@ -1444,8 +1455,8 @@ export default function CapturaIdMovilPage() {
         mismatchReason: data.curp_mismatch_reason || null,
       });
       setScreen('success');
-    } catch (err: any) {
-      setSubmitError(err.message || 'Error inesperado.');
+    } catch {
+      setSubmitError('No se pudieron enviar las capturas desde este navegador. Comprueba tu conexión y vuelve a intentarlo.');
       setSubmitting(false);
     }
   };

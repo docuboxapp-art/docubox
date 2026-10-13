@@ -25,6 +25,7 @@ await build({
 });
 const {
   encryptCapture,
+  normalizeVideoBase64,
   readStoredIdentityImage,
 } = require('../node_modules/.cache/stored-identity-image-test.cjs');
 await build({
@@ -61,6 +62,12 @@ test('reads a current encrypted ID image', () => {
 test('rejects malformed images and encrypted rows with the wrong key', () => {
   assert.equal(readStoredIdentityImage('data:image/jpeg;base64,invalid!', key), null);
   assert.equal(readStoredIdentityImage(encryptCapture(image, key), Buffer.alloc(32, 8)), null);
+});
+
+test('normalizes recorded mobile video before encryption and provider verification', () => {
+  const video = Buffer.alloc(300, 17).toString('base64');
+  assert.equal(normalizeVideoBase64(`data:video/mp4;base64,${video}`), video);
+  assert.equal(normalizeVideoBase64(`data:video/webm;codecs=vp9;base64,${video}`), video);
 });
 
 test('a registered user with a legacy approved ID takes the selfie-only branch', async () => {

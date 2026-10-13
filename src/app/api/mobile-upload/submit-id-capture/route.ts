@@ -5,6 +5,7 @@ import {
   captureEncryptionKey,
   encryptCapture,
   normalizeImageBase64,
+  normalizeVideoBase64,
   validImageBase64,
 } from '@/lib/identity/capture-crypto';
 import { findStoredIdentity } from '@/lib/identity/stored-identity';
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const selfie = normalizeImageBase64(body.selfieData);
     let front = normalizeImageBase64(body.anversoData);
     let back = normalizeImageBase64(body.reversoData);
-    const video = normalizeImageBase64(body.selfieVideo);
+    const video = normalizeVideoBase64(body.selfieVideo);
     if (!/^[a-f0-9]{64}$/i.test(token) || !validImageBase64(selfie)) {
       return NextResponse.json({ error: 'La sesion o la selfie no son validas.' }, { status: 400 });
     }
