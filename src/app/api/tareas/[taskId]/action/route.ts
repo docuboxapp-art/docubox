@@ -38,9 +38,10 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
       if (!token || token.used_at || (token.expires_at && new Date(token.expires_at) < new Date()))
         return Response.json({ error: 'La invitación ya no está vigente.' }, { status: 409 });
       const href = formInvitationPath(token.template_id, token.recipient_email, user.email);
-      if (!href)
-        return Response.json({ error: 'La invitación corresponde a otro destinatario.' }, { status: 403 });
-      return Response.json({ href });
+      if (href) return Response.json({ href });
+      if (canManage)
+        return Response.json({ href: `/formularios/lanzar?id=${encodeURIComponent(token.template_id)}` });
+      return Response.json({ error: 'La invitación corresponde a otro destinatario.' }, { status: 403 });
     }
     if (task.document_id && z.string().uuid().safeParse(task.document_id).success) {
       const href = task.tipo === 'retomar_borrador'
