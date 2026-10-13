@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { NextRequest, NextResponse } from 'next/server.js';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
@@ -24,6 +25,7 @@ const authContext = await read('../src/contexts/AuthContext.tsx');
 const middleware = await read('../src/middleware.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
 const totpCheckRoute = await read('../src/app/api/auth/totp/check/route.ts');
+const topNav = await read('../src/components/TopNav.tsx');
 
 test('server session policy distinguishes ordinary and privileged limits', () => {
   assert.match(migration, /CASE WHEN v_is_privileged THEN 600 ELSE 900 END/);
@@ -113,6 +115,24 @@ test('middleware validates authenticated browser and API traffic server-side', (
   assert.match(middleware, /'\/api\/auth\/totp\/check'/);
 });
 
+test('refreshed session cookies are forwarded to the page render and browser', () => {
+  const request = new NextRequest('https://example.test/mis-tareas', {
+    headers: { cookie: 'sb-test-auth-token=old' },
+  });
+  request.cookies.set('sb-test-auth-token', 'new');
+  const response = NextResponse.next({ request });
+  response.cookies.set('sb-test-auth-token', 'new', { path: '/' });
+
+  assert.match(middleware, /response = NextResponse\.next\(\{ request \}\)/);
+  assert.match(response.headers.get('x-middleware-request-cookie') || '', /sb-test-auth-token=new/);
+  assert.match(response.headers.get('set-cookie') || '', /sb-test-auth-token=new/);
+});
+
+test('primary navigation does not prefetch every protected route on page load', () => {
+  assert.match(topNav, /navTabs\.map\([\s\S]*?href=\{tab\.href\}\s+prefetch=\{false\}/);
+  assert.match(topNav, /sidebarNavSections[\s\S]*?href=\{item\.href\}\s+prefetch=\{false\}/);
+});
+
 test('timeout modal actions close only explicitly invalid browser sessions', () => {
   assert.match(timeoutHook, /SIGN_OUT_FALLBACK_MS/);
   assert.match(timeoutHook, /await Promise\.race/);
@@ -127,14 +147,15 @@ test('timeout modal actions close only explicitly invalid browser sessions', () 
 
 test('temporary policy or permission errors do not erase an otherwise valid session', () => {
   assert.doesNotMatch(middleware, /permission denied for function enforce_docubox_session_policy/);
-  assert.match(middleware, /Tu sesión continúa activa\. La conexión tardó más de lo esperado\./);
+  assert.match(middleware, /No cerramos tu sesión\. La conexión tardó más de lo esperado\./);
   assert.match(middleware, /status: 503/);
-  assert.match(middleware, /Retry-After': '5'/);
+  assert.match(middleware, /'Retry-After': String\(retryAfterSeconds\)/);
   assert.match(middleware, /<a href="">Reintentar<\/a>/);
   assert.match(middleware, /SESSION_RETRY_COOKIE_NAME/);
-  assert.match(middleware, /autoRetry = !request\.cookies\.has\(SESSION_RETRY_COOKIE_NAME\)/);
-  assert.match(middleware, /setTimeout\(function \(\) \{ window\.location\.reload\(\); \}, 5000\)/);
-  assert.match(middleware, /maxAge: 30/);
+  assert.match(middleware, /retryCount < 2/);
+  assert.match(middleware, /retryAfterSeconds === 0 \? 5 : 15|retryCount === 0 \? 5 : 15/);
+  assert.match(middleware, /setTimeout\(function \(\) \{ window\.location\.reload\(\); \}, \$\{retryAfterSeconds \* 1000\}\)/);
+  assert.match(middleware, /maxAge: 60/);
 });
 
 test('a transient PostgREST schema-cache miss receives bounded retries', () => {

@@ -939,7 +939,7 @@ export default function TopNav() {
             </button>
 
             {/* Logo */}
-            <Link href="/inicio" className="flex items-center gap-2 flex-shrink-0">
+            <Link href="/inicio" prefetch={false} className="flex items-center gap-2 flex-shrink-0">
               <AppLogo size={32} className="[&_img]:h-auto [&_img]:w-[126px]" />
             </Link>
 
@@ -1497,6 +1497,7 @@ export default function TopNav() {
                   <div className="border-t border-border">
                     <Link
                       href="/notificaciones"
+                      prefetch={false}
                       onClick={() => setBellOpen(false)}
                       className="flex w-full items-center justify-center py-3 text-sm font-600 text-primary transition-all duration-150 hover:bg-primary/5 hover:text-primary/80"
                     >
@@ -1543,6 +1544,7 @@ export default function TopNav() {
                       <Link
                         key={item.label}
                         href={item.href}
+                        prefetch={false}
                         onClick={() => setAvatarOpen(false)}
                         className={`group flex items-center gap-3 px-4 py-2.5 text-sm transition-all duration-150 ${
                           item.href === '/notificaciones' &&
@@ -1594,6 +1596,7 @@ export default function TopNav() {
                 <Link
                   key={tab.label}
                   href={tab.href}
+                  prefetch={false}
                   className={`relative flex h-10 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm font-500 transition-all duration-150 ${
                     isActive
                       ? 'font-600 text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:bg-primary'
@@ -1626,6 +1629,7 @@ export default function TopNav() {
                   <Link
                     key={item.label}
                     href={item.href}
+                    prefetch={false}
                     aria-current={isActive ? 'page' : undefined}
                     className={`group relative flex min-h-10 items-center gap-3 rounded-md border px-3 py-2 text-sm transition-all duration-150 ${
                       isActive
@@ -1650,6 +1654,7 @@ export default function TopNav() {
         <div className="space-y-1 border-t border-slate-200/90 bg-slate-50/40 px-3 py-3">
           <Link
             href="/notificaciones"
+            prefetch={false}
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
             <Bell
@@ -1661,6 +1666,7 @@ export default function TopNav() {
           </Link>
           <Link
             href="/inicio"
+            prefetch={false}
             className="group flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm font-500 text-slate-600 transition-all duration-150 hover:border-slate-200/80 hover:bg-white hover:text-slate-950"
           >
             <HelpCircle

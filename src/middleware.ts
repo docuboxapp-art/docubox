@@ -467,7 +467,9 @@ function unavailableSessionPolicyResponse(
     );
   }
 
-  const autoRetry = !request.cookies.has(SESSION_RETRY_COOKIE_NAME);
+  const retryCount = Number(request.cookies.get(SESSION_RETRY_COOKIE_NAME)?.value || 0);
+  const autoRetry = Number.isFinite(retryCount) && retryCount < 2;
+  const retryAfterSeconds = retryCount === 0 ? 5 : 15;
 
   const unavailableResponse = new NextResponse(
     `<!doctype html>
@@ -491,11 +493,11 @@ function unavailableSessionPolicyResponse(
     <main>
       <section>
         <h1>No fue posible verificar la sesión</h1>
-        <p>Tu sesión continúa activa. La conexión tardó más de lo esperado. ${autoRetry ? 'Intentaremos de nuevo en 5 segundos.' : 'Intenta nuevamente.'}</p>
+        <p>No cerramos tu sesión. La conexión tardó más de lo esperado. ${autoRetry ? `Intentaremos de nuevo en ${retryAfterSeconds} segundos.` : 'Intenta nuevamente.'}</p>
         <a href="">Reintentar</a>
       </section>
     </main>
-    ${autoRetry ? '<script>setTimeout(function () { window.location.reload(); }, 5000);</script>' : ''}
+    ${autoRetry ? `<script>setTimeout(function () { window.location.reload(); }, ${retryAfterSeconds * 1000});</script>` : ''}
   </body>
 </html>`,
     {
@@ -503,7 +505,7 @@ function unavailableSessionPolicyResponse(
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'private, no-store',
-        'Retry-After': '5',
+        'Retry-After': String(retryAfterSeconds),
       },
     }
   );
@@ -511,9 +513,9 @@ function unavailableSessionPolicyResponse(
     unavailableResponse.cookies.set(cookie);
   }
   if (autoRetry) {
-    unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, '1', {
+    unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, String(retryCount + 1), {
       path: '/',
-      maxAge: 30,
+      maxAge: 60,
       sameSite: 'lax',
       httpOnly: true,
     });
@@ -577,7 +579,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     return withMiddlewareTiming(NextResponse.next(), startedAt);
   }
 
-  const response = NextResponse.next();
+  let response = NextResponse.next({ request });
   if (!hasSessionMaterial(request)) {
     const result =
       isApiRequest || isPublicPage
@@ -609,6 +611,12 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             request.cookies.set(name, value);
+          });
+          // Forward the refreshed cookies to the current server render as well
+          // as the browser. Reusing the response made before the refresh leaves
+          // Server Components with the stale request cookies.
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
           });
         },
