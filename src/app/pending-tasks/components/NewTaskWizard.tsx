@@ -20,6 +20,7 @@ const resourceStatusLabels: Record<string, string> = {
   draft: 'Borrador', published: 'Publicado', active: 'Activo',
   completed: 'Completado', pending: 'Pendiente', rejected: 'Rechazado',
   signed: 'Firmado', submitted: 'Enviado', pending_signature: 'Pendiente de firma',
+  signing: 'En firma', ready_to_close: 'Listo para cerrar', closed: 'Cerrado',
 };
 
 function resourceStatusLabel(status?: string) {
@@ -123,7 +124,7 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
         fetchAllPages((from,to) => supabase.from('form_templates').select('id,name,status').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }).order('id').range(from,to)),
         fetchAllPages((from,to) => supabase.from('plantillas').select('id,nombre,estado').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }).order('id').range(from,to)),
         fetchAllPages((from,to) => supabase.from('case_files').select('id,title,status').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }).order('id').range(from,to)),
-        fetchAllPages((from,to) => supabase.from('form_responses').select('id,folio,status,respondent_name').eq('workspace_id', workspaceId).order('submitted_at', { ascending: false }).order('id').range(from,to)),
+        fetchAllPages((from,to) => supabase.from('form_responses').select('id,folio,status,respondent_name,template_id,submitted_at').eq('workspace_id', workspaceId).order('submitted_at', { ascending: false }).order('id').range(from,to)),
         fetchAllPages((from,to) => supabase.from('tareas').select('id,title,estado').eq('workspace_id', workspaceId).not('estado', 'in', '(completada,cancelada,rechazada)').order('created_at', { ascending: false }).order('id').range(from,to)),
         fetchAllPages((from,to) => supabase.from('workspace_members').select('user_id,user_profiles!workspace_members_user_id_fkey(full_name,email)').eq('workspace_id', workspaceId).eq('status', 'active').order('user_id').range(from,to)),
         fetchAllPages((from,to) => supabase.from('participant_document_requirements').select('id,name,status,document_id').eq('workspace_id', workspaceId).in('status', ['pending', 'rejected']).order('created_at', { ascending: false }).order('id').range(from,to)),
@@ -143,7 +144,9 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
         form_template: forms.map(row => ({ id: row.id, name: row.name, status: row.status })),
         template: templates.map(row => ({ id: row.id, name: row.nombre, status: row.estado })),
         case_file: cases.map(row => ({ id: row.id, name: row.title, status: row.status })),
-        form_response: responses.map(row => ({ id: row.id, name: row.folio || row.respondent_name || 'Respuesta', status: row.status })),
+        form_response: responses.map(row => ({ id: row.id,
+          name: `${forms.find(form => form.id === row.template_id)?.name || 'Formulario'} · ${row.folio || row.respondent_name || (row.submitted_at ? new Date(row.submitted_at).toLocaleDateString('es-MX') : row.id.slice(0, 8).toUpperCase())}`,
+          status: row.status })),
         user: memberRows.filter(row => canAssign || row.user_id === userId).map(row => ({ id: row.user_id, name: memberDisplayName(row.user_profiles), status: 'Miembro activo' })),
         task: relatedTasks.map(row => ({ id: row.id, name: row.title, status: row.estado })),
         participant_requirement: requirements.map(row => ({ id: row.id, name: `${row.name} · ${[...docs, ...personalDocs].find(doc => doc.id === row.document_id)?.nombre || 'Documento'}`, status: row.status })),
@@ -156,6 +159,10 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
   }, [workspaceId, userId, canAssign, isPersonal, supabase]);
 
   const selectedSource = sources.find(item => item.key === sourceKind)!;
+  const selectionLabel = sourceKind === 'form_response' ? 'la respuesta de formulario'
+    : sourceKind === 'task' ? 'la tarea vinculada'
+      : sourceKind === 'participant_requirement' ? 'el anexo requerido'
+        : `el ${selectedSource.label.toLocaleLowerCase('es')}`;
   const selectedType = selectedSource.types.find(item => item.key === type)!;
   const selectedResource = options[sourceKind].find(item => item.id === sourceId);
   const kind = completionMode(type, sourceKind) === 'verified' ? 'accion' : 'actividad';
@@ -242,7 +249,7 @@ export default function NewTaskWizard({ workspaceId, userId, canAssign, isPerson
           <div className="border-l-2 border-primary bg-[#f4f8fc] px-4 py-3 text-sm" aria-live="polite"><p className="font-medium text-primary">{kind === 'accion' ? 'Acción del proceso · cierre comprobado' : 'Actividad · cierre con resultado'}</p><p className="mt-1 text-slate-600">{typeGuidance[type] || 'Realiza el trabajo y registra el resultado al completar la actividad.'}</p></div>
         </>}
         {step === 1 && <>
-          <div><h2 className="text-lg font-semibold">Selecciona el {selectedSource.label.toLocaleLowerCase('es')}</h2><p className="mt-1 text-sm text-slate-500">{selectedType.label}. Se muestran recursos disponibles de este espacio.</p></div>
+          <div><h2 className="text-lg font-semibold">Selecciona {selectionLabel}</h2><p className="mt-1 text-sm text-slate-500">{selectedType.label}. Se muestran recursos disponibles de este espacio.</p></div>
           <input value={query} onChange={event => setQuery(event.target.value)} aria-label={`Buscar ${selectedSource.label.toLocaleLowerCase('es')}`} placeholder={`Buscar ${selectedSource.label.toLocaleLowerCase('es')}...`} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" />
           {loading ? <p role="status" className="text-sm text-slate-500">Cargando recursos...</p> : loadError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">No se pudieron cargar los recursos: {loadError}</p> : filteredOptions.length === 0 ? <p className="rounded-lg border border-dashed border-slate-200 p-6 text-sm text-slate-500">{query ? 'No hay coincidencias. Prueba otra búsqueda.' : 'No hay recursos disponibles para este trabajo.'}</p> : <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">{filteredOptions.map(option => <button type="button" key={option.id} onClick={() => { setSourceId(option.id); if (sourceKind === 'user') setAssignee(option.id); setError(''); }} aria-pressed={sourceId === option.id} className={`flex min-h-14 w-full items-center gap-3 rounded-lg border p-3 text-left ${sourceId === option.id ? 'border-primary bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}><span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{option.name}</span><span className="shrink-0 text-xs text-slate-500">{resourceStatusLabel(option.status)}{sourceKind !== 'user' ? ` · ${option.id.slice(0, 8).toUpperCase()}` : ''}</span>{sourceId === option.id && <Check size={16} className="shrink-0 text-primary" />}</button>)}</div>}
         </>}

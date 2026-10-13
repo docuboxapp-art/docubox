@@ -138,7 +138,14 @@ export async function POST(request: Request) {
   const names = await service.from('user_profiles').select('id,full_name,email').in('id', [user.id, assignee]);
   const actor = names.data?.find(profile => profile.id === user.id);
   const responsible = names.data?.find(profile => profile.id === assignee);
-  const resourceName = String(source[resource.name] || (input.sourceKind === 'user' ? source.email : null) || 'recurso');
+  let resourceName = String(source[resource.name] || (input.sourceKind === 'user' ? source.email : null) || 'recurso');
+  if (input.sourceKind === 'form_response') {
+    const form = await service.from('form_templates').select('name').eq('id', source.template_id).maybeSingle();
+    const submitted = source.submitted_at ? new Date(source.submitted_at) : null;
+    const date = submitted && Number.isFinite(submitted.getTime()) ? submitted.toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '';
+    const reference = source.folio || [source.respondent_name, date, input.sourceId.slice(0, 8).toUpperCase()].filter(Boolean).join(' · ');
+    resourceName = `${form.data?.name || 'Formulario'} · ${reference}`;
+  }
   const relatedDocument = input.sourceKind === 'participant_requirement'
     ? (await service.from('documentos').select('nombre').eq('id', source.document_id).maybeSingle()).data : null;
   const defaultDueAt = Math.max(Date.now(), input.scheduledFor ? new Date(input.scheduledFor).getTime() : 0) + 3 * 86400000;

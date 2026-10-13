@@ -181,6 +181,21 @@ test('task creation uses an accessible resource and rejects cross-role assignmen
   assert.equal(rows.tareas[1].assigned_to, memberId);
 });
 
+test('a form response task identifies its form and specific response', async () => {
+  const rows = setup();
+  const formId = '77777777-7777-4777-8777-777777777777';
+  const responseId = '88888888-8888-4888-8888-888888888888';
+  rows.form_templates = [{ id: formId, workspace_id: workspaceId, name: 'Solicitud de prueba', status: 'published' }];
+  rows.form_responses = [{ id: responseId, workspace_id: workspaceId, template_id: formId,
+    respondent_name: 'Persona de prueba', submitted_at: '2026-10-13T10:00:00Z', status: 'signed' }];
+  const response = await createRoute.POST(new Request('http://localhost/api/tareas', {
+    method: 'POST', body: JSON.stringify({ workspaceId, sourceKind: 'form_response', sourceId: responseId,
+      workKind: 'actividad', type: 'revisar_documento' }),
+  }));
+  assert.equal(response.status, 200);
+  assert.match(rows.tareas.at(-1).title, /Solicitud de prueba · Persona de prueba/);
+});
+
 test('a planned task keeps its start separate from the deadline and cannot begin early', async () => {
   const rows = setup({ actor: memberId, role: 'member' });
   const scheduledFor = new Date(Date.now() + 2 * 86400000).toISOString();
