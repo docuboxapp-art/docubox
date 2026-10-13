@@ -8,6 +8,10 @@ const OPTIONS = [
   { minutes: 5, label: '5 min' },
   { minutes: 20, label: '20 min' },
   { minutes: 45, label: '45 min' },
+  { minutes: 60, label: '1 h' },
+  { minutes: 120, label: '2 h' },
+  { minutes: 240, label: '4 h' },
+  { minutes: 480, label: '8 h' },
 ] as const;
 
 type Props = {
@@ -74,8 +78,9 @@ export function SessionLockPreferences({
         <div>
           <h3 className="text-sm font-600 text-foreground">Bloqueo por inactividad</h3>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            Elige cuándo cerrar tu sesión sin actividad. El límite máximo es 45 minutos; para
-            superadministradores es 15 minutos.
+            Elige cuándo cerrar tu sesión sin actividad. La opción predeterminada es 45 minutos. El
+            límite de sesión de 8 horas (4 horas para personal administrativo) sigue vigente; los
+            superadministradores conservan un máximo de 15 minutos de inactividad.
           </p>
         </div>
       </div>

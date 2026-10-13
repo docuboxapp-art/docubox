@@ -1,4 +1,4 @@
--- A personal preference can shorten the 45-minute limit, never extend it.
+-- 45 minutes remains the default; an ordinary user may choose a shorter or longer interval.
 -- Superadministrators remain capped at 15 minutes regardless of preference.
 ALTER TABLE public.user_profiles
   ADD COLUMN IF NOT EXISTS session_lock_minutes INTEGER NOT NULL DEFAULT 45,
@@ -8,7 +8,7 @@ ALTER TABLE public.user_profiles
   DROP CONSTRAINT IF EXISTS user_profiles_session_lock_minutes_check;
 ALTER TABLE public.user_profiles
   ADD CONSTRAINT user_profiles_session_lock_minutes_check
-  CHECK (session_lock_minutes IN (5, 20, 45));
+  CHECK (session_lock_minutes IN (5, 20, 45, 60, 120, 240, 480));
 
 COMMENT ON COLUMN public.user_profiles.session_warning_dismissed IS
   'Oculta el aviso previo al cierre por inactividad; nunca desactiva el cierre.';
@@ -89,10 +89,10 @@ BEGIN
   FROM public.user_profiles profiles
   WHERE profiles.id = v_user_id;
 
-  v_inactivity_timeout_seconds := LEAST(
-    CASE WHEN v_is_super_admin THEN 900 ELSE 2700 END,
-    COALESCE(v_personal_lock_minutes, 45) * 60
-  );
+  v_inactivity_timeout_seconds := CASE
+    WHEN v_is_super_admin THEN LEAST(900, COALESCE(v_personal_lock_minutes, 45) * 60)
+    ELSE COALESCE(v_personal_lock_minutes, 45) * 60
+  END;
   v_absolute_expired_at := v_session_started_at
     + CASE WHEN v_is_privileged THEN INTERVAL '4 hours' ELSE INTERVAL '8 hours' END;
 
