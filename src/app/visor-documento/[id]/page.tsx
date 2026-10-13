@@ -6262,13 +6262,9 @@ export default function VisorDocumentoPage() {
                       Verificando el estado del PDF final. Puedes consultar el PDF original mientras termina la comprobación.
                     </div>
                   )}
-                  {formFinalPdfPending && (
-                    <div role="status" className={`w-full max-w-[800px] rounded-lg border px-4 py-3 text-xs leading-5 ${formFinalPdfProviderMissing ? 'border-red-200 bg-red-50 text-red-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
-                      {formFinalPdfProviderMissing ? (
-                        <><strong>Documento completado; el PDF certificado requiere atención.</strong> Falta configurar el proveedor de constancias NOM-151. Estás viendo el PDF original con la estampa elegida como vista previa.</>
-                      ) : (
-                        <><strong>Documento completado; PDF certificado pendiente.</strong> Estás viendo el PDF original con la estampa elegida como vista previa. El PDF descargable estará disponible cuando finalice la certificación.{formStampOmitsQr && ' El diseño elegido para esta firma no incluye QR.'}</>
-                      )}
+                  {formFinalPdfProviderMissing && (
+                    <div role="alert" className="w-full max-w-[800px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs leading-5 text-red-900">
+                      No se pudo generar el PDF certificado: falta configurar el proveedor de constancias NOM-151.
                     </div>
                   )}
                   <div className="relative flex-shrink-0 border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
