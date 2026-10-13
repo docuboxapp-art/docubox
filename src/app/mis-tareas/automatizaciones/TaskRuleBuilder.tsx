@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bell, Check, ListChecks, ShieldCheck, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { flowStagesError, type FlowStage } from '@/lib/tasks/flow-stages';
+import TaskFlowStagesEditor from './TaskFlowStagesEditor';
 
 export type CustomRule = {
   id: string;
@@ -11,6 +13,7 @@ export type CustomRule = {
   trigger_kind: 'due_soon' | 'overdue' | 'created' | 'inactive' | 'resource_condition';
   action_kind: 'notify_assignee' | 'raise_priority' | 'create_followup';
   additional_action_kinds: Array<'notify_assignee' | 'raise_priority' | 'create_followup'>;
+  workflow_stages: FlowStage[];
   lead_days: number;
   task_type: string | null;
   work_kind: string | null;
@@ -31,6 +34,7 @@ const defaults: Form = {
   trigger_kind: 'due_soon',
   action_kind: 'notify_assignee',
   additional_action_kinds: [],
+  workflow_stages: [],
   lead_days: 2,
   task_type: null,
   work_kind: null,
@@ -61,12 +65,7 @@ export const conditionLabels: Record<CustomRule['condition_kind'], string> = {
   status: 'Estado específico',
 };
 const resourceTypes: Record<Exclude<CustomRule['target_kind'], 'task'>, string[]> = {
-  document: [
-    'revisar_documento',
-    'aprobar_documento',
-    'firmar_documento',
-    'revisar_vencimiento',
-  ],
+  document: ['revisar_documento', 'aprobar_documento', 'firmar_documento', 'revisar_vencimiento'],
   form_template: ['seguimiento_formulario', 'revisar_documento', 'aprobar_documento'],
   template: ['revisar_documento', 'aprobar_documento'],
   case_file: ['revisar_expediente', 'cerrar_expediente'],
@@ -130,6 +129,7 @@ export default function TaskRuleBuilder({
           trigger_kind: existing.trigger_kind,
           action_kind: existing.action_kind,
           additional_action_kinds: existing.additional_action_kinds || [],
+          workflow_stages: existing.workflow_stages || [],
           lead_days: existing.lead_days,
           task_type: existing.task_type,
           work_kind: existing.work_kind,
@@ -161,19 +161,28 @@ export default function TaskRuleBuilder({
       (isResource && form.condition_kind === 'status' && !form.entity_status_filter)
     )
       return;
+    const flowError = flowStagesError(form.workflow_stages, form.target_kind);
+    if (flowError) {
+      setError(flowError);
+      return;
+    }
     setSaving(true);
     setError('');
     const selectedActions = [form.action_kind, ...form.additional_action_kinds];
-    const primaryAction = selectedActions.length > 1 && form.action_kind === 'raise_priority'
-      ? selectedActions.find(value => value !== 'raise_priority')! : form.action_kind;
+    const primaryAction =
+      selectedActions.length > 1 && form.action_kind === 'raise_priority'
+        ? selectedActions.find((value) => value !== 'raise_priority')!
+        : form.action_kind;
     const payload = {
       ...form,
       name: form.name.trim(),
       updated_at: new Date().toISOString(),
       trigger_kind: isResource ? 'resource_condition' : form.trigger_kind,
-      action_kind: isResource && primaryAction === 'raise_priority' ? 'create_followup' : primaryAction,
-      additional_action_kinds: selectedActions.filter(value =>
-        value !== primaryAction && (!isResource || value !== 'raise_priority')),
+      action_kind:
+        isResource && primaryAction === 'raise_priority' ? 'create_followup' : primaryAction,
+      additional_action_kinds: selectedActions.filter(
+        (value) => value !== primaryAction && (!isResource || value !== 'raise_priority')
+      ),
       entity_status_filter: isResource ? form.entity_status_filter : null,
       task_type: isResource ? null : form.task_type,
       work_kind: isResource ? null : form.work_kind,
@@ -193,9 +202,11 @@ export default function TaskRuleBuilder({
           .insert({ ...payload, workspace_id: workspaceId, created_by: userId });
     setSaving(false);
     if (result.error) {
-      setError(result.error.code === '23505'
-        ? 'Ya existe una automatización con ese nombre en este espacio.'
-        : result.error.message);
+      setError(
+        result.error.code === '23505'
+          ? 'Ya existe una automatización con ese nombre en este espacio.'
+          : result.error.message
+      );
       return;
     }
     onSaved();
@@ -213,7 +224,9 @@ export default function TaskRuleBuilder({
             <h2 className="text-lg font-semibold">
               {existing ? 'Editar' : 'Nueva'} automatización
             </h2>
-            <p className="text-sm text-slate-500">Condición → filtros → acción</p>
+            <p className="text-sm text-slate-500">
+              Condición → filtros → acción inicial → decisiones
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -225,7 +238,7 @@ export default function TaskRuleBuilder({
         </header>
         <div className="space-y-6 p-6">
           <div className="flex gap-2">
-            {['Condición', 'Filtros', 'Acción'].map((label, index) => (
+            {['Condición', 'Filtros', 'Acción inicial', 'Decisiones'].map((label, index) => (
               <span
                 key={label}
                 className={`rounded-full px-3 py-1 text-xs ${step === index ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
@@ -478,7 +491,10 @@ export default function TaskRuleBuilder({
           {step === 2 && (
             <>
               <h3 className="font-semibold">¿Qué debe hacer el sistema?</h3>
-              <p className="text-sm text-slate-500">Puedes elegir varias acciones. Cada una se ejecuta una vez por coincidencia; los avisos tienen control de duplicados.</p>
+              <p className="text-sm text-slate-500">
+                Puedes elegir varias acciones. Cada una se ejecuta una vez por coincidencia; los
+                avisos tienen control de duplicados.
+              </p>
               <div className="grid gap-3 sm:grid-cols-3">
                 {Object.entries(actionLabels)
                   .filter(([value]) => !isResource || value !== 'raise_priority')
@@ -488,11 +504,15 @@ export default function TaskRuleBuilder({
                       onClick={() => {
                         const selected = [form.action_kind, ...form.additional_action_kinds];
                         const next = selected.includes(value as Form['action_kind'])
-                          ? selected.filter(item => item !== value) : [...selected, value as Form['action_kind']];
+                          ? selected.filter((item) => item !== value)
+                          : [...selected, value as Form['action_kind']];
                         if (!next.length) return;
                         update({ action_kind: next[0], additional_action_kinds: next.slice(1) });
                       }}
-                      aria-pressed={form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind'])}
+                      aria-pressed={
+                        form.action_kind === value ||
+                        form.additional_action_kinds.includes(value as Form['action_kind'])
+                      }
                       className={`rounded-lg border p-4 text-left ${form.action_kind === value || form.additional_action_kinds.includes(value as Form['action_kind']) ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
                     >
                       {value === 'notify_assignee' ? (
@@ -508,7 +528,11 @@ export default function TaskRuleBuilder({
               </div>
               {isResource && selectedResource && (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {(form.action_kind === 'create_followup' || form.additional_action_kinds.includes('create_followup')) && (
+                  {(form.action_kind === 'create_followup' ||
+                    form.additional_action_kinds.includes('create_followup') ||
+                    form.workflow_stages.some((stage) =>
+                      [...stage.onTrue, ...stage.onFalse].includes('create_followup')
+                    )) && (
                     <label className="text-sm">
                       Tipo de acción que se creará
                       <select
@@ -549,10 +573,20 @@ export default function TaskRuleBuilder({
                   ? conditionLabels[form.condition_kind]
                   : triggerLabels[form.trigger_kind]}
                 {' → '}
-                {[form.action_kind, ...form.additional_action_kinds].map(value => actionLabels[value]).join(' + ')}. Las ejecuciones se concilian cada 30 minutos; los
-                seguimientos se cierran con historial cuando deja de cumplirse la condición.
+                {[form.action_kind, ...form.additional_action_kinds]
+                  .map((value) => actionLabels[value])
+                  .join(' + ')}
+                . Las ejecuciones se concilian cada 30 minutos; los seguimientos se cierran con
+                historial cuando deja de cumplirse la condición.
               </p>
             </>
+          )}
+          {step === 3 && (
+            <TaskFlowStagesEditor
+              stages={form.workflow_stages}
+              targetKind={form.target_kind}
+              onChange={(workflow_stages) => update({ workflow_stages })}
+            />
           )}
         </div>
         <footer className="flex justify-between border-t border-slate-200 px-6 py-4">
@@ -564,7 +598,7 @@ export default function TaskRuleBuilder({
             {step === 0 ? 'Cancelar' : 'Atrás'}
           </button>
           <button
-            onClick={() => (step === 2 ? void save() : setStep(step + 1))}
+            onClick={() => (step === 3 ? void save() : setStep(step + 1))}
             disabled={
               saving ||
               (step === 0 &&
@@ -572,11 +606,12 @@ export default function TaskRuleBuilder({
               (step === 1 &&
                 isResource &&
                 form.condition_kind === 'status' &&
-                !form.entity_status_filter)
+                !form.entity_status_filter) ||
+              (step === 3 && Boolean(flowStagesError(form.workflow_stages, form.target_kind)))
             }
             className="flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {step === 2 ? (
+            {step === 3 ? (
               <>
                 <Check size={15} />
                 {existing ? 'Guardar cambios' : 'Crear flujo'}
