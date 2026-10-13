@@ -8,7 +8,7 @@ export async function findStoredIdentity(
   supabase: ServiceClient,
   userId: string,
   key: Buffer
-): Promise<{ front: string; curp: string | null; nombre: string | null } | null> {
+): Promise<{ front: string; back: string | null; curp: string | null; nombre: string | null } | null> {
   // The newest approved capture is usually enough. Only fetch older images if
   // the newest row cannot be read, avoiding a large biometric payload on each QR.
   for (const [from, to] of [
@@ -17,7 +17,7 @@ export async function findStoredIdentity(
   ]) {
     const { data: captures, error: captureError } = await supabase
       .from('id_capture_logs')
-      .select('anverso_b64,curp_extracted,nombre_extracted')
+      .select('anverso_b64,reverso_b64,curp_extracted,nombre_extracted')
       .eq('user_id', userId)
       .eq('nubarium_aprobado', true)
       .not('anverso_b64', 'is', null)
@@ -30,6 +30,7 @@ export async function findStoredIdentity(
       if (front) {
         return {
           front,
+          back: readStoredIdentityImage(capture.reverso_b64, key),
           curp: capture.curp_extracted || null,
           nombre: capture.nombre_extracted || null,
         };
@@ -51,13 +52,13 @@ export async function findStoredIdentity(
     if (!result.enrollment_token_id) continue;
     const { data: token, error: tokenError } = await supabase
       .from('enrollment_tokens')
-      .select('anverso_encrypted')
+      .select('anverso_encrypted,reverso_encrypted')
       .eq('id', result.enrollment_token_id)
       .maybeSingle();
     if (tokenError) throw tokenError;
     if (!token?.anverso_encrypted) continue;
     const front = readStoredIdentityImage(token.anverso_encrypted, key);
-    if (front) return { front, curp: null, nombre: null };
+    if (front) return { front, back: readStoredIdentityImage(token.reverso_encrypted, key), curp: null, nombre: null };
   }
   return null;
 }

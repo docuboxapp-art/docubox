@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
 import { getClientIp } from '../_shared/client-ip.ts';
-import { formAccessDenial } from '../_shared/form-access-policy.ts';
+import { formAccessDenial, publicFormCapabilityDenial } from '../_shared/form-access-policy.ts';
 
 declare const Deno: {
   env: {
@@ -25,15 +25,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
-
-    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
-    if (!accessToken) {
-      return new Response(JSON.stringify({ error: 'Inicia sesión para enviar el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-    if (authError || !user || user.is_anonymous || !user.email_confirmed_at) {
-      return new Response(JSON.stringify({ error: 'Necesitas una cuenta con correo verificado para responder.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
 
     const { token, response_data } = await req.json();
 
@@ -58,7 +49,15 @@ serve(async (req) => {
       );
     }
 
-    const accessDenial = formAccessDenial(tokenRow, user);
+    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
+    const { data: { user } } = tokenRow.access_mode === 'public' || !accessToken
+      ? { data: { user: null } }
+      : await supabase.auth.getUser(accessToken);
+    if (tokenRow.access_mode !== 'public' && (!user || user.is_anonymous || !user.email_confirmed_at)) {
+      return new Response(JSON.stringify({ error: 'Inicia sesión para enviar el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const accessDenial = tokenRow.access_mode === 'public'
+      ? publicFormCapabilityDenial(tokenRow) : formAccessDenial(tokenRow, user!);
     if (accessDenial === 'FORBIDDEN') {
       return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -126,8 +125,8 @@ serve(async (req) => {
         document_id: null,
         response_data,
         field_hashes: fieldHashes,
-        respondent_email: user.email.trim().toLowerCase(),
-        respondent_user_id: tokenRow.access_mode === 'public' ? user.id : null,
+        respondent_email: tokenRow.access_mode === 'public' ? tokenRow.recipient_email.trim().toLowerCase() : user!.email.trim().toLowerCase(),
+        respondent_user_id: tokenRow.access_mode === 'public' ? tokenRow.recipient_user_id : null,
         ip_address: ipAddress,
         user_agent: userAgent,
         submitted_at: new Date().toISOString(),

@@ -1,80 +1,40 @@
 import 'server-only';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import {
-  isValidPublicCode,
-  matchesStoredPublicCode,
-  normalizePublicCode,
-  publicCodeLookup,
-} from './public-access-code';
 import { hashCapabilityToken } from '@/lib/security/capability-token';
+import { PublicCodeError, verifyPublicCode } from './public-code-access';
 
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' };
 const reply = (error: string, status: number) => NextResponse.json({ error }, { status, headers });
 
 export async function claimPublicForm(request: NextRequest, expectedFormId?: string) {
-  const jwt = request.headers
-    .get('Authorization')
-    ?.replace(/^Bearer\s+/i, '')
-    .trim();
-  if (!jwt) return reply('Inicia sesión para responder.', 401);
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !secret) return reply('Servicio no disponible.', 503);
   const service = createClient(url, secret, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const {
-    data: { user },
-    error: authError,
-  } = await service.auth.getUser(jwt);
-  if (authError || !user || user.is_anonymous || !user.email || !user.email_confirmed_at)
-    return reply('Necesitas una cuenta con correo verificado.', 401);
-
   const body = await request.json().catch(() => ({}));
-  const code = normalizePublicCode(body.code);
+  let accessIdentity;
+  try {
+    accessIdentity = await verifyPublicCode(service, request, { ...body, formId: expectedFormId || body.formId });
+  } catch (error) {
+    return reply(error instanceof PublicCodeError ? error.message : 'No se pudo comprobar el acceso.',
+      error instanceof PublicCodeError ? error.status : 503);
+  }
+  if (!accessIdentity.userId) return reply('Completa el alta express para continuar.', 409);
+  const user = { id: accessIdentity.userId, email: accessIdentity.email };
   const mobileSessionToken = String(body.mobileSessionToken || '').trim();
-  if (!isValidPublicCode(code)) return reply('Ingresa un código de acceso válido.', 400);
-  if (!/^[a-f0-9]{64}$/i.test(mobileSessionToken))
+  const enrollmentToken = String(body.enrollmentToken || '').trim();
+  const hasMobileProof = /^[a-f0-9]{64}$/i.test(mobileSessionToken);
+  const hasEnrollmentProof = /^[a-f0-9]{64}$/i.test(enrollmentToken);
+  if (!hasMobileProof && !hasEnrollmentProof)
     return reply('Completa la prueba de vida desde el móvil.', 400);
-  const lookup = publicCodeLookup(code);
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  const ipHash = createHash('sha256').update(ip).digest('hex');
-  const since = new Date(Date.now() - 15 * 60_000).toISOString();
-  const { count, error: limitError } = await service
-    .from('form_public_code_attempts')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('succeeded', false)
-    .gte('created_at', since);
-  if (limitError) return reply('No se pudo comprobar el límite de intentos.', 503);
-  if ((count || 0) >= 5) return reply('Demasiados intentos. Espera 15 minutos.', 429);
-
-  const { data: access, error: accessError } = await service
-    .from('form_public_access_codes')
-    .select('form_id,code_lookup,code_hash,legacy_code_lookup,legacy_code_hash')
-    .or(`code_lookup.eq.${lookup},legacy_code_lookup.eq.${lookup}`)
-    .maybeSingle();
-  if (accessError) return reply('No se pudo comprobar el código.', 503);
-  const valid = Boolean(
-    access &&
-    matchesStoredPublicCode(code, access) &&
-    (!expectedFormId || access.form_id === expectedFormId)
-  );
-  const { error: attemptError } = await service.from('form_public_code_attempts').insert({
-    code_lookup: lookup,
-    user_id: user.id,
-    ip_hash: ipHash,
-    succeeded: valid,
-  });
-  if (attemptError) return reply('No se pudo registrar el intento de acceso.', 503);
-  if (!valid || !access) return reply('El código de acceso no es válido.', 403);
-
   const { data: form, error: formError } = await service
     .from('form_templates')
     .select('id,name,status,settings,allowed_signature_types')
-    .eq('id', access.form_id)
+    .eq('id', accessIdentity.formId)
     .maybeSingle();
   if (formError) return reply('No se pudo consultar el formulario.', 503);
   if (!form || form.status !== 'published')
@@ -110,38 +70,70 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
   if (priorError) return reply('No se pudo comprobar el acceso previo.', 503);
   if (prior?.used_at) return reply('Ya respondiste este formulario.', 409);
 
-  const sessionHash = hashCapabilityToken(mobileSessionToken);
-  const { data: mobileSession, error: mobileError } = await service
-    .from('mobile_upload_sessions')
-    .select('id,user_id,status,expires_at,metadata')
-    .eq('token_hash', sessionHash)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  if (mobileError) return reply('No se pudo comprobar la prueba de vida.', 503);
-  const mobileMetadata = mobileSession?.metadata as Record<string, unknown> | undefined;
-  const captureLogId = String(mobileMetadata?.capture_log_id || '');
-  const providerAudit = mobileMetadata?.provider as Record<string, unknown> | undefined;
-  if (
-    mobileSession?.status !== 'completed' ||
-    new Date(mobileSession.expires_at).getTime() <= Date.now() ||
-    mobileMetadata?.mode !== 'public_form_liveness' ||
-    mobileMetadata.form_id !== form.id ||
-    mobileMetadata.identity_match !== true ||
-    providerAudit?.liveness_passed !== true ||
-    !captureLogId
-  )
-    return reply('La prueba de vida móvil no está aprobada o expiró. Repítela.', 422);
-  const { data: captureLog, error: captureError } = await service
-    .from('id_capture_logs')
-    .select('id,nubarium_aprobado')
-    .eq('id', captureLogId)
-    .eq('session_token', sessionHash)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  if (captureError || captureLog?.nubarium_aprobado !== true)
-    return reply('No se pudo comprobar la evidencia de identidad.', 422);
-  const verifiedAt = String(mobileMetadata.captured_at || new Date().toISOString());
-  const reference = String(providerAudit.provider_reference || '').slice(0, 200) || null;
+  let verifiedAt: string;
+  let reference: string | null;
+  if (hasEnrollmentProof) {
+    // A just-completed biometric enrollment already includes ID matching and
+    // liveness, so the new account need not repeat the same capture.
+    const { data: enrollmentAccess, error: tokenError } = await service
+      .from('enrollment_tokens')
+      .select('id,status,document_metadata')
+      .eq('token_hash', hashCapabilityToken(enrollmentToken))
+      .maybeSingle();
+    if (tokenError) return reply('No se pudo comprobar el enrolamiento.', 503);
+    if (!enrollmentAccess || enrollmentAccess.status !== 'completed')
+      return reply('El enrolamiento no está completo.', 422);
+    const { data: enrollment, error: enrollmentError } = await service
+      .from('enrollment_results')
+      .select('id,face_match_passed,created_at')
+      .eq('enrollment_token_id', enrollmentAccess.id)
+      .eq('user_id', user.id)
+      .eq('status', 'completed')
+      .maybeSingle();
+    if (enrollmentError) return reply('No se pudo comprobar la prueba de vida.', 503);
+    const captured = Date.parse(enrollment?.created_at || '');
+    if (!enrollment || enrollment.face_match_passed !== true ||
+      !Number.isFinite(captured) || captured > Date.now() ||
+      Date.now() - captured > 60 * 60_000)
+      return reply('El enrolamiento no fue aprobado o ya expiró. Repítelo.', 422);
+    verifiedAt = enrollment.created_at;
+    const metadata = enrollmentAccess.document_metadata as Record<string, unknown> | null;
+    reference = String(metadata?.provider_reference || '').slice(0, 200) || null;
+  } else {
+    const sessionHash = hashCapabilityToken(mobileSessionToken);
+    const { data: mobileSession, error: mobileError } = await service
+      .from('mobile_upload_sessions')
+      .select('id,user_id,status,expires_at,metadata')
+      .eq('token_hash', sessionHash)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (mobileError) return reply('No se pudo comprobar la prueba de vida.', 503);
+    const mobileMetadata = mobileSession?.metadata as Record<string, unknown> | undefined;
+    const captureLogId = String(mobileMetadata?.capture_log_id || '');
+    const providerAudit = mobileMetadata?.provider as Record<string, unknown> | undefined;
+    if (
+      mobileSession?.status !== 'completed' ||
+      new Date(mobileSession.expires_at).getTime() <= Date.now() ||
+      mobileMetadata?.mode !== 'public_form_liveness' ||
+      mobileMetadata.form_id !== form.id ||
+      mobileMetadata.recipient_email !== user.email ||
+      mobileMetadata.identity_match !== true ||
+      providerAudit?.liveness_passed !== true ||
+      !captureLogId
+    )
+      return reply('La prueba de vida móvil no está aprobada o expiró. Repítela.', 422);
+    const { data: captureLog, error: captureError } = await service
+      .from('id_capture_logs')
+      .select('id,nubarium_aprobado')
+      .eq('id', captureLogId)
+      .eq('session_token', sessionHash)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (captureError || captureLog?.nubarium_aprobado !== true)
+      return reply('No se pudo comprobar la evidencia de identidad.', 422);
+    verifiedAt = String(mobileMetadata.captured_at || new Date().toISOString());
+    reference = String(providerAudit.provider_reference || '').slice(0, 200) || null;
+  }
   if (prior && (!prior.expires_at || new Date(prior.expires_at).getTime() > Date.now())) {
     const { error } = await service
       .from('form_tokens')
@@ -164,15 +156,15 @@ export async function claimPublicForm(request: NextRequest, expectedFormId?: str
     Number.isFinite(configured) &&
     configured >= 1 / 60 &&
     configured <= 720
-      ? new Date(Date.now() + configured * 3_600_000).toISOString()
-      : null;
+      ? new Date(Date.now() + Math.min(configured, 24) * 3_600_000).toISOString()
+      : new Date(Date.now() + 24 * 3_600_000).toISOString();
   const token = randomBytes(32).toString('hex');
   const { error: insertError } = await service.from('form_tokens').insert({
     template_id: form.id,
     access_mode: 'public',
     recipient_user_id: user.id,
     recipient_email: user.email.trim().toLowerCase(),
-    recipient_name: invitee?.recipient_name || String(user.user_metadata?.full_name || user.email),
+    recipient_name: invitee?.recipient_name || accessIdentity.name || user.email,
     launch_prefill: invitee?.launch_prefill || {},
     signer_role: 'Participante',
     signature_type: 'autografa_digital',

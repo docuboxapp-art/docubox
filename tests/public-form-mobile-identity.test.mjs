@@ -13,7 +13,6 @@ const formId = '11111111-1111-4111-8111-111111111111';
 
 function fixture({ codeMatches = true, failures = 0, published = true, storedId = true } = {}) {
   const sessions = [];
-  const attempts = [];
   const chain = (result) => {
     const query = {
       select: () => query,
@@ -28,17 +27,6 @@ function fixture({ codeMatches = true, failures = 0, published = true, storedId 
   };
   const service = {
     from(table) {
-      if (table === 'form_public_code_attempts')
-        return { ...chain(null), select: () => ({ ...chain(null), eq: () => ({
-          eq: () => ({ gte: async () => ({ count: failures, error: null }) }),
-        }) }), insert: async (row) => { attempts.push(row); return { error: null }; } };
-      if (table === 'form_public_access_codes')
-        return chain({ form_id: formId, code_lookup: 'lookup', code_hash: 'saved-hash' });
-      if (table === 'form_templates')
-        return chain({ status: published ? 'published' : 'draft',
-          settings: {}, allowed_signature_types: ['autografa_digital'] });
-      if (table === 'enrollment_results') return chain(null);
-      if (table === 'id_capture_logs') return chain(storedId ? { id: 'approved-id' } : null);
       if (table === 'mobile_upload_sessions') return {
         insert: (row) => {
           sessions.push(row);
@@ -63,22 +51,27 @@ function fixture({ codeMatches = true, failures = 0, published = true, storedId 
       requireDocumentAccess: () => { throw new Error('Document access must not be used'); },
       documentAccessResponse: () => ({ body: { error: 'Unexpected error' }, status: 500 }),
     };
-    if (name === '@/lib/forms/public-access-code') return {
-      normalizePublicCode: (value) => String(value || ''),
-      isValidPublicCode: () => true,
-      publicCodeLookup: () => 'lookup',
-      matchesStoredPublicCode: () => codeMatches,
+    if (name === '@/lib/identity/capture-crypto') return { captureEncryptionKey: () => Buffer.alloc(32) };
+    if (name === '@/lib/identity/stored-identity') return {
+      findStoredIdentity: async () => storedId ? { front: 'front', back: 'back' } : null,
+    };
+    if (name === '@/lib/forms/public-code-access') return {
+      PublicCodeError: class PublicCodeError extends Error { constructor(message, status) { super(message); this.status = status; } },
+      verifyPublicCode: async () => {
+        if (!codeMatches || failures >= 10 || !published) throw new Error('Invalid public invitation');
+        return { formId, email: 'ana@example.com', userId: 'user-1' };
+      },
     };
     throw new Error(`Unexpected import: ${name}`);
   }, exports);
   const request = {
-    headers: new Headers({ Authorization: 'Bearer verified-user-token' }),
-    json: async () => ({ formId, code: 'ABCD2345' }),
+    headers: new Headers(),
+    json: async () => ({ formId, code: 'ABCD2345', email: 'ana@example.com' }),
   };
-  return { exports, request, sessions, attempts };
+  return { exports, request, sessions };
 }
 
-test('a verified account can create a mobile form session without a document', async () => {
+test('a code recipient can create a mobile form session without a Docubox login', async () => {
   const current = fixture();
   const response = await current.exports.POST(current.request);
   assert.equal(response.status, 200);
@@ -86,11 +79,12 @@ test('a verified account can create a mobile form session without a document', a
   assert.match(response.body.token, /^[a-f0-9]{64}$/);
   assert.equal(current.sessions[0].metadata.mode, 'public_form_liveness');
   assert.equal(current.sessions[0].metadata.form_id, formId);
+  assert.equal(current.sessions[0].metadata.recipient_email, 'ana@example.com');
   assert.equal(current.sessions[0].metadata.document_id, null);
 });
 
 test('a wrong code and exhausted attempts cannot start mobile capture', async () => {
-  for (const options of [{ codeMatches: false }, { failures: 5 }, { published: false }]) {
+  for (const options of [{ codeMatches: false }, { failures: 10 }, { published: false }]) {
     const current = fixture(options);
     const response = await current.exports.POST(current.request);
     assert.notEqual(response.status, 200);

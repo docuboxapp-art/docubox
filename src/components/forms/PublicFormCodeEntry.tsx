@@ -1,21 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, KeyRound, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
-import { createClient } from '@/lib/supabase/client';
 import PublicFormMobileBiometricModal from './PublicFormMobileBiometricModal';
+import PublicFormExpressRegistration from './PublicFormExpressRegistration';
 
 export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const invitedEmail = searchParams.get('email') || '';
-  const [email, setEmail] = useState(invitedEmail);
-  const [sessionEmail, setSessionEmail] = useState('');
-  const [identitySelected, setIdentitySelected] = useState(false);
-  const [checkingEmail, setCheckingEmail] = useState(false);
-  const autoCheckedEmail = useRef(false);
+  const validInvitedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail.trim());
+  const [email, setEmail] = useState(invitedEmail.trim().toLowerCase());
+  const [identitySelected, setIdentitySelected] = useState(validInvitedEmail);
   const [code, setCode] = useState('');
   const [codeVerified, setCodeVerified] = useState(false);
   const [checkingCode, setCheckingCode] = useState(false);
@@ -23,85 +21,32 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
   const [mobileError, setMobileError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [needsLogin, setNeedsLogin] = useState(false);
-  const [authChecking, setAuthChecking] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-    void createClient()
-      .auth.getUser()
-      .then(({ data }) => {
-        if (active) {
-          setSessionEmail(data.user?.email?.trim().toLowerCase() || '');
-          setNeedsLogin(!data.user);
-          setAuthChecking(false);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setNeedsLogin(true);
-          setAuthChecking(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const [accountExists, setAccountExists] = useState<boolean | null>(null);
+  const [canRegister, setCanRegister] = useState(false);
 
   const changeIdentity = () => {
     setCodeVerified(false);
     setMobileOpen(false);
     setIdentitySelected(false);
+    setAccountExists(null);
+    setCanRegister(false);
+    setCode('');
   };
 
-  const checkEmail = useCallback(
-    async (address: string) => {
-      const normalized = address.trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-        setError('Ingresa un correo electrónico válido.');
-        return;
-      }
-      setCheckingEmail(true);
-      setError('');
-      try {
-        const response = await fetch('/api/auth/check-login-options', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({ email: normalized }),
-        });
-        if (!response.ok) throw new Error('No se pudo consultar la cuenta. Inténtalo de nuevo.');
-        const result: { found?: boolean } = await response.json();
-        if (!result.found) {
-          router.push(
-            `/formulario-publico/registro?${new URLSearchParams({
-              ...(formId ? { formId } : {}),
-              email: normalized,
-            })}`
-          );
-          return;
-        }
-        setEmail(normalized);
-        setNeedsLogin(sessionEmail !== normalized);
-        setIdentitySelected(true);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : 'No se pudo consultar la cuenta.');
-      } finally {
-        setCheckingEmail(false);
-      }
-    },
-    [formId, router, sessionEmail]
-  );
-
-  useEffect(() => {
-    if (authChecking || autoCheckedEmail.current || !invitedEmail.trim()) return;
-    autoCheckedEmail.current = true;
-    void checkEmail(invitedEmail);
-  }, [authChecking, checkEmail, invitedEmail]);
+  const checkEmail = (address: string) => {
+    const normalized = address.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      setError('Ingresa un correo electrónico válido.');
+      return;
+    }
+    setError('');
+    setEmail(normalized);
+    setIdentitySelected(true);
+  };
 
   const continueWithEmail = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void checkEmail(email);
+    checkEmail(email);
   };
 
   const verifyCode = async () => {
@@ -112,27 +57,18 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     setCheckingCode(true);
     setError('');
     try {
-      const {
-        data: { session },
-      } = await createClient().auth.getSession();
-      if (!session || session.user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
-        setNeedsLogin(true);
-        setError('Inicia sesión con el correo que acreditaste para continuar.');
-        return;
-      }
       const response = await fetch('/api/formularios/publico/verificar-codigo', {
         method: 'POST',
         cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ code, formId }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, formId, email }),
       });
       const result = await response.json();
       if (!response.ok || result.valid !== true)
         throw new Error(result.error || 'El código no es válido.');
       setCodeVerified(true);
+      setAccountExists(result.accountExists === true);
+      setCanRegister(result.canRegister === true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo comprobar el código.');
     } finally {
@@ -140,18 +76,11 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
     }
   };
 
-  const submit = async (mobileSessionToken: string) => {
+  const submit = async (mobileSessionToken: string, enrollmentToken?: string) => {
     if (!codeVerified) return;
     setBusy(true);
     setMobileError('');
     try {
-      const {
-        data: { session },
-      } = await createClient().auth.getSession();
-      if (!session || session.user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
-        setMobileError('Inicia sesión con el correo que acreditaste para continuar.');
-        return;
-      }
       const response = await fetch(
         formId
           ? `/api/formularios/publico/${encodeURIComponent(formId)}/claim`
@@ -159,11 +88,8 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
         {
           method: 'POST',
           cache: 'no-store',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ code, mobileSessionToken }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, email, mobileSessionToken, enrollmentToken }),
         }
       );
       const result = await response.json();
@@ -171,15 +97,14 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
         throw new Error(result.error || 'No se pudo abrir el formulario.');
       router.replace(result.url);
     } catch (cause) {
-      setMobileError(cause instanceof Error ? cause.message : 'No se pudo abrir el formulario.');
+      const message = cause instanceof Error ? cause.message : 'No se pudo abrir el formulario.';
+      if (enrollmentToken) setError(message);
+      else setMobileError(message);
     } finally {
       setBusy(false);
     }
   };
 
-  const returnPath = formId
-    ? `/formulario-publico/${formId}?email=${encodeURIComponent(email)}`
-    : `/formulario-publico/codigo?email=${encodeURIComponent(email)}`;
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
@@ -192,32 +117,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
           Identifícate con tu correo y comprueba el código que recibiste por separado. Después
           realizarás la prueba de vida para abrir el formulario.
         </p>
-        {identitySelected && authChecking ? (
-          <p className="mt-6 flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin" /> Comprobando tu cuenta…
-          </p>
-        ) : identitySelected && needsLogin ? (
-          <div className="mt-6 space-y-3">
-            <p className="text-sm text-slate-600">
-              Encontramos tu cuenta. Inicia sesión con <strong>{email}</strong> para continuar con
-              la prueba de vida.
-            </p>
-            {sessionEmail && sessionEmail !== email && (
-              <p className="text-xs text-amber-700">
-                La sesión actual corresponde a otro correo. Cambia de cuenta para continuar.
-              </p>
-            )}
-            <a
-              href={`/login?redirect=${encodeURIComponent(returnPath)}&email=${encodeURIComponent(email)}`}
-              className="inline-flex w-full justify-center rounded-md bg-primary px-4 py-3 text-sm font-medium text-white"
-            >
-              Iniciar sesión
-            </a>
-            <button type="button" onClick={changeIdentity} className="w-full text-sm text-primary">
-              Usar otro correo
-            </button>
-          </div>
-        ) : identitySelected ? (
+        {identitySelected ? (
           <>
             <div className="mt-6 flex items-center justify-between rounded-md bg-blue-50 px-3 py-2 text-sm text-slate-700">
               <span className="flex items-center gap-2">
@@ -227,13 +127,10 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 Cambiar
               </button>
             </div>
-            <p className="mt-4 flex items-center gap-2 text-sm font-medium text-emerald-700">
-              <CheckCircle2 size={17} /> Ya existe una cuenta con este correo.
-            </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Comprueba el código recibido por separado. Si ya tienes una identificación registrada,
-              en el móvil solo tomarás una selfie para la prueba de vida y la compararemos con ella.
-              Si aún no la tienes, podrás capturarla allí.
+              Comprueba el código recibido por separado. Después haremos la prueba de vida sin
+              pedirte que inicies sesión. Si ya registraste tu identificación, solo tomarás una
+              selfie.
             </p>
             <label className="mt-5 block text-sm font-medium text-slate-700">
               Código de acceso
@@ -255,7 +152,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 role="status"
                 className="mt-4 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700"
               >
-                <CheckCircle2 size={17} /> Código correcto. Ya puedes continuar a la captura móvil.
+                <CheckCircle2 size={17} /> Código correcto. Continúa con tu identidad.
               </p>
             ) : (
               <button
@@ -267,7 +164,24 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 {checkingCode && <Loader2 size={16} className="animate-spin" />} Comprobar código
               </button>
             )}
-            {codeVerified && (
+            {codeVerified && accountExists === false && !canRegister && (
+              <p role="alert" className="mt-4 text-sm text-amber-700">
+                Solicita una nueva invitación con un código individual para crear tu cuenta desde
+                este formulario.
+              </p>
+            )}
+            {codeVerified && accountExists === false && canRegister && (
+              <PublicFormExpressRegistration
+                email={email}
+                formId={formId}
+                code={code}
+                onRegistered={(enrollmentToken) => {
+                  setAccountExists(true);
+                  if (enrollmentToken) void submit('', enrollmentToken);
+                }}
+              />
+            )}
+            {codeVerified && accountExists === true && (
               <button
                 type="button"
                 onClick={() => {
@@ -303,6 +217,7 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
         <PublicFormMobileBiometricModal
           formId={formId}
           code={code}
+          email={email}
           busy={busy}
           error={mobileError}
           onClose={() => setMobileOpen(false)}
@@ -324,9 +239,8 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                   Acreditar identidad
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  {checkingEmail
-                    ? 'Estamos comprobando si este correo ya tiene cuenta en Docubox.'
-                    : 'Ingresa el correo con el que responderás el formulario. Buscaremos tu cuenta para indicarte el siguiente paso.'}
+                  Ingresa el correo de la invitación. Después comprobarás el código que recibiste
+                  por separado.
                 </p>
               </div>
               <button
@@ -347,7 +261,6 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                disabled={checkingEmail}
                 className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary"
               />
             </label>
@@ -358,15 +271,10 @@ export default function PublicFormCodeEntry({ formId }: { formId?: string }) {
             )}
             <button
               type="submit"
-              disabled={checkingEmail || authChecking}
+              disabled={!email.trim()}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
             >
-              {checkingEmail ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <ShieldCheck size={16} />
-              )}{' '}
-              Continuar
+              <ShieldCheck size={16} /> Continuar
             </button>
           </form>
         </div>

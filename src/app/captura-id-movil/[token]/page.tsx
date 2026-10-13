@@ -1340,6 +1340,7 @@ export default function CapturaIdMovilPage() {
 
         // A registered user may have verified identification even without a profile row.
         let storedAnverso: string | null = null;
+        let storedIdentityAvailable = false;
         let storedCurp: string | null = null;
         let storedNombre: string | null = null;
         try {
@@ -1353,8 +1354,9 @@ export default function CapturaIdMovilPage() {
             return;
           }
           const storedIdData = await storedIdRes.json();
-          if (storedIdData.hasStoredId && storedIdData.anverso_b64) {
-            storedAnverso = storedIdData.anverso_b64;
+          if (storedIdData.hasStoredId) {
+            storedIdentityAvailable = true;
+            storedAnverso = storedIdData.anverso_b64 || null;
             storedCurp = storedIdData.curp_extracted || null;
             storedNombre = storedIdData.nombre_extracted || null;
           }
@@ -1362,10 +1364,10 @@ export default function CapturaIdMovilPage() {
           setScreen('error');
           return;
         }
-        if (storedAnverso) {
-          const anversoDataUrl = storedAnverso.startsWith('data:')
+        if (storedIdentityAvailable) {
+          const anversoDataUrl = storedAnverso ? storedAnverso.startsWith('data:')
             ? storedAnverso
-            : `data:image/jpeg;base64,${storedAnverso}`;
+            : `data:image/jpeg;base64,${storedAnverso}` : '';
           setCaptureData(d => ({
             ...d,
             tipoId: 'INE',

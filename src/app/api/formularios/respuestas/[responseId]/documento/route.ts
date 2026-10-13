@@ -20,13 +20,14 @@ export async function POST(
       return NextResponse.json({ error: 'Respuesta inválida.' }, { status: 400 });
     const authorization = request.headers.get('authorization') || '';
     const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
-    if (!bearer)
+    const publicFormToken = request.headers.get('x-form-token') || '';
+    if (!bearer && !/^[a-f0-9]{64}$/i.test(publicFormToken))
       return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
     const service = createServiceClient();
     const serviceCall = Boolean(bearer && bearer === process.env.SUPABASE_SERVICE_ROLE_KEY);
     let requester: { id: string; email: string } | null = null;
     let canManageResponse = false;
-    if (!serviceCall) {
+    if (!serviceCall && bearer) {
       const anon = createAnonClient(bearer);
       const {
         data: { user },
@@ -52,6 +53,16 @@ export async function POST(
       .single();
     if (responseError || !initialResponse)
       return NextResponse.json({ error: 'Respuesta no encontrada.' }, { status: 404 });
+    if (publicFormToken && !bearer) {
+      const { data: publicToken } = await service.from('form_tokens')
+        .select('id,access_mode,liveness_verified_at,used_at')
+        .eq('id', initialResponse.token_id).eq('token', publicFormToken).maybeSingle();
+      const verifiedAt = Date.parse(publicToken?.liveness_verified_at || '');
+      if (!publicToken || publicToken.access_mode !== 'public' || !publicToken.used_at ||
+        !Number.isFinite(verifiedAt) || verifiedAt > Date.now() ||
+        Date.now() - verifiedAt > 24 * 60 * 60_000)
+        return NextResponse.json({ error: 'El acceso público expiró.' }, { status: 403 });
+    }
     if (requester && !canManageResponse) {
       const { data: recipient } = await service.from('form_tokens')
         .select('recipient_email,recipient_user_id,used_at')

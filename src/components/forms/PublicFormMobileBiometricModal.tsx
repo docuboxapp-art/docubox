@@ -13,13 +13,13 @@ import {
   X,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { createClient } from '@/lib/supabase/client';
 
 type MobileSession = { token: string; url: string; expiresAt: string; hasStoredId: boolean };
 
 export default function PublicFormMobileBiometricModal({
   formId,
   code,
+  email,
   busy,
   error,
   onClose,
@@ -27,6 +27,7 @@ export default function PublicFormMobileBiometricModal({
 }: {
   formId?: string;
   code: string;
+  email: string;
   busy: boolean;
   error: string;
   onClose: () => void;
@@ -48,18 +49,11 @@ export default function PublicFormMobileBiometricModal({
     setMessage('');
     claimingRef.current = false;
     try {
-      const {
-        data: { session: auth },
-      } = await createClient().auth.getSession();
-      if (!auth?.access_token) throw new Error('Inicia sesión para continuar.');
       const response = await fetch('/api/mobile-upload/create-id-capture-session', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({ formId, code }),
+        body: JSON.stringify({ formId, code, email }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.token)
@@ -79,7 +73,7 @@ export default function PublicFormMobileBiometricModal({
       setMessage(cause instanceof Error ? cause.message : 'No se pudo iniciar la captura móvil.');
       setStatus('failed');
     }
-  }, [code, formId]);
+  }, [code, email, formId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void createSession(), 0);

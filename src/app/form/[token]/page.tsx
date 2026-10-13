@@ -32,6 +32,7 @@ interface RemoteFormSchema {
   expiresAt: string | null;
   recipientName?: string;
   signatureType?: SignatureType;
+  accessMode?: string;
   participantProfile?: ParticipantFormProfile | null;
   launchPrefill?: LaunchParticipantPrefill | null;
 }
@@ -61,8 +62,8 @@ export default function FormResponsePage() {
       if (!token) { setPageState('error'); return; }
       try {
         const { data: { session } } = await createClient().auth.getSession();
-        if (!session?.access_token) { setPageState('auth'); return; }
-        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/get-form-schema?token=${encodeURIComponent(token)}`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` } });
+        const accessToken = session?.access_token || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/get-form-schema?token=${encodeURIComponent(token)}`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` } });
         const data = await response.json();
         if (!response.ok) {
           if (data.code === 'AUTH_REQUIRED') setPageState('auth');
@@ -179,10 +180,10 @@ export default function FormResponsePage() {
     }
   };
 
-  const promoteResponse = async (id: string, accessToken: string): Promise<string> => {
+  const promoteResponse = async (id: string, accessToken?: string): Promise<string> => {
     const promotion = await fetch(`/api/formularios/respuestas/${id}/documento`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : { 'x-form-token': token },
     });
     if (!promotion.ok) throw new Error('No se pudo preparar el documento para la firma.');
     const result = await promotion.json();
@@ -198,8 +199,9 @@ export default function FormResponsePage() {
     setDocumentNotice('');
     try {
       const { data: { session } } = await createClient().auth.getSession();
-      if (!session?.access_token) throw new Error('Vuelve a iniciar sesión para continuar con la firma.');
-      const id = await promoteResponse(responseId, session.access_token);
+      if (!session?.access_token && remoteSchema?.accessMode !== 'public')
+        throw new Error('Vuelve a iniciar sesión para continuar con la firma.');
+      const id = await promoteResponse(responseId, session?.access_token);
       setDocumentId(id);
       setPageState('signing');
     } catch (error) {
@@ -214,9 +216,9 @@ export default function FormResponsePage() {
     setSubmitting(true);
     try {
       const { data: { session } } = await createClient().auth.getSession();
-      if (!session?.access_token) { setPageState('auth'); return; }
+      if (!session?.access_token && remoteSchema?.accessMode !== 'public') { setPageState('auth'); return; }
       const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/form-submit`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
         body: JSON.stringify({ token, response_data: Object.fromEntries(visibleFields.map((field) => [field.id, values[field.id] ?? null])) }),
       });
       const data = await response.json();
@@ -225,7 +227,7 @@ export default function FormResponsePage() {
       let promotionFailed = false;
       if (data.response_id && !generatedDocumentId) {
         try {
-          generatedDocumentId = await promoteResponse(data.response_id, session.access_token);
+          generatedDocumentId = await promoteResponse(data.response_id, session?.access_token);
         } catch { promotionFailed = true; }
       }
       localStorage.removeItem(draftKey);

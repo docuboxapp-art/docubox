@@ -12,8 +12,18 @@ export type FormAccessUser = {
 
 export type FormAccessDenial = 'FORBIDDEN' | 'LIVENESS_REQUIRED';
 
-// Private links belong to the selected recipient. Public links are issued only
-// after a verified account presents the code and passes the liveness check.
+// A public form token is a short-lived bearer capability issued only after
+// the separately delivered code and the mobile identity check have passed.
+export function publicFormCapabilityDenial(token: FormAccessToken): FormAccessDenial | null {
+  if (token.access_mode !== 'public' || !token.recipient_email || !token.recipient_user_id)
+    return 'FORBIDDEN';
+  const verifiedAt = Date.parse(token.liveness_verified_at || '');
+  return Number.isFinite(verifiedAt) && verifiedAt <= Date.now() &&
+    Date.now() - verifiedAt <= 24 * 60 * 60_000 ? null : 'LIVENESS_REQUIRED';
+}
+
+// Private links belong to the authenticated recipient. Public capabilities
+// are handled separately so they never become a full account session.
 export function formAccessDenial(token: FormAccessToken, user: FormAccessUser): FormAccessDenial | null {
   const recipientEmail = token.recipient_email?.trim().toLowerCase();
   const userEmail = user.email?.trim().toLowerCase();

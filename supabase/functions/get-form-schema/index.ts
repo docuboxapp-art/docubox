@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { formAccessDenial } from '../_shared/form-access-policy.ts';
+import { formAccessDenial, publicFormCapabilityDenial } from '../_shared/form-access-policy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,15 +28,6 @@ serve(async (req) => {
       (globalThis.Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? ''
     );
 
-    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
-    if (!accessToken) {
-      return new Response(JSON.stringify({ error: 'Inicia sesión para responder el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-    if (authError || !user || user.is_anonymous || !user.email_confirmed_at) {
-      return new Response(JSON.stringify({ error: 'Necesitas una cuenta con correo verificado para responder.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
     // Validate token
     const { data: tokenRow, error: tokenError } = await supabase
       .from('form_tokens')
@@ -62,7 +53,15 @@ serve(async (req) => {
       workspaces: { name: string; logo_url?: string };
     };
 
-    const accessDenial = formAccessDenial(tokenRow, user);
+    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
+    const { data: { user } } = tokenRow.access_mode === 'public' || !accessToken
+      ? { data: { user: null } }
+      : await supabase.auth.getUser(accessToken);
+    if (tokenRow.access_mode !== 'public' && (!user || user.is_anonymous || !user.email_confirmed_at)) {
+      return new Response(JSON.stringify({ error: 'Inicia sesión para responder el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const accessDenial = tokenRow.access_mode === 'public'
+      ? publicFormCapabilityDenial(tokenRow) : formAccessDenial(tokenRow, user!);
     if (accessDenial === 'FORBIDDEN') {
       return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -70,8 +69,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de abrir este formulario.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // A used invitation may still need signing. Return its document only to
-    // the authenticated recipient, even when the original deadline has passed.
+    // A used public capability may still need signing until its 24h proof expires.
     if (tokenRow.used_at) {
       const { data: responseRow, error: responseError } = await supabase
         .from('form_responses')
@@ -126,8 +124,9 @@ serve(async (req) => {
       documentTypeName = documentType?.nombre || '';
     }
 
-    // The recipient has already been authenticated and matched to this token.
-    // Verified profile data takes precedence over launcher-supplied suggestions.
+    // Private links use the account session; public links use the recent
+    // code-and-liveness capability. In both cases the bound profile wins over
+    // launcher-supplied suggestions.
     const fields = Array.isArray(template.schema) ? template.schema : [];
     const hasPersonalFields = fields.some((field) =>
       field && typeof field === 'object' &&
@@ -138,7 +137,7 @@ serve(async (req) => {
       const { data, error } = await supabase
         .from('user_profiles')
         .select('full_name,nombre,apellido_paterno,apellido_materno,personalidad_juridica,rfc,curp,calle,num_exterior,num_interior,colonia,municipio,localidad,estado')
-        .eq('id', user.id)
+        .eq('id', tokenRow.access_mode === 'public' ? tokenRow.recipient_user_id : user!.id)
         .maybeSingle();
       if (error) throw error;
       participantProfile = data;
@@ -175,6 +174,7 @@ serve(async (req) => {
           ? tokenRow.launch_prefill : {},
         signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(tokenRow.signature_type)
           ? tokenRow.signature_type : 'click_sign',
+        accessMode: tokenRow.access_mode,
         requireLiveness: tokenRow.require_liveness === true && !tokenRow.liveness_verified_at,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -482,14 +482,7 @@ export default function FormulariosPage() {
 
   const copyPublicLink = async (form: FormRow) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Inicia sesión para consultar el código.');
-      const response = await fetch(`/api/formularios/publico/${encodeURIComponent(form.id)}/codigo`, {
-        headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-      });
-      const result = await response.json();
-      if (!response.ok || !result.code) throw new Error(result.error || 'No se pudo consultar el código.');
-      setPublicAccessInfo({ name: form.name, url: `${window.location.origin}/formulario-publico/${form.id}`, code: result.code });
+      setPublicAccessInfo({ name: form.name, url: `${window.location.origin}/formulario-publico/${form.id}`, code: '' });
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'No se pudo consultar el código de acceso.');
     }
@@ -727,10 +720,10 @@ export default function FormulariosPage() {
       {publicAccessInfo && <div role="dialog" aria-modal="true" aria-label="Enlace y código de acceso" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/40 p-4">
         <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-slate-950">Acceso público</h2><p className="mt-1 text-sm text-slate-500">{publicAccessInfo.name}</p></div><button type="button" onClick={() => setPublicAccessInfo(null)} aria-label="Cerrar"><X size={18} /></button></div>
-          <p className="mt-5 text-sm text-slate-600">Comparte el enlace y el código. La persona deberá entrar con su cuenta y aprobar la prueba de vida.</p>
+          <p className="mt-5 text-sm text-slate-600">Envía la invitación para generar un código individual. La persona acreditará su identidad y prueba de vida sin iniciar sesión.</p>
           <label className="mt-5 block text-xs font-medium text-slate-500">Enlace<input readOnly value={publicAccessInfo.url} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" /></label>
-          <label className="mt-4 block text-xs font-medium text-slate-500">Código de acceso<input readOnly value={publicAccessInfo.code} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm font-semibold tracking-wide text-slate-900" /></label>
-          <button type="button" onClick={() => void navigator.clipboard.writeText(`${publicAccessInfo.url}\nCódigo: ${publicAccessInfo.code}`).then(() => setNotice('Enlace y código copiados.'))} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> Copiar enlace y código</button>
+          <p className="mt-4 text-sm leading-5 text-slate-600">Cada destinatario recibe su propio código al enviarle la invitación desde Lanzar formulario.</p>
+          <button type="button" onClick={() => void navigator.clipboard.writeText(publicAccessInfo.url).then(() => setNotice('Enlace copiado.'))} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white"><Copy size={15} /> Copiar enlace</button>
         </div>
       </div>}
       {pendingDialogOpen && <PendingResponsesDialog launches={pendingLaunches} formNames={formNames} busyId={pendingActionId} error={pendingDialogError} onClose={() => { if (!pendingActionId) setPendingDialogOpen(false); }} onResend={(launch) => void managePendingLaunch(launch, 'resend')} onCancelLink={(launch) => void managePendingLaunch(launch, 'cancel')} />}

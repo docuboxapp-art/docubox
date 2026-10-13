@@ -61,11 +61,11 @@ export async function POST(request: NextRequest) {
     }
 
     const storedIdentity = await findStoredIdentity(supabase, session.user_id, key);
-    if (formId && storedIdentity) {
+    if (formId && storedIdentity?.front) {
       // Public-form access must compare the selfie with the user's approved ID,
       // regardless of what the mobile client sends in the document fields.
       front = storedIdentity.front;
-      back = storedIdentity.front;
+      back = storedIdentity.back || storedIdentity.front;
     } else if (!validImageBase64(front)) {
       front = storedIdentity?.front || '';
     }

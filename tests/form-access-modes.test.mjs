@@ -15,12 +15,13 @@ const publicCode = 'ABCD2345';
 
 function fixture({
   accessMode = 'private',
-  user = { id: 'user-1', email: 'ana@example.com', email_confirmed_at: '2026-10-09' },
+  user = { id: 'user-1', email: 'ana@example.com' },
   prior = null,
   codeExists = true,
   mobileStatus = 'completed',
   mobileFormId = formId,
   captureApproved = true,
+  enrollmentApproved = true,
 } = {}) {
   const inserted = [];
   const form = {
@@ -66,12 +67,20 @@ function fixture({
         expires_at: new Date(Date.now() + 60_000).toISOString(),
         metadata: {
           mode: 'public_form_liveness', form_id: mobileFormId, capture_log_id: 'capture-1',
-          identity_match: true, captured_at: '2026-10-09T12:00:00Z',
+          recipient_email: user?.email, identity_match: true, captured_at: new Date().toISOString(),
           provider: { liveness_passed: true, provider_reference: 'verified-1' },
         },
       }, error: null });
       if (table === 'id_capture_logs') return chain({ data: {
         id: 'capture-1', nubarium_aprobado: captureApproved,
+      }, error: null });
+      if (table === 'enrollment_tokens') return chain({ data: {
+        id: 'enrollment-1', status: enrollmentApproved ? 'completed' : 'pending',
+        document_metadata: { provider_reference: 'enrollment-provider-1' },
+      }, error: null });
+      if (table === 'enrollment_results') return chain({ data: {
+        id: 'enrollment-result-1', face_match_passed: enrollmentApproved,
+        created_at: new Date().toISOString(),
       }, error: null });
       throw new Error(`Unexpected table: ${table}`);
     },
@@ -83,15 +92,21 @@ function fixture({
     if (name === 'next/server')
       return { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
     if (name === '@supabase/supabase-js') return { createClient: () => service };
-    if (name === './public-access-code')
-      return { normalizePublicCode: (value) => String(value).replaceAll('-', ''), publicCodeLookup: () => 'lookup', isValidPublicCode: () => true, matchesStoredPublicCode: () => true };
+    if (name === './public-code-access')
+      return {
+        PublicCodeError: class PublicCodeError extends Error { constructor(message, status) { super(message); this.status = status; } },
+        verifyPublicCode: async (_service, _request, body) => {
+          if (!codeExists) throw new Error('El código no corresponde a esta invitación.');
+          return { formId: body.formId, email: user?.email || 'ana@example.com', userId: user?.id || null, name: 'Ana invitada' };
+        },
+      };
     if (name === '@/lib/security/capability-token')
       return { hashCapabilityToken: (value) => `hash:${value}` };
     throw new Error(`Unexpected import: ${name}`);
   }, exports);
   const request = {
-    headers: new Headers({ Authorization: 'Bearer verified-user-token' }),
-    json: async () => ({ code: publicCode, mobileSessionToken: 'a'.repeat(64) }),
+    headers: new Headers(),
+    json: async () => ({ code: publicCode, email: 'ana@example.com', mobileSessionToken: 'a'.repeat(64) }),
   };
   return { exports, request, inserted };
 }
@@ -131,10 +146,10 @@ test.after(() => {
   globalThis.fetch = previousFetch;
 });
 
-test('public code requires a verified registered account', async () => {
-  const unverified = fixture({ user: { id: 'user-1', email: 'ana@example.com', email_confirmed_at: null } });
-  assert.equal((await unverified.exports.claimPublicForm(unverified.request, formId)).status, 401);
-  assert.equal(unverified.inserted.length, 0);
+test('a public code needs an account profile but not an authenticated session', async () => {
+  const newRecipient = fixture({ user: null });
+  assert.equal((await newRecipient.exports.claimPublicForm(newRecipient.request, formId)).status, 409);
+  assert.equal(newRecipient.inserted.length, 0);
 });
 
 test('a code activates public access even when the form can also send private invitations', async () => {
@@ -153,7 +168,7 @@ test('a code activates public access even when the form can also send private in
 
 test('without an active code, the form cannot be claimed publicly', async () => {
   const current = fixture({ codeExists: false });
-  assert.equal((await current.exports.claimPublicForm(current.request, formId)).status, 403);
+  assert.equal((await current.exports.claimPublicForm(current.request, formId)).status, 503);
   assert.equal(current.inserted.length, 0);
 });
 
@@ -278,6 +293,19 @@ test('a selfie submitted without a completed mobile session cannot open the form
   current.request.json = async () => ({ code: publicCode, selfie: 'selfie-data' });
   assert.equal((await current.exports.claimPublicForm(current.request, formId)).status, 400);
   assert.equal(current.inserted.length, 0);
+});
+
+test('a fresh biometric enrollment opens the form without a second selfie capture', async () => {
+  const current = fixture();
+  current.request.json = async () => ({ code: publicCode, email: 'ana@example.com', enrollmentToken: 'b'.repeat(64) });
+  const response = await current.exports.claimPublicForm(current.request, formId);
+  assert.equal(response.status, 200);
+  assert.equal(current.inserted[0].liveness_reference, 'enrollment-provider-1');
+
+  const failed = fixture({ enrollmentApproved: false });
+  failed.request.json = current.request.json;
+  assert.equal((await failed.exports.claimPublicForm(failed.request, formId)).status, 422);
+  assert.equal(failed.inserted.length, 0);
 });
 
 test('an invalid recipient email cannot activate a public code', async () => {

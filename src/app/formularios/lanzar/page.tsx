@@ -539,7 +539,7 @@ function LaunchContent() {
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Check size={22} /></span>
             <div><h1 className="text-xl font-semibold text-slate-950">Invitación y código enviados</h1><p className="text-sm text-slate-500">{form?.name} · {publicRecipientEmail.trim().toLowerCase()}</p></div>
           </div>
-          <p className="mt-5 text-sm leading-6 text-slate-600">La dirección indicada recibirá el enlace y el código en correos separados. Al abrir el enlace se comprobará si necesita enrolarse o iniciar sesión. Cada persona deberá superar la prueba de vida.</p>
+          <p className="mt-5 text-sm leading-6 text-slate-600">La dirección indicada recibirá el enlace y su código individual en correos separados. Podrá acreditar su identidad y hacer la prueba de vida sin iniciar sesión.</p>
           <div className="mt-5">
             <label htmlFor="public-form-link" className="block text-sm font-medium text-slate-700">Enlace público</label>
             <div className="relative mt-1.5">
@@ -764,7 +764,7 @@ function LaunchContent() {
                           <div className="grid gap-2 sm:grid-cols-2">
                             {([
                               { value: 'private', title: 'Invitación privada', description: 'Solo la persona elegida podrá abrir el enlace con su cuenta y correo verificado.' },
-                              { value: 'public', title: 'Formulario público con código', description: 'Se envían el enlace y el código en correos separados. Quien tenga el código necesitará una cuenta verificada y una prueba de vida.' },
+                              { value: 'public', title: 'Formulario público con código', description: 'Se envían el enlace y un código individual en correos separados. El destinatario hará la prueba de vida sin iniciar sesión.' },
                             ] as const).map((option) => (
                               <label key={option.value} className={`flex gap-3 rounded-lg border p-4 ${accessMode === option.value ? 'border-primary bg-blue-50/60' : 'border-slate-200 bg-white'} ${option.value === 'public' && !canLaunchPublicly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                                 <input type="radio" name="launch-access-mode" value={option.value} checked={accessMode === option.value} disabled={option.value === 'public' && !canLaunchPublicly} onChange={() => { setAccessMode(option.value); setError(''); }} className="mt-1 accent-primary" />
@@ -870,7 +870,7 @@ function LaunchContent() {
                             />
                           </label>
                           <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm leading-6 text-slate-700">
-                            Se enviarán dos correos a esta dirección: la invitación con el enlace y, por separado, el código. Al abrir el enlace, se comprobará si el correo ya tiene cuenta: si no, seguirá el enrolamiento; si ya la tiene, iniciará sesión y realizará la prueba de vida.
+                            Se enviarán dos correos a esta dirección: la invitación con el enlace y, por separado, su código individual. Si no tiene cuenta, podrá completar el alta express; si ya tiene una identificación registrada, solo hará la selfie y la compararemos.
                           </div>
                         </>}
                       </>
@@ -919,7 +919,7 @@ function LaunchContent() {
                           </div>
                           <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700">
                             <p><strong>Acceso:</strong> invitación con enlace y correo separado con código.</p>
-                            <p className="mt-2"><strong>Identidad:</strong> cuenta con correo verificado y prueba de vida obligatoria.</p>
+                            <p className="mt-2"><strong>Identidad:</strong> código individual y prueba de vida obligatoria, sin inicio de sesión.</p>
                             <p className="mt-2"><strong>Firma:</strong> firma autógrafa digital.</p>
                             <p className="mt-4 text-xs text-slate-500">Si ya activaste un código para este formulario, se mostrará el mismo para conservar los accesos compartidos.</p>
                           </div>

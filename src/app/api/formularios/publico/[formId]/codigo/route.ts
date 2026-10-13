@@ -145,16 +145,26 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
   }
   if (!create) return NextResponse.json({ code }, { headers });
 
-  const { error: inviteeError } = await service.from('form_public_invitees').upsert({
-    form_id: formId,
-    recipient_email: recipientEmail,
-    recipient_name: '',
-    launch_prefill: {},
-    invited_by: user.id,
-    invited_at: new Date().toISOString(),
-  }, { onConflict: 'form_id,recipient_email' });
-  if (inviteeError)
-    return NextResponse.json({ error: 'No se pudieron guardar los datos del participante. Revisa la migración de invitaciones.' }, { status: 503, headers });
+  let recipientCode = '';
+  for (let attempt = 0; attempt < 4 && !recipientCode; attempt += 1) {
+    const candidate = createPublicCode();
+    const { error: inviteeError } = await service.from('form_public_invitees').upsert({
+      form_id: formId,
+      recipient_email: recipientEmail,
+      recipient_name: '',
+      launch_prefill: {},
+      invited_by: user.id,
+      invited_at: new Date().toISOString(),
+      code_lookup: publicCodeLookup(candidate),
+      code_hash: hashPublicCode(candidate),
+      code_ciphertext: encryptPublicCode(candidate),
+    }, { onConflict: 'form_id,recipient_email' });
+    if (!inviteeError) recipientCode = candidate;
+    else if (inviteeError.code !== '23505')
+      return NextResponse.json({ error: 'No se pudo guardar la invitación.' }, { status: 503, headers });
+  }
+  if (!recipientCode)
+    return NextResponse.json({ error: 'No se pudo generar el código de la invitación.' }, { status: 503, headers });
 
   const { data: launcherProfile } = await service.from('user_profiles')
     .select('full_name').eq('id', user.id).maybeSingle();
@@ -174,14 +184,14 @@ async function accessCode(request: NextRequest, context: { params: Promise<{ for
       { from, to: [recipientEmail], subject: `${launcherName} te ha enviado un formulario: ${form.name}`,
         html: buildFormEmail({ ...common, variant: 'public_invitation' }) },
       { from, to: [recipientEmail], subject: `Tu código de acceso al formulario: ${form.name}`,
-        html: buildFormEmail({ ...common, variant: 'public_code', accessCode: code }) },
+        html: buildFormEmail({ ...common, variant: 'public_code', accessCode: recipientCode }) },
     ]),
     signal: AbortSignal.timeout(20_000),
   }).catch(() => null);
   const delivery = await emailResponse?.json().catch(() => null);
   if (!emailResponse?.ok || !Array.isArray(delivery?.data) || delivery.data.length !== 2)
     return NextResponse.json({ error: 'No se pudieron aceptar los dos correos para envío. Inténtalo nuevamente.' }, { status: 502, headers });
-  return NextResponse.json({ code, emails_sent: 2 }, { headers });
+  return NextResponse.json({ code: recipientCode, emails_sent: 2 }, { headers });
 }
 
 export async function GET(request: NextRequest, context: { params: Promise<{ formId: string }> }) {
