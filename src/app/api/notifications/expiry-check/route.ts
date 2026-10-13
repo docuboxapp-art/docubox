@@ -19,12 +19,10 @@ const supabaseAdmin = createClient(
 // It handles two scenarios:
 //   1. Documents expiring within 72 hours → sends expiry warning to owner + participants
 //   2. Documents already past their expiry date → marks as 'vencido' and notifies all parties
-export async function POST(req: NextRequest) {
+async function runExpiryCheck(req: NextRequest, expectedSecret: string | undefined) {
   try {
-    // Simple secret check to prevent unauthorized calls
     const authHeader = req.headers.get('Authorization');
-    const secret = authHeader?.replace('Bearer ', '');
-    if (secret !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
@@ -275,4 +273,14 @@ export async function POST(req: NextRequest) {
     console.error('[expiry-check] Unexpected error:', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+// Vercel Cron sends a GET request authenticated with CRON_SECRET.
+export async function GET(req: NextRequest) {
+  return runExpiryCheck(req, process.env.CRON_SECRET);
+}
+
+// Keep the existing service-role POST contract until the old Supabase job is retired.
+export async function POST(req: NextRequest) {
+  return runExpiryCheck(req, process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
