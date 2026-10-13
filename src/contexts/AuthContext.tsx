@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createClient } from '../lib/supabase/client';
 import { useSessionTimeout } from '../hooks/useSessionTimeout';
+import { SessionLockPreferences } from '@/components/auth/SessionLockPreferences';
 
 const AuthContext = createContext<any>({});
 
@@ -28,10 +29,16 @@ function SessionTimeoutModal({
   visible,
   onContinue,
   onSignOut,
+  userId,
+  lockMinutes,
+  warningDismissed,
 }: {
   visible: boolean;
   onContinue: () => Promise<boolean | undefined>;
   onSignOut: () => Promise<void>;
+  userId?: string;
+  lockMinutes?: number;
+  warningDismissed?: boolean;
 }) {
   const [remaining, setRemaining] = useState(120); // 2 minutes in seconds
   const [actionPending, setActionPending] = useState<'continue' | 'signout' | null>(null);
@@ -82,7 +89,7 @@ function SessionTimeoutModal({
       aria-modal="true"
       aria-labelledby="session-timeout-title"
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+      <div className="max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-4">
         {/* Icon */}
         <div className="flex items-center justify-center w-14 h-14 rounded-full bg-amber-100 mx-auto">
           <svg
@@ -129,6 +136,15 @@ function SessionTimeoutModal({
             {actionPending === 'signout' ? 'Cerrando sesión...' : 'Cerrar sesión ahora'}
           </button>
         </div>
+        {userId && typeof lockMinutes === 'number' && (
+          <SessionLockPreferences
+            key={`${userId}-${lockMinutes}-${warningDismissed}`}
+            compact
+            userId={userId}
+            currentMinutes={lockMinutes}
+            currentDismissed={warningDismissed}
+          />
+        )}
       </div>
     </div>
   );
@@ -151,11 +167,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchUserProfile = useCallback(
     async (userId: string) => {
       try {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('user_profiles')
-          .select('id,email,full_name,nombre,apellido_paterno,apellido_materno,avatar_url,email_verified')
+          .select(
+            'id,email,full_name,nombre,apellido_paterno,apellido_materno,avatar_url,email_verified,session_lock_minutes,session_warning_dismissed'
+          )
           .eq('id', userId)
           .single();
+        if (error?.code === '42703' || error?.code === 'PGRST204') {
+          ({ data, error } = await supabase
+            .from('user_profiles')
+            .select(
+              'id,email,full_name,nombre,apellido_paterno,apellido_materno,avatar_url,email_verified'
+            )
+            .eq('id', userId)
+            .single());
+        }
         if (error) {
           setEmailVerified(false);
           setUserProfile(null);
@@ -212,7 +239,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchUserProfile, supabase]);
 
   // ── useSessionTimeout integration ─────────────────────────────────────────
-  const showSessionTimeoutWarning = useCallback(() => setShowTimeoutWarning(true), []);
+  const showSessionTimeoutWarning = useCallback(() => {
+    if (userProfile?.session_warning_dismissed !== true) setShowTimeoutWarning(true);
+  }, [userProfile?.session_warning_dismissed]);
   const hideSessionTimeoutWarning = useCallback(() => setShowTimeoutWarning(false), []);
   const { continueSession, signOutNow } = useSessionTimeout(!!user, {
     onShowWarning: showSessionTimeoutWarning,
@@ -307,7 +336,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider value={value}>
       {children}
       {showTimeoutWarning && (
-        <SessionTimeoutModal visible onContinue={continueSession} onSignOut={signOutNow} />
+        <SessionTimeoutModal
+          visible
+          onContinue={continueSession}
+          onSignOut={signOutNow}
+          userId={user?.id}
+          lockMinutes={userProfile?.session_lock_minutes}
+          warningDismissed={userProfile?.session_warning_dismissed}
+        />
       )}
     </AuthContext.Provider>
   );

@@ -225,6 +225,7 @@ function AccordionItem({
 
 export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props) {
   const searchParams = useSearchParams();
+  const preferencesUpdated = searchParams?.get('reason') === 'preferences-updated';
   const router = useRouter();
   const emailFromQuery = searchParams?.get('email')?.trim() || '';
   const [messageIndex, setMessageIndex] = useState(0);
@@ -790,7 +791,11 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
             </h1>
           )}
           <p className="mt-2 text-sm text-muted-foreground">
-            {userName ? 'Ingresa tus datos para continuar.' : LOGIN_MESSAGES[messageIndex].subtitle}
+            {preferencesUpdated
+              ? 'Tus preferencias de bloqueo se guardaron. Inicia sesión nuevamente para continuar.'
+              : userName
+                ? 'Ingresa tus datos para continuar.'
+                : LOGIN_MESSAGES[messageIndex].subtitle}
           </p>
         </div>
         <div className="space-y-4">

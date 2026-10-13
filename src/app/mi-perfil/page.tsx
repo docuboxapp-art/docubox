@@ -67,6 +67,7 @@ import TotpSetupModal from '@/components/totp/TotpSetupModal';
 import EfirmaStampSelector from './components/EfirmaStampSelector';
 import AutografaStampSelector from './components/AutografaStampSelector';
 import ClickSignStampSelector from './components/ClickSignStampSelector';
+import { SessionLockPreferences } from '@/components/auth/SessionLockPreferences';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1381,7 +1382,7 @@ function TotpBadge() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MiPerfilPage() {
-  const { user, refreshUserProfile } = useAuth();
+  const { user, userProfile, refreshUserProfile } = useAuth();
   const { workspaces, activeWorkspace, setActiveWorkspace, refreshWorkspaces } = useWorkspace();
   const [activeSection, setActiveSection] = useState('informacion-personal');
   const [deletionHistory, setDeletionHistory] = useState<DeletionHistoryEntry[]>([]);
@@ -3255,9 +3256,21 @@ export default function MiPerfilPage() {
           ...row,
           event_type: row.auth_method || 'login',
           device_name: null,
-          location: [row.city, row.country]
-            .filter((value: string | null) => value && !['unknown', 'desconocida', 'desconocido', 'red local', 'local', 'local/private network'].includes(value.toLowerCase()))
-            .join(', ') || null,
+          location:
+            [row.city, row.country]
+              .filter(
+                (value: string | null) =>
+                  value &&
+                  ![
+                    'unknown',
+                    'desconocida',
+                    'desconocido',
+                    'red local',
+                    'local',
+                    'local/private network',
+                  ].includes(value.toLowerCase())
+              )
+              .join(', ') || null,
           status: row.login_success === false ? 'failed' : 'success',
           created_at: row.accessed_at || row.created_at,
         }));
@@ -5782,6 +5795,15 @@ export default function MiPerfilPage() {
             </div>
           )}
         </div>
+
+        {typeof userProfile?.session_lock_minutes === 'number' && (
+          <SessionLockPreferences
+            key={`${user?.id}-${userProfile.session_lock_minutes}-${userProfile.session_warning_dismissed}`}
+            userId={user?.id}
+            currentMinutes={userProfile.session_lock_minutes}
+            currentDismissed={userProfile.session_warning_dismissed}
+          />
+        )}
 
         {/* Sesiones Activas */}
         <div className="bg-white border border-border rounded-xl p-5 flex flex-col gap-4">
