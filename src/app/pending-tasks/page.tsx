@@ -15,6 +15,7 @@ import { completionMode } from '@/lib/tasks/completion-policy';
 import { dueCalendarLabel, isScheduledForLater, toLocalDateTimeInput } from '@/lib/tasks/schedule';
 import { resourceStatusLabel } from '@/lib/tasks/resource-labels';
 import { isFinishedTask, matchesTaskStatus, taskStatusAtTime, visibleTaskStatus, type TaskStatus, type TaskStatusScope } from '@/lib/tasks/view-state';
+import { matchesQuickTaskFilters, type TaskOwnerScope, type TaskAttentionScope, type TaskOriginScope } from '@/lib/tasks/quick-filters';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -1277,18 +1278,17 @@ function DocumentoView({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (t:
 }
 
 // ─── Quick Filters ────────────────────────────────────────────────────────────
-const QUICK_FILTERS = [
-  { id: 'mis_tareas',       label: 'Mis tareas' },
-  { id: 'asignadas_por_mi', label: 'Creadas por mí' },
-  { id: 'vencidas',         label: 'Vencidas' },
-  { id: 'programadas',      label: 'Programadas' },
-  { id: 'bloqueadas',       label: 'Bloqueadas' },
-  { id: 'criticas',         label: 'Alta prioridad' },
-  { id: 'automaticas',      label: 'Del sistema' },
+const OWNER_FILTERS: { id: TaskOwnerScope; label: string }[] = [
+  { id: 'all', label: 'Todas' },
+  { id: 'assigned', label: 'Asignadas a mí' },
+  { id: 'created', label: 'Creadas por mí' },
 ];
-const QUICK_STATUS_FILTERS: Record<string, TaskStatus> = {
-  vencidas: 'vencida', programadas: 'programada', bloqueadas: 'bloqueada',
-};
+const ATTENTION_FILTERS: { id: TaskAttentionScope; label: string }[] = [
+  { id: 'all', label: 'Sin filtro' },
+  { id: 'overdue', label: 'Vencidas' },
+  { id: 'today', label: 'Vencen hoy' },
+  { id: 'priority', label: 'Alta prioridad' },
+];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PendingTasksPage() {
@@ -1299,7 +1299,9 @@ export default function PendingTasksPage() {
   const [typeScope, setTypeScope] = useState<string>('all');
   const [sortMode, setSortMode] = useState<'due' | 'recent' | 'priority'>('due');
   const [search, setSearch] = useState('');
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [ownerScope, setOwnerScope] = useState<TaskOwnerScope>('all');
+  const [attentionScope, setAttentionScope] = useState<TaskAttentionScope>('all');
+  const [originScope, setOriginScope] = useState<TaskOriginScope>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1378,15 +1380,6 @@ export default function PendingTasksPage() {
     }).catch(() => setError('No se pudo actualizar la vista de tareas. Vuelve a cargar para ver los cambios.'));
   }, [supabase]);
 
-  const toggleFilter = useCallback((id: string) => {
-    const status = QUICK_STATUS_FILTERS[id];
-    if (status) {
-      setStatusScope(previous => previous === status ? 'active' : status);
-      return;
-    }
-    setActiveFilters(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
-  }, []);
-
   const displayTasks = useMemo(() => tasks.map(task => taskAtTime(task, now)), [tasks, now]);
   const filtered = displayTasks.filter(task => {
     if (search) {
@@ -1398,19 +1391,16 @@ export default function PendingTasksPage() {
     if (!matchesTaskStatus(task, statusScope)) return false;
     if (kindScope !== 'all' && task.workKind !== kindScope) return false;
     if (typeScope !== 'all' && task.type !== typeScope) return false;
-    if (activeFilters.includes('mis_tareas') && task.assignedTo !== user?.id) return false;
-    if (activeFilters.includes('asignadas_por_mi') && (task.createdBy !== user?.id || task.origin !== 'manual')) return false;
-    if (activeFilters.includes('criticas') && !task.isCritical && !['critica','alta'].includes(task.priority)) return false;
-    if (activeFilters.includes('automaticas') && task.origin !== 'sistema') return false;
+    if (!matchesQuickTaskFilters(task, { owner: ownerScope, attention: attentionScope, origin: originScope, userId: user?.id ?? null, now })) return false;
     return true;
   }).sort((a, b) => sortMode === 'recent'
     ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     : sortMode === 'priority'
       ? ['critica','alta','media','baja'].indexOf(a.priority) - ['critica','alta','media','baja'].indexOf(b.priority)
       : (a.dueDate ? new Date(a.dueDate).getTime() : Infinity) - (b.dueDate ? new Date(b.dueDate).getTime() : Infinity));
-  const hasAppliedFilters = Boolean(search.trim() || statusScope !== 'active' || kindScope !== 'all' || typeScope !== 'all' || activeFilters.length);
+  const hasAppliedFilters = Boolean(search.trim() || statusScope !== 'active' || kindScope !== 'all' || typeScope !== 'all' || ownerScope !== 'all' || attentionScope !== 'all' || originScope !== 'all');
   const resetFilters = () => {
-    setSearch(''); setStatusScope('active'); setKindScope('all'); setTypeScope('all'); setActiveFilters([]);
+    setSearch(''); setStatusScope('active'); setKindScope('all'); setTypeScope('all'); setOwnerScope('all'); setAttentionScope('all'); setOriginScope('all');
   };
 
   const views: { id: ViewMode; label: string; icon: React.ElementType }[] = [
@@ -1495,7 +1485,7 @@ export default function PendingTasksPage() {
           <select aria-label="Tipo de trabajo" value={kindScope} onChange={event => setKindScope(event.target.value as typeof kindScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="all">Acciones y actividades</option><option value="accion">Acciones del proceso</option><option value="actividad">Actividades</option>
           </select>
-          <select aria-label="Estado" value={statusScope} onChange={event => setStatusScope(event.target.value as typeof statusScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+          <select aria-label="Estado" value={statusScope} onChange={event => { setStatusScope(event.target.value as typeof statusScope); setAttentionScope('all'); }} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="active">Todas las abiertas</option>
             {Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
             <option value="all">Todos los estados</option>
@@ -1503,31 +1493,39 @@ export default function PendingTasksPage() {
           <select aria-label="Tipo de tarea" value={typeScope} onChange={event => setTypeScope(event.target.value)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="all">Todos los tipos</option>{Object.entries(TASK_TYPE_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
           </select>
+          <select aria-label="Origen de la tarea" value={originScope} onChange={event => setOriginScope(event.target.value as TaskOriginScope)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
+            <option value="all">Todos los orígenes</option><option value="manual">Creadas manualmente</option><option value="sistema">Del sistema</option>
+          </select>
           <select aria-label="Ordenar tareas" value={sortMode} onChange={event => setSortMode(event.target.value as typeof sortMode)} className="ml-auto h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700">
             <option value="due">Próximo vencimiento</option><option value="recent">Más recientes</option><option value="priority">Prioridad</option>
           </select>
         </div>
 
         {/* Quick Filters */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3">
-          {QUICK_FILTERS.map(f => (
-            <button
-              key={f.id}
-              onClick={() => toggleFilter(f.id)}
-              aria-pressed={QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id)}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm font-500 transition-colors ${
-                (QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id))
-                  ? 'border-primary bg-primary text-white' :'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
-              }`}
-            >
-              {(QUICK_STATUS_FILTERS[f.id] ? statusScope === QUICK_STATUS_FILTERS[f.id] : activeFilters.includes(f.id)) && <X size={11} />}
-              {f.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-slate-200 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Responsabilidad">
+            <span className="mr-1 text-xs font-medium text-slate-500">Responsabilidad</span>
+            {OWNER_FILTERS.map(filter => (
+              <button key={filter.id} type="button" onClick={() => setOwnerScope(filter.id)} aria-pressed={ownerScope === filter.id}
+                className={`inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium transition-colors ${ownerScope === filter.id ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'}`}>
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Atención">
+            <span className="mr-1 text-xs font-medium text-slate-500">Atención</span>
+            {ATTENTION_FILTERS.map(filter => (
+              <button key={filter.id} type="button" onClick={() => { setAttentionScope(filter.id); if (filter.id !== 'all') setStatusScope('active'); }} aria-pressed={attentionScope === filter.id}
+                className={`inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium transition-colors ${attentionScope === filter.id ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'}`}>
+                {filter.label}
+              </button>
+            ))}
+          </div>
           {hasAppliedFilters && (
             <button
+              type="button"
               onClick={resetFilters}
-              className="inline-flex h-8 items-center rounded-md border border-dashed border-slate-300 px-3 text-sm font-500 text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-800"
+              className="inline-flex h-8 items-center rounded-md border border-dashed border-slate-300 px-3 text-sm font-medium text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-800"
             >
               Restablecer filtros
             </button>
@@ -1560,7 +1558,7 @@ export default function PendingTasksPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white py-16">
               <CheckSquare size={32} className="mb-3 text-slate-300" />
               <p className="text-sm font-semibold text-slate-900">{tasks.length ? 'Sin tareas que coincidan' : 'Aún no hay tareas'}</p>
-              <p className="mt-1 text-sm text-slate-500">{tasks.length ? 'Prueba con otro estado, tipo o término de búsqueda.' : 'Crea una tarea vinculada a un recurso existente.'}</p>
+              <p className="mt-1 text-sm text-slate-500">{tasks.length ? 'Cambia la responsabilidad, la atención o alguno de los filtros.' : 'Crea una tarea vinculada a un recurso existente.'}</p>
               <button type="button" onClick={tasks.length ? resetFilters : () => setShowNewTask(true)}
                 className="mt-4 flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90">
                 {tasks.length ? 'Restablecer filtros' : <><Plus size={15} />Nueva tarea</>}
