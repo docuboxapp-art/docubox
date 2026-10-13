@@ -65,12 +65,11 @@ const resourceTypes: Record<Exclude<CustomRule['target_kind'], 'task'>, string[]
     'revisar_documento',
     'aprobar_documento',
     'firmar_documento',
-    'subir_anexo',
     'revisar_vencimiento',
   ],
   form_template: ['seguimiento_formulario', 'revisar_documento', 'aprobar_documento'],
   template: ['revisar_documento', 'aprobar_documento'],
-  case_file: ['revisar_expediente', 'cerrar_expediente', 'subir_anexo'],
+  case_file: ['revisar_expediente', 'cerrar_expediente'],
   form_response: ['revisar_documento', 'aprobar_documento', 'corregir_datos'],
   user: ['validar_identidad'],
 };
