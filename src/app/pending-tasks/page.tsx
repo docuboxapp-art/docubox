@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
+import AppLogo from '@/components/ui/AppLogo';
 import { CheckSquare, Search, FileSignature, Eye, AlertTriangle, Flame, LayoutGrid, CalendarDays, List, ChevronLeft, ChevronRight, Inbox, X, MessageSquare, History, Shield, Link2, Play, CheckCircle2, XCircle, Download, Upload, UserCheck, FileText, FolderOpen, Zap, Bell, Plus, AlertCircle, Users, ClipboardCheck, Lock, RefreshCw, BookOpen, Star, Send, Cpu, Edit2, Trash2, Save, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -12,6 +13,7 @@ import NewTaskWizard from './components/NewTaskWizard';
 import { fetchAllPages } from '@/lib/tasks/pagination';
 import { completionMode } from '@/lib/tasks/completion-policy';
 import { dueCalendarLabel, isScheduledForLater, toLocalDateTimeInput } from '@/lib/tasks/schedule';
+import { resourceStatusLabel } from '@/lib/tasks/resource-labels';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TaskType =
@@ -325,7 +327,7 @@ function TaskGridCard({ task, onClick }: { task: Task; onClick: () => void }) {
   </button>;
 }
 
-// ─── Task Detail Drawer (45% lateral) ────────────────────────────────────────
+// ─── Full-screen task detail ─────────────────────────────────────────────────
 type DrawerTab = 'info' | 'checklist' | 'comentarios' | 'historial' | 'dependencias';
 
 function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceId, userId, userName, canReassign, canModerateComments }: {
@@ -386,6 +388,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [newAssignee, setNewAssignee] = useState(task.assignedTo || '');
   const [sourceInfo, setSourceInfo] = useState<{ name: string; status: string } | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(true);
   const [canCompleteSystem, setCanCompleteSystem] = useState(false);
 
   const typeInfo = TASK_TYPE_CONFIG[task.type] || TASK_TYPE_CONFIG.revisar_documento;
@@ -393,6 +396,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   const statusInfo = STATUS_CONFIG[task.status];
   const TypeIcon = typeInfo.icon;
   const doneCount = checklist.filter(c => c.done).length;
+  const blockingDependencies = dependencies.filter(dependency => dependency.status !== 'completada');
   const canManageTask = Boolean(canReassign || (userId && task.createdBy === userId));
   const canActTask = Boolean(canManageTask || (userId && task.assignedTo === userId));
   const canEditStructure = canActTask && !['completada', 'cancelada', 'rechazada'].includes(task.status);
@@ -411,42 +415,57 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
   useEffect(() => {
     if (!workspaceId) return;
-    if (task.sourceType === 'form_token' && task.sourceId) {
-      supabase.from('form_tokens').select('template_id,used_at,expires_at').eq('id', task.sourceId).maybeSingle()
-        .then(async ({ data: token }) => {
-          if (!token) return;
-          const { data: form } = await supabase.from('form_templates').select('name,status').eq('id', token.template_id).maybeSingle();
-          if (form) setSourceInfo({ name: form.name, status: token.used_at ? 'Respondida' : token.expires_at && new Date(token.expires_at) < new Date() ? 'Vencida' : 'Invitación pendiente' });
-        });
-    }
-    if (task.sourceType === 'participant_requirement' && task.sourceId) {
-      supabase.from('participant_document_requirements').select('name,status').eq('id', task.sourceId)
-        .maybeSingle().then(({ data }) => {
-          if (data) setSourceInfo({ name: data.name, status: data.status });
-        });
-    }
-    const sourceTable = task.sourceType === 'document' ? 'documentos'
-      : task.sourceType === 'case_file' ? 'case_files'
-      : task.sourceType === 'form_template' || task.sourceType === 'form_token' ? 'form_templates'
-      : task.sourceType === 'template' ? 'plantillas'
-      : task.sourceType === 'form_response' ? 'form_responses'
-      : task.sourceType === 'user' ? 'user_profiles'
-      : task.sourceType === 'task' ? 'tareas' : null;
-    const sourceId = sourceTable === 'documentos' ? task.documentId
-      : sourceTable === 'case_files' ? task.expedienteId : task.sourceId;
-    if (sourceTable && sourceId) {
+    let active = true;
+    const loadSource = async () => {
+      const sourceId = task.sourceId || task.documentId || task.expedienteId;
+      if (!sourceId) return;
+      if (task.sourceType === 'form_token') {
+        const { data: token } = await supabase.from('form_tokens').select('template_id,used_at,expires_at').eq('id', sourceId).maybeSingle();
+        if (!token) return;
+        const { data: form } = await supabase.from('form_templates').select('name').eq('id', token.template_id).maybeSingle();
+        if (active) setSourceInfo({ name: form?.name || 'Formulario', status: token.used_at ? 'Respondida' : token.expires_at && new Date(token.expires_at) < new Date() ? 'Vencida' : 'Invitación pendiente' });
+        return;
+      }
+      if (task.sourceType === 'participant_requirement') {
+        const { data } = await supabase.from('participant_document_requirements').select('name,status').eq('id', sourceId).maybeSingle();
+        if (active && data) setSourceInfo({ name: data.name, status: data.status });
+        return;
+      }
+      if (task.sourceType === 'form_response') {
+        const { data: response } = await supabase.from('form_responses').select('folio,respondent_name,submitted_at,status,template_id').eq('id', sourceId).maybeSingle();
+        if (!response) return;
+        const { data: form } = await supabase.from('form_templates').select('name').eq('id', response.template_id).maybeSingle();
+        const reference = response.folio || response.respondent_name || (response.submitted_at ? new Date(response.submitted_at).toLocaleDateString('es-MX') : sourceId.slice(0, 8).toUpperCase());
+        if (active) setSourceInfo({ name: `${form?.name || 'Formulario'} · ${reference}`, status: response.status });
+        return;
+      }
+      const sourceTable = task.sourceType === 'document' ? 'documentos'
+        : task.sourceType === 'case_file' ? 'case_files'
+        : task.sourceType === 'form_template' ? 'form_templates'
+        : task.sourceType === 'template' ? 'plantillas'
+        : task.sourceType === 'user' ? 'user_profiles'
+        : task.sourceType === 'task' ? 'tareas' : null;
+      if (!sourceTable) return;
       const nameField = sourceTable === 'case_files' || sourceTable === 'tareas' ? 'title'
-        : sourceTable === 'form_templates' ? 'name' : sourceTable === 'form_responses' ? 'folio'
-        : sourceTable === 'user_profiles' ? 'full_name' : 'nombre';
-      const stateField = ['case_files', 'form_templates', 'form_responses'].includes(sourceTable) ? 'status'
+        : sourceTable === 'form_templates' ? 'name' : sourceTable === 'user_profiles' ? 'full_name' : 'nombre';
+      const stateField = ['case_files', 'form_templates'].includes(sourceTable) ? 'status'
         : ['documentos', 'tareas', 'plantillas'].includes(sourceTable) ? 'estado' : null;
-      supabase.from(sourceTable).select('*').eq('id', sourceId).maybeSingle()
-        .then(({ data }) => { if (data) { const row = data as unknown as Record<string, unknown>; setSourceInfo({ name: String(row[nameField] || ''), status: stateField ? String(row[stateField] || '') : 'Usuario del espacio' }); } });
-    }
+      const { data } = await supabase.from(sourceTable).select('*').eq('id', sourceId).maybeSingle();
+      if (active && data) {
+        const row = data as unknown as Record<string, unknown>;
+        setSourceInfo({ name: String(row[nameField] || row.email || ''), status: stateField ? String(row[stateField] || '') : 'Usuario del espacio' });
+      }
+    };
+    void loadSource().catch(() => { /* The resource may have been removed or access revoked. */ })
+      .finally(() => { if (active) setSourceLoading(false); });
     if (canReassign) {
       supabase.from('workspace_members').select('user_id,user_profiles!workspace_members_user_id_fkey(full_name,email)').eq('workspace_id', workspaceId).eq('status', 'active')
-        .then(({ data }) => setMembers((data || []).map((member: any) => ({ id: member.user_id, name: member.user_profiles?.full_name || member.user_profiles?.email || 'Usuario' }))));
+        .then(({ data }) => { if (active) setMembers((data || []).map((member: any) => {
+          const profile = Array.isArray(member.user_profiles) ? member.user_profiles[0] : member.user_profiles;
+          return { id: member.user_id, name: profile?.full_name || profile?.email || 'Usuario' };
+        })); });
     }
+    return () => { active = false; };
   }, [workspaceId, task.sourceType, task.sourceId, task.documentId, task.expedienteId, canReassign, supabase]);
 
   const runAction = async (action: 'open' | 'start' | 'complete' | 'cancel' | 'remind' | 'reassign') => {
@@ -455,17 +474,18 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     const session = await supabase.auth.getSession();
     const jwt = session.data.session?.access_token;
     if (!jwt) { setActionError('Tu sesión expiró.'); setActionBusy(false); return; }
+    try {
     const response = await fetch(`/api/tareas/${task.id}/action`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({ workspaceId, action, reason: action === 'cancel' ? cancelReason : action === 'complete' ? completionReason || undefined : undefined,
         assigneeId: action === 'reassign' ? newAssignee : undefined }),
     });
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
     if (!response.ok) { setActionError(result.error || 'No se pudo realizar la acción.'); setActionBusy(false); return; }
     if (action === 'open' && result.href) {
       if (result.href.startsWith('/mis-tareas?task=')) {
         const linkedId = new URL(result.href, window.location.origin).searchParams.get('task');
-        if (linkedId && onOpenTask(linkedId)) return;
+        if (linkedId && onOpenTask(linkedId)) { setActionBusy(false); return; }
         setActionError('La tarea vinculada no está disponible en este espacio.');
         setActionBusy(false);
         return;
@@ -479,6 +499,10 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     if (latestHistory) setHistory(latestHistory.map((entry: any) => ({ id: entry.id, action: entry.action, user: entry.actor_name,
       date: entry.created_at, icon: ICON_MAP[entry.icon_name] || Plus, color: entry.color })));
     setActionBusy(false);
+    } catch {
+      setActionError('No se pudo conectar con el servicio de tareas. Inténtalo de nuevo.');
+      setActionBusy(false);
+    }
   };
 
   // Load relational data from dedicated tables
@@ -487,16 +511,16 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
     // Load checklist from dedicated table
     supabase.from('task_checklist_items').select('*').eq('tarea_id', task.id).order('position', { ascending: true })
-      .then(({ data }) => { if (data && data.length > 0) setChecklist(data.map((r: any) => ({ id: r.id, text: r.text, done: r.done, position: r.position }))); });
+      .then(({ data }) => { if (data) setChecklist(data.map((r: any) => ({ id: r.id, text: r.text, done: r.done, position: r.position }))); });
 
     // Load comments from dedicated table
     supabase.from('task_comments').select('*').eq('tarea_id', task.id).order('created_at', { ascending: true })
-      .then(({ data }) => { if (data && data.length > 0) setComments(data.map((r: any) => ({ id: r.id, authorId: r.author_id, author: r.author_name, avatar: r.author_avatar, text: r.text, date: r.created_at }))); });
+      .then(({ data }) => { if (data) setComments(data.map((r: any) => ({ id: r.id, authorId: r.author_id, author: r.author_name, avatar: r.author_avatar, text: r.text, date: r.created_at }))); });
 
     // Load history from dedicated table
     supabase.from('task_history').select('*').eq('tarea_id', task.id).order('created_at', { ascending: false })
       .then(({ data }) => {
-        if (data && data.length > 0) {
+        if (data) {
           setHistory(data.map((r: any) => ({ id: r.id, action: r.action, user: r.actor_name, date: r.created_at, icon: ICON_MAP[r.icon_name] || Plus, color: r.color })));
         }
       });
@@ -504,7 +528,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     // Load dependencies
     supabase.from('task_dependencies').select('depends_on_id, tareas!task_dependencies_depends_on_id_fkey(id, title, estado)').eq('tarea_id', task.id)
       .then(({ data }) => {
-        if (data && data.length > 0) {
+        if (data) {
           setDependencies(data.map((r: any) => ({
             id: r.depends_on_id,
             taskId: r.depends_on_id.slice(0, 8).toUpperCase(),
@@ -544,7 +568,9 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     const { error } = await supabase.from('task_checklist_items').update({ done: newDone }).eq('id', itemId);
     if (error) { setActionError(error.message); return; }
     setChecklist(prev => prev.map(c => c.id === itemId ? { ...c, done: newDone } : c));
+    setActionError('');
     await refreshHistory();
+    onTaskUpdated(task.id);
   };
 
   const handleAddCheckItem = async () => {
@@ -556,7 +582,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       text: newItem.text, done: false, position: newItem.position, created_by: userId,
     });
     if (error) setActionError(error.message);
-    else { setChecklist(prev => [...prev, newItem]); setNewCheckItem(''); await refreshHistory(); }
+    else { setChecklist(prev => [...prev, newItem]); setNewCheckItem(''); setActionError(''); await refreshHistory(); onTaskUpdated(task.id); }
     setAddingCheck(false);
   };
 
@@ -564,7 +590,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     if (!canEditStructure) return;
     const { error } = await supabase.from('task_checklist_items').delete().eq('id', itemId);
     if (error) setActionError(error.message);
-    else { setChecklist(prev => prev.filter(c => c.id !== itemId)); await refreshHistory(); }
+    else { setChecklist(prev => prev.filter(c => c.id !== itemId)); setActionError(''); await refreshHistory(); onTaskUpdated(task.id); }
   };
 
   // ── Comment operations ──
@@ -578,14 +604,14 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       author_id: userId, author_name: newC.author, author_avatar: avatar, text: newC.text,
     });
     if (error) setActionError(error.message);
-    else { setComments(prev => [...prev, newC]); setNewComment(''); await refreshHistory(); }
+    else { setComments(prev => [...prev, newC]); setNewComment(''); setActionError(''); await refreshHistory(); }
     setSendingComment(false);
   };
 
   const handleDeleteComment = async (commentId: string) => {
     const { error } = await supabase.from('task_comments').delete().eq('id', commentId);
     if (error) setActionError(error.message);
-    else { setComments(prev => prev.filter(c => c.id !== commentId)); await refreshHistory(); }
+    else { setComments(prev => prev.filter(c => c.id !== commentId)); setActionError(''); await refreshHistory(); }
   };
 
   // ── Dependency operations ──
@@ -600,7 +626,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
       tarea_id: task.id, depends_on_id: selectedDepTask, workspace_id: workspaceId,
     });
     if (error) setActionError(error.message);
-    else { setDependencies(prev => [...prev, newDep]); setSelectedDepTask(''); await refreshHistory(); }
+    else { setDependencies(prev => [...prev, newDep]); setSelectedDepTask(''); setActionError(''); await refreshHistory(); }
     setAddingDep(false);
   };
 
@@ -608,7 +634,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     if (!canEditStructure) return;
     const { error } = await supabase.from('task_dependencies').delete().eq('tarea_id', task.id).eq('depends_on_id', depId);
     if (error) setActionError(error.message);
-    else { setDependencies(prev => prev.filter(d => d.id !== depId)); await refreshHistory(); }
+    else { setDependencies(prev => prev.filter(d => d.id !== depId)); setActionError(''); await refreshHistory(); }
   };
 
   // ── Edit task ──
@@ -618,18 +644,21 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
     const session = await supabase.auth.getSession();
     const jwt = session.data.session?.access_token;
     if (!jwt || !workspaceId) { setActionError('Tu sesión expiró.'); setSavingEdit(false); return; }
+    try {
     const response = await fetch(`/api/tareas/${task.id}/action`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({ workspaceId, action: 'edit', title: editForm.title,
         description: editForm.description, priority: editForm.prioridad,
         dueDate: editForm.due_date ? new Date(editForm.due_date).toISOString() : null,
         scheduledFor: editForm.scheduled_for ? new Date(editForm.scheduled_for).toISOString() : null }) });
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
     if (response.ok) {
       onTaskUpdated(task.id);
       setEditMode(false);
     } else setActionError(result.error || 'No se pudo guardar la actividad.');
-    setSavingEdit(false);
+    } catch {
+      setActionError('No se pudo conectar con el servicio de tareas. Inténtalo de nuevo.');
+    } finally { setSavingEdit(false); }
   };
 
   const tabs: { id: DrawerTab; label: string; icon: React.ElementType; count?: number }[] = [
@@ -643,59 +672,58 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
   return (
     <div role="dialog" aria-modal="true" aria-label={`Detalle de ${task.title}`} className="fixed inset-0 z-[70] overflow-hidden bg-white">
       <div className="flex h-full w-full flex-col overflow-hidden bg-white">
-        {/* Header */}
-        <div className="flex items-start gap-3 border-b border-border bg-white px-5 py-4 sm:px-6">
-          <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${typeInfo.bg} ${typeInfo.border}`}>
-            <TypeIcon size={18} className={typeInfo.color} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <span className="font-mono text-xs text-muted-foreground">{task.id.slice(0,8).toUpperCase()}</span>
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusInfo.className}`}>{statusInfo.label}</span>
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityInfo.className}`}>{priorityInfo.label}</span>
-            </div>
-            <h2 className="text-xl font-semibold leading-snug text-foreground">{task.title}</h2>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {canManageTask && task.origin === 'manual' && !['completada','cancelada','rechazada'].includes(task.status) && <button
-              onClick={() => setEditMode(v => !v)}
-              className={`p-1.5 rounded-lg transition-colors ${editMode ? 'bg-primary text-white' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-              title="Editar tarea"
-            >
-              <Edit2 size={14} />
-            </button>}
-            <button onClick={handleClose} className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              <X size={16} />Cerrar
-            </button>
-          </div>
-        </div>
+        <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
+          <AppLogo size={34} imageClassName="max-sm:w-24" />
+          <span className="truncate text-center text-sm font-medium text-slate-600">Mis Tareas <span className="text-slate-400">/</span> Detalle</span>
+          <button type="button" onClick={handleClose} className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:px-3">
+            <X size={16} /><span className="hidden sm:inline">Cerrar</span>
+          </button>
+        </header>
 
-        {/* Tabs — matching mis-participaciones style: text-sm, px-4 py-2 */}
-        <div className="flex gap-0 overflow-x-auto border-b border-border bg-white px-5 sm:px-6">
+        <section className="shrink-0 border-b border-slate-200 bg-[#edf3f8] px-4 py-3 lg:px-6">
+          <div className="mx-auto flex w-full max-w-[1480px] items-start gap-3">
+            <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${typeInfo.bg} ${typeInfo.border}`}><TypeIcon size={18} className={typeInfo.color} /></span>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs text-slate-500">{task.id.slice(0, 8).toUpperCase()}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusInfo.className}`}>{statusInfo.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${priorityInfo.className}`}>{priorityInfo.label}</span>
+              </div>
+              <h1 className="break-words text-[20px] font-normal leading-snug text-slate-950">{task.title}</h1>
+            </div>
+            {canManageTask && task.origin === 'manual' && !['completada','cancelada','rechazada'].includes(task.status) && <button type="button"
+              onClick={() => setEditMode(value => !value)} aria-label={editMode ? 'Cancelar edición' : 'Editar tarea'} title={editMode ? 'Cancelar edición' : 'Editar tarea'}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${editMode ? 'border-primary bg-primary text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-primary hover:text-primary'}`}
+            ><Edit2 size={16} /></button>}
+          </div>
+        </section>
+
+        <nav aria-label="Secciones de la tarea" className="flex shrink-0 gap-0 overflow-x-auto border-b border-slate-200 bg-white px-4 sm:px-6">
           {tabs.map(t => {
             const TIcon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                aria-current={tab === t.id ? 'page' : undefined}
+                className={`flex min-h-12 items-center gap-2 border-b-2 px-3 text-sm font-medium whitespace-nowrap transition-colors sm:px-4 ${
                   tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <TIcon size={13} />
+                <TIcon size={16} />
                 {t.label}
                 {t.count !== undefined && t.count > 0 && (
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${tab === t.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${tab === t.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                     {t.count}
                   </span>
                 )}
               </button>
             );
           })}
-        </div>
+        </nav>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-white px-5 py-8 sm:px-8 lg:px-12">
+        <main className="flex-1 overflow-y-auto bg-white px-4 py-6 sm:px-8 lg:px-10">
           <div className="mx-auto w-full max-w-[1080px] space-y-8 pb-12">
           {actionError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
@@ -758,16 +786,18 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                     <h3 id="task-detail-heading" className="text-base font-semibold text-slate-900">Información de la tarea</h3>
                     <dl className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
                       {[
+                        { label: 'Tipo de trabajo', value: task.workKind === 'accion' ? 'Acción del proceso' : 'Actividad' },
                         { label: 'Tipo de tarea', value: typeInfo.label },
                         { label: 'Estado', value: statusInfo.label },
                         { label: 'Prioridad', value: priorityInfo.label },
                         { label: 'Riesgo', value: RISK_CONFIG[task.risk].label },
+                        { label: 'Creada el', value: task.createdAt ? `${formatDate(task.createdAt)} · ${formatTime(task.createdAt)}` : '—' },
                         ...(task.scheduledFor ? [{ label: 'Inicio programado', value: `${formatDate(task.scheduledFor)} · ${formatTime(task.scheduledFor)}` }] : []),
                         { label: 'Fecha límite', value: formatDate(task.dueDate) },
                         { label: 'Responsable', value: task.responsible || '—' },
                         { label: 'Creador', value: task.creator || '—' },
                         { label: 'Recurso vinculado', value: sourceInfo?.name || task.documentName || task.expedienteName || '—' },
-                        { label: 'Estado del recurso', value: sourceInfo?.status || 'Estado no disponible' },
+                        { label: 'Estado del recurso', value: sourceLoading ? 'Consultando estado…' : resourceStatusLabel(sourceInfo?.status) || 'Estado no disponible' },
                       ].filter(item => Boolean(item.value)).map(item => (
                         <div key={item.label} className="min-w-0 space-y-1">
                           <dt className="text-xs font-medium text-slate-500">{item.label}</dt>
@@ -809,12 +839,13 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                         ? 'Describe qué hiciste y cuál fue el resultado. Esta constancia quedará guardada en el historial de la tarea.'
                         : 'Comprobaremos el resultado en el recurso vinculado antes de cerrar. Puedes agregar una nota para el historial.'}</p>
                       {checklist.length > doneCount && <p className="mt-2 text-sm text-amber-700">Primero completa los {checklist.length - doneCount} elementos pendientes del checklist.</p>}
+                      {blockingDependencies.length > 0 && <p className="mt-2 text-sm text-amber-700">Completa primero {blockingDependencies.length === 1 ? 'la tarea vinculada pendiente' : `las ${blockingDependencies.length} tareas vinculadas pendientes`} en Dependencias.</p>}
                       <label className="mt-3 block text-sm font-medium text-slate-700">Nota de cierre{completionNeedsAttestation ? ' *' : ''}
                         <textarea value={completionReason} onChange={event => setCompletionReason(event.target.value)} maxLength={1000} rows={3}
                           placeholder={completionNeedsAttestation ? 'Ej. Revisé el documento y confirmé los datos solicitados…' : 'Información adicional sobre el resultado'}
                           className="mt-1 w-full rounded-md border border-slate-200 bg-white p-3 text-sm font-normal" />
                       </label>
-                      <button onClick={() => runAction('complete')} disabled={actionBusy || checklist.length > doneCount || (completionNeedsAttestation && completionReason.trim().length < 15)}
+                      <button onClick={() => runAction('complete')} disabled={actionBusy || checklist.length > doneCount || blockingDependencies.length > 0 || (completionNeedsAttestation && completionReason.trim().length < 15)}
                         className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-green-700 px-4 text-sm font-semibold text-white disabled:opacity-50"><CheckCircle2 size={16} />Confirmar cierre</button>
                     </div>}
                     {reassignOpen && <div className="mt-3 flex max-w-lg gap-2"><select aria-label="Nuevo responsable" value={newAssignee} onChange={event => setNewAssignee(event.target.value)} className="h-10 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="">Selecciona un integrante</option>{members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button onClick={() => runAction('reassign')} disabled={!newAssignee || actionBusy} className="rounded-md bg-blue-600 px-4 text-sm text-white disabled:opacity-50">Guardar</button></div>}
@@ -827,28 +858,29 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
 
           {/* ── Checklist ── */}
           {tab === 'checklist' && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Progreso</p>
-                <span className="text-xs font-semibold text-primary">{doneCount}/{checklist.length} completados</span>
+            <section aria-label="Checklist de la tarea" className="space-y-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div><h2 className="text-base font-semibold text-slate-900">Checklist</h2><p className="mt-1 text-sm text-slate-500">Elementos necesarios para completar esta tarea.</p></div>
+                <span className="shrink-0 text-sm font-medium text-primary">{doneCount}/{checklist.length} completados</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden mb-4">
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${checklist.length > 0 ? (doneCount/checklist.length)*100 : 0}%` }} />
               </div>
 
               {/* Add new item */}
-              {canEditStructure && <div className="flex gap-2 mb-4">
+              {canEditStructure && <div className="mb-4 flex gap-2">
                 <input
+                  aria-label="Nuevo elemento del checklist"
                   value={newCheckItem}
                   onChange={e => setNewCheckItem(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAddCheckItem()}
                   placeholder="Agregar elemento al checklist..."
-                  className="flex-1 text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   onClick={handleAddCheckItem}
                   disabled={addingCheck || !newCheckItem.trim()}
-                  className="px-3 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  className="flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
                   {addingCheck ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus size={13} />}
                   Agregar
@@ -862,32 +894,33 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                 </div>
               )}
               {checklist.map(item => (
-                <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors group">
+                <div key={item.id} className="group flex min-h-14 items-center gap-3 border-b border-slate-100 py-3">
                   <button type="button" disabled={!canEditStructure} aria-label={`${item.done ? 'Marcar pendiente' : 'Completar'} ${item.text}`} aria-pressed={item.done}
                     onClick={() => handleChecklistToggle(item.id)}
-                    className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${item.done ? 'bg-primary border-primary' : 'border-border hover:border-primary/50'}`}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors disabled:cursor-default ${item.done ? 'bg-primary border-primary' : 'border-slate-300 hover:border-primary/50'}`}
                   >
-                    {item.done && <CheckCircle2 size={10} className="text-white" />}
+                    {item.done && <CheckCircle2 size={12} className="text-white" />}
                   </button>
                   <span
                     className={`flex-1 text-sm transition-colors ${item.done ? 'line-through text-muted-foreground' : 'text-foreground'}`}
                   >
                     {item.text}
                   </span>
-                  {canEditStructure && <button
+                  {canEditStructure && <button type="button" aria-label={`Eliminar ${item.text}`}
                     onClick={() => handleDeleteCheckItem(item.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all"
+                    className="rounded p-2 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={16} />
                   </button>}
                 </div>
               ))}
-            </div>
+            </section>
           )}
 
           {/* ── Comentarios ── */}
           {tab === 'comentarios' && (
-            <div className="space-y-4">
+            <section aria-label="Comentarios de la tarea" className="space-y-5">
+              <div><h2 className="text-base font-semibold text-slate-900">Comentarios</h2><p className="mt-1 text-sm text-slate-500">Registra avances o contexto para quienes participan en esta tarea.</p></div>
               {comments.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
@@ -897,45 +930,49 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
               {comments.map(c => (
                 <div key={c.id} className="flex gap-3 group">
                   <Avatar initials={c.avatar} size="sm" />
-                  <div className="flex-1 bg-muted/30 rounded-xl p-3">
+                  <div className="min-w-0 flex-1 rounded-lg bg-slate-50 p-4">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-foreground">{c.author}</span>
+                      <span className="text-sm font-medium text-slate-900">{c.author}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground">{formatDate(c.date)} {formatTime(c.date)}</span>
-                        {(c.authorId === userId || canModerateComments) && <button onClick={() => handleDeleteComment(c.id)} aria-label={`Eliminar comentario de ${c.author}`} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
-                          <Trash2 size={11} />
+                        <span className="text-xs text-slate-500">{formatDate(c.date)} {formatTime(c.date)}</span>
+                        {(c.authorId === userId || canModerateComments) && <button type="button" onClick={() => handleDeleteComment(c.id)} aria-label={`Eliminar comentario de ${c.author}`} className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600">
+                          <Trash2 size={15} />
                         </button>}
                       </div>
                     </div>
-                    <p className="text-xs text-foreground/80 leading-relaxed">{c.text}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{c.text}</p>
                   </div>
                 </div>
               ))}
-              <div className="flex gap-2 mt-4 pt-4 border-t border-border">
+              <div className="mt-4 flex gap-3 border-t border-slate-200 pt-4">
                 <Avatar initials={(userName || 'YO').slice(0, 2).toUpperCase()} size="sm" />
-                <div className="flex-1 flex gap-2">
-                  <input
+                <div className="flex min-w-0 flex-1 flex-col items-end gap-2">
+                  <textarea
+                    aria-label="Escribir comentario"
                     value={newComment}
                     onChange={e => setNewComment(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
-                    placeholder="Escribe un comentario..."
-                    className="flex-1 text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void handleSendComment(); } }}
+                    placeholder="Escribe un comentario o actualización..."
+                    rows={3} maxLength={2000}
+                    className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
-                  <button
+                  <button type="button"
                     onClick={handleSendComment}
                     disabled={sendingComment || !newComment.trim()}
-                    className="px-3 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                   >
-                    {sendingComment ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Send size={13} />}
+                    {sendingComment ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Send size={16} />}
+                    Enviar comentario
                   </button>
                 </div>
               </div>
-            </div>
+            </section>
           )}
 
           {/* ── Historial ── */}
           {tab === 'historial' && (
-            <div className="space-y-1">
+            <section aria-label="Historial de la tarea" className="space-y-3">
+              <div><h2 className="text-base font-semibold text-slate-900">Historial</h2><p className="mt-1 text-sm text-slate-500">Cambios y resultados registrados para esta tarea.</p></div>
               {history.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <History size={28} className="mx-auto mb-2 opacity-30" />
@@ -953,26 +990,28 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                       {i < history.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
                     </div>
                     <div className="pb-4 flex-1">
-                      <p className="text-xs text-foreground leading-snug">{a.action}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{a.user} · {formatDate(a.date)} {formatTime(a.date)}</p>
+                      <p className="text-sm leading-6 text-slate-800">{a.action}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{a.user} · {formatDate(a.date)} {formatTime(a.date)}</p>
                     </div>
                   </div>
                 );
               })}
-            </div>
+            </section>
           )}
 
           {/* ── Dependencias ── */}
           {tab === 'dependencias' && (
-            <div className="space-y-3">
+            <section aria-label="Dependencias de la tarea" className="space-y-4">
+              <div><h2 className="text-base font-semibold text-slate-900">Dependencias</h2><p className="mt-1 text-sm text-slate-500">Completa las tareas vinculadas antes de cerrar esta tarea.</p></div>
               {/* Add dependency */}
-              {canEditStructure && <div className="flex gap-2 mb-4">
+              {canEditStructure && <div className="mb-4 flex gap-2">
                 <select
+                  aria-label="Tarea de la que depende"
                   value={selectedDepTask}
                   onChange={e => setSelectedDepTask(e.target.value)}
-                  className="flex-1 text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  <option value="">— Seleccionar tarea dependiente —</option>
+                  <option value="">— Selecciona la tarea que debe completarse antes —</option>
                   {availableTasks
                     .filter(t => !dependencies.some(d => d.id === t.id))
                     .map(t => (
@@ -982,7 +1021,7 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                 <button
                   onClick={handleAddDependency}
                   disabled={addingDep || !selectedDepTask}
-                  className="px-3 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  className="flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
                   {addingDep ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Plus size={13} />}
                   Agregar
@@ -998,24 +1037,25 @@ function TaskDetailDrawer({ task, onClose, onTaskUpdated, onOpenTask, workspaceI
                 dependencies.map(d => {
                   const s = STATUS_CONFIG[d.status] || STATUS_CONFIG['pendiente'];
                   return (
-                    <div key={d.id} className="flex items-center gap-3 p-3 border border-border rounded-xl group">
-                      <Link2 size={14} className="text-muted-foreground flex-shrink-0" />
+                    <div key={d.id} className="flex min-h-16 items-center gap-3 border-b border-slate-100 py-3">
+                      <Link2 size={16} className="shrink-0 text-slate-500" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-foreground">{d.title}</p>
-                        <p className="text-[10px] text-muted-foreground">{d.taskId}</p>
+                        <p className="break-words text-sm font-medium text-slate-900">{d.title}</p>
+                        <p className="mt-0.5 font-mono text-xs text-slate-500">{d.taskId}</p>
                       </div>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s.className}`}>{s.label}</span>
-                      {canEditStructure && <button onClick={() => handleRemoveDependency(d.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all">
-                        <X size={12} />
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${s.className}`}>{s.label}</span>
+                      <button type="button" onClick={() => { if (!onOpenTask(d.id)) setActionError('La tarea vinculada no está disponible en este espacio.'); }} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-primary hover:bg-blue-50">Ver tarea</button>
+                      {canEditStructure && <button type="button" onClick={() => handleRemoveDependency(d.id)} aria-label={`Quitar dependencia ${d.title}`} className="rounded p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600">
+                        <X size={16} />
                       </button>}
                     </div>
                   );
                 })
               )}
-            </div>
+            </section>
           )}
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );
@@ -1241,12 +1281,22 @@ export default function PendingTasksPage() {
       if (!user) { setTasks([]); setLoading(false); return; }
 
       if (!activeWorkspaceId) { setTasks([]); return; }
-      const rows = await fetchAllPages((from, to) => supabase.from('tareas').select('*')
+      const [rows, checklistRows] = await Promise.all([
+        fetchAllPages((from, to) => supabase.from('tareas').select('*')
           .eq('workspace_id', activeWorkspaceId)
           .not('source_id', 'is', null)
           .order('created_at', { ascending: false }).order('id', { ascending: false })
-          .range(from, to));
-      setTasks(rows.map(mapRowToTask));
+          .range(from, to)),
+        fetchAllPages((from, to) => supabase.from('task_checklist_items').select('id,tarea_id,text,done,position')
+          .eq('workspace_id', activeWorkspaceId).order('id').range(from, to)),
+      ]);
+      const checklistByTask = new Map<string, ChecklistItem[]>();
+      for (const item of checklistRows) {
+        const items = checklistByTask.get(item.tarea_id) || [];
+        items.push({ id: item.id, text: item.text, done: item.done, position: item.position });
+        checklistByTask.set(item.tarea_id, items);
+      }
+      setTasks(rows.map(row => ({ ...mapRowToTask(row), checklist: (checklistByTask.get(row.id) || []).sort((a, b) => (a.position || 0) - (b.position || 0)) })));
       window.dispatchEvent(new Event('docubox:tasks-changed'));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Error inesperado al cargar las tareas.');
@@ -1270,14 +1320,22 @@ export default function PendingTasksPage() {
   }, [selectedTask, tasks]);
 
   const handleTaskUpdated = useCallback((taskId: string) => {
-    // Refresh the specific task
-    supabase.from('tareas').select('*').eq('id', taskId).single().then(({ data }) => {
+    Promise.all([
+      supabase.from('tareas').select('*').eq('id', taskId).single(),
+      supabase.from('task_checklist_items').select('id,text,done,position').eq('tarea_id', taskId).order('position', { ascending: true }),
+    ]).then(([{ data, error: taskError }, { data: items, error: checklistError }]) => {
+      if (taskError || checklistError) {
+        setError('No se pudo actualizar la vista de tareas. Vuelve a cargar para ver los cambios.');
+        return;
+      }
       if (data) {
-        setTasks(prev => prev.map(t => t.id === taskId ? mapRowToTask(data) : t));
-        setSelectedTask(prev => prev?.id === taskId ? mapRowToTask(data) : prev);
+        const updated = mapRowToTask(data);
+        if (items) updated.checklist = items.map(item => ({ id: item.id, text: item.text, done: item.done, position: item.position }));
+        setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+        setSelectedTask(prev => prev?.id === taskId ? updated : prev);
         window.dispatchEvent(new Event('docubox:tasks-changed'));
       }
-    });
+    }).catch(() => setError('No se pudo actualizar la vista de tareas. Vuelve a cargar para ver los cambios.'));
   }, [supabase]);
 
   const toggleFilter = useCallback((id: string) => {

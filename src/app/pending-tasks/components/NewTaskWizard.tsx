@@ -8,25 +8,11 @@ import { fetchAllPages } from '@/lib/tasks/pagination';
 import { completionMode } from '@/lib/tasks/completion-policy';
 import { taskResourceIsEligible } from '@/lib/tasks/resource-eligibility';
 import { scheduleValidationError } from '@/lib/tasks/schedule';
+import { resourceStatusLabel } from '@/lib/tasks/resource-labels';
 
 type SourceKind = 'document' | 'form_template' | 'template' | 'case_file' | 'form_response' | 'user' | 'task' | 'participant_requirement';
 type Option = { id: string; name: string; status?: string };
 type Member = { id: string; name: string };
-
-const resourceStatusLabels: Record<string, string> = {
-  en_proceso: 'En proceso', borrador: 'Borrador', completado: 'Completado',
-  pendiente: 'Pendiente', cancelado: 'Cancelado', rechazado: 'Rechazado',
-  publicado: 'Publicado', archivado: 'Archivado', activo: 'Activo',
-  draft: 'Borrador', published: 'Publicado', active: 'Activo',
-  completed: 'Completado', pending: 'Pendiente', rejected: 'Rechazado',
-  signed: 'Firmado', submitted: 'Enviado', pending_signature: 'Pendiente de firma',
-  signing: 'En firma', ready_to_close: 'Listo para cerrar', closed: 'Cerrado',
-};
-
-function resourceStatusLabel(status?: string) {
-  if (!status) return '';
-  return resourceStatusLabels[status] || status.replaceAll('_', ' ');
-}
 
 function memberDisplayName(value: unknown): string {
   const profile = Array.isArray(value) ? value[0] : value;
