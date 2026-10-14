@@ -544,6 +544,25 @@ const MI_ESPACIO_SORT_OPTIONS: { value: MiEspacioSortField; label: string }[] = 
   { value: 'estado', label: 'Estado' },
 ];
 
+const SORT_COLUMN_BY_FIELD: Partial<Record<MiEspacioSortField, string>> = {
+  operativo: 'prioridad',
+  ultimaModificacion: 'ultimaModificacion',
+  fechaCreacion: 'fechaCreacion',
+  fechaCompletado: 'fechaCompletado',
+  fechaVencimiento: 'fechaVencimiento',
+  estado: 'estado',
+};
+
+function sortDirectionLabel(field: MiEspacioSortField, direction: MiEspacioSortDirection) {
+  if (field === 'operativo') {
+    return direction === 'desc' ? 'De mayor a menor prioridad' : 'De menor a mayor prioridad';
+  }
+  if (field === 'nombre' || field === 'estado') {
+    return direction === 'asc' ? 'De la A a la Z' : 'De la Z a la A';
+  }
+  return direction === 'asc' ? 'De antigua a nueva' : 'De nueva a antigua';
+}
+
 const documentNameCollator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 
 function compareSortDates(
@@ -2484,14 +2503,55 @@ function MisDocumentosContent() {
   const [dragFolderId, setDragFolderId] = useState<string | null>(null);
 
   // Sort state for Mi Espacio
-  const [miEspacioSortField, setMiEspacioSortField] = useState<MiEspacioSortField>('operativo');
-  const [miEspacioSortDirection, setMiEspacioSortDirection] =
+  const [requestedMiEspacioSortField, setMiEspacioSortField] =
+    useState<MiEspacioSortField>('ultimaModificacion');
+  const [requestedMiEspacioSortDirection, setMiEspacioSortDirection] =
     useState<MiEspacioSortDirection>('desc');
   const [miEspacioFoldersFirst, setMiEspacioFoldersFirst] = useState(true);
   const [sortActivity, setSortActivity] = useState<Record<string, DocumentSortActivity>>({});
   const [sortActivityScope, setSortActivityScope] = useState<string | null>(null);
   const [sortActivityLoading, setSortActivityLoading] = useState(false);
   const [sortActivityError, setSortActivityError] = useState(false);
+
+  const availableMiEspacioSortOptions = React.useMemo(() => {
+    const visibleColumnIds = new Set(
+      viewMode === 'list'
+        ? columnConfig.filter((column) => column.visible).map((column) => column.id)
+        : gridColumnConfig
+            .filter((column) => column.selected)
+            .sort((a, b) => a.order - b.order)
+            .slice(0, 5)
+            .map((column) => column.id)
+    );
+    const foldersOnly = activeFilters['estructura'] === 'carpeta';
+    return MI_ESPACIO_SORT_OPTIONS.filter(({ value }) => {
+      if (value === 'nombre') return true;
+      if (value === 'miUltimaEdicion' || value === 'miUltimaApertura') return false;
+      if (foldersOnly && value !== 'fechaCreacion' && value !== 'ultimaModificacion') {
+        return false;
+      }
+      const columnId = SORT_COLUMN_BY_FIELD[value];
+      const filterValue = columnId ? activeFilters[columnId] : null;
+      const hasActiveFilter = Array.isArray(filterValue)
+        ? filterValue.length > 0
+        : filterValue !== null && filterValue !== undefined && filterValue !== '';
+      return Boolean(columnId && (visibleColumnIds.has(columnId) || hasActiveFilter));
+    });
+  }, [activeFilters, columnConfig, gridColumnConfig, viewMode]);
+
+  const sortFieldAvailable = availableMiEspacioSortOptions.some(
+    (option) => option.value === requestedMiEspacioSortField
+  );
+  const miEspacioSortField = sortFieldAvailable
+    ? requestedMiEspacioSortField
+    : availableMiEspacioSortOptions.some((option) => option.value === 'ultimaModificacion')
+      ? 'ultimaModificacion'
+      : 'nombre';
+  const miEspacioSortDirection = sortFieldAvailable
+    ? requestedMiEspacioSortDirection
+    : miEspacioSortField === 'nombre'
+      ? 'asc'
+      : 'desc';
 
   const [activeContextMenuDocId, setActiveContextMenuDocId] = useState<string | null>(null);
   const [activeFolderContextMenuId, setActiveFolderContextMenuId] = useState<string | null>(null);
@@ -4336,7 +4396,9 @@ function MisDocumentosContent() {
           legacyUrgent: b.esUrgente,
           expiresAt: b.fechaVencimiento,
         });
-      if (priorityDifference) return priorityDifference;
+      if (priorityDifference) {
+        return miEspacioSortDirection === 'desc' ? priorityDifference : -priorityDifference;
+      }
     }
     if (miEspacioSortField === 'nombre' || miEspacioSortField === 'estado') {
       const left = miEspacioSortField === 'nombre' ? a.name : a.estado;
@@ -4409,7 +4471,7 @@ function MisDocumentosContent() {
                 expiresAt: item.doc.fechaVencimiento,
               });
         const result = priority(a) - priority(b);
-        if (result) return result;
+        if (result) return miEspacioSortDirection === 'desc' ? result : -result;
       } else {
         const date = (item: SortedItem) =>
           item.kind === 'document'
@@ -4462,9 +4524,9 @@ function MisDocumentosContent() {
   };
 
   const toggleMiEspacioColumnSort = (field: MiEspacioSortField) => {
-    setMiEspacioSortDirection((current) =>
+    setMiEspacioSortDirection(
       miEspacioSortField === field
-        ? current === 'asc'
+        ? miEspacioSortDirection === 'asc'
           ? 'desc'
           : 'asc'
         : field === 'nombre'
@@ -6735,7 +6797,7 @@ function MisDocumentosContent() {
                   <div className="px-3 py-2 text-[11px] font-semibold text-slate-500">
                     Ordenar por
                   </div>
-                  {MI_ESPACIO_SORT_OPTIONS.map((opt) => (
+                  {availableMiEspacioSortOptions.map((opt) => (
                     <button
                       key={opt.value}
                       role="menuitemradio"
@@ -6753,21 +6815,16 @@ function MisDocumentosContent() {
                     Orden
                   </div>
                   {(['desc', 'asc'] as const).map((direction) => {
-                    const alphabetical =
-                      miEspacioSortField === 'nombre' || miEspacioSortField === 'estado';
-                    const label = alphabetical
-                      ? direction === 'asc'
-                        ? 'De la A a la Z'
-                        : 'De la Z a la A'
-                      : direction === 'asc'
-                        ? 'De antigua a nueva'
-                        : 'De nueva a antigua';
+                    const label = sortDirectionLabel(miEspacioSortField, direction);
                     return (
                       <button
                         key={direction}
                         role="menuitemradio"
                         aria-checked={miEspacioSortDirection === direction}
-                        onClick={() => setMiEspacioSortDirection(direction)}
+                        onClick={() => {
+                          setMiEspacioSortField(miEspacioSortField);
+                          setMiEspacioSortDirection(direction);
+                        }}
                         className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortDirection === direction ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
                       >
                         <span className="w-4 shrink-0">
