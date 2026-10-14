@@ -274,6 +274,7 @@ const SESSION_POLICY_RETRY_DELAY_MS = 350;
 const SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200;
 // The policy RPC's observed p99 is above eight seconds during gateway pressure.
 const SESSION_VALIDATION_TIMEOUT_MS = 12_000;
+const MIDDLEWARE_DEADLINE_MS = 20_000;
 const SESSION_POLICY_FAILURE_BACKOFF_MS = 2_000;
 const SESSION_PAGE_RETRY_DELAYS_SECONDS = [5, 15, 30, 60, 60] as const;
 const inFlightSessionPolicyValidations = new Map<string, Promise<SessionPolicyValidationResult>>();
@@ -295,13 +296,17 @@ function normalizeSessionPolicyError(error: unknown): SessionPolicyError {
 
 async function fetchWithSessionValidationTimeout(
   input: Parameters<typeof fetch>[0],
-  init?: Parameters<typeof fetch>[1]
+  init?: Parameters<typeof fetch>[1],
+  requestSignal?: AbortSignal
 ) {
   const controller = new AbortController();
   const upstreamSignal = init?.signal;
   const forwardAbort = () => controller.abort(upstreamSignal?.reason);
+  const forwardRequestAbort = () => controller.abort(requestSignal?.reason);
   if (upstreamSignal?.aborted) forwardAbort();
   else upstreamSignal?.addEventListener('abort', forwardAbort, { once: true });
+  if (requestSignal?.aborted) forwardRequestAbort();
+  else requestSignal?.addEventListener('abort', forwardRequestAbort, { once: true });
 
   const timeout = setTimeout(() => controller.abort(), SESSION_VALIDATION_TIMEOUT_MS);
   try {
@@ -309,6 +314,7 @@ async function fetchWithSessionValidationTimeout(
   } finally {
     clearTimeout(timeout);
     upstreamSignal?.removeEventListener('abort', forwardAbort);
+    requestSignal?.removeEventListener('abort', forwardRequestAbort);
   }
 }
 
@@ -536,6 +542,26 @@ function unavailableSessionPolicyResponse(
 }
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const controller = new AbortController();
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<NextResponse>((resolve) => {
+    deadlineTimer = setTimeout(() => {
+      controller.abort();
+      resolve(unavailableSessionPolicyResponse(
+        request,
+        NextResponse.next(),
+        request.nextUrl.pathname.startsWith('/api/')
+      ));
+    }, MIDDLEWARE_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([handleMiddlewareRequest(request, event, controller.signal), deadline]);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEvent, requestSignal: AbortSignal) {
   const startedAt = performance.now();
   const { pathname } = request.nextUrl;
   const kioskResponse = await enforceKioskScope(request);
@@ -587,6 +613,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 
   const isApiRequest = pathname.startsWith('/api/');
   const isPublicPage = PUBLIC_ROUTES.includes(pathname);
+  if (isPublicPage) return withMiddlewareTiming(NextResponse.next(), startedAt);
   if (isApiRequest && SESSION_POLICY_BOOTSTRAP_API_ROUTES.has(pathname)) {
     return withMiddlewareTiming(NextResponse.next(), startedAt);
   }
@@ -613,7 +640,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       global: {
-        fetch: fetchWithSessionValidationTimeout,
+        fetch: (input, init) => fetchWithSessionValidationTimeout(input, init, requestSignal),
         ...(authorization ? { headers: { authorization } } : {}),
       },
       cookies: {
