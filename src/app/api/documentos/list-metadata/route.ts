@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     supabase
       .from('carpetas')
       .select(
-        'id, nombre, parent_id, created_at, descripcion, tipo_documento_id, tipo_documento:tipo_documento_id(id, nombre), grupo_tipo_documento_id, grupo_tipo_documento:grupo_tipo_documento_id(id, nombre)'
+        'id, nombre, parent_id, created_at, updated_at, descripcion, tipo_documento_id, tipo_documento:tipo_documento_id(id, nombre), grupo_tipo_documento_id, grupo_tipo_documento:grupo_tipo_documento_id(id, nombre)'
       )
       .eq('owner_id', user.id)
       .is('deleted_at', null)

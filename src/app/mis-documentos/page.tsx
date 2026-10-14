@@ -13,6 +13,8 @@ import {
   FileText,
   Search,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   LayoutList,
   LayoutGrid,
   SlidersHorizontal,
@@ -232,6 +234,7 @@ interface ResizableThProps {
   className?: string;
   style?: React.CSSProperties;
   children?: React.ReactNode;
+  ariaSort?: React.AriaAttributes['aria-sort'];
 }
 
 function ResizableTh({
@@ -242,6 +245,7 @@ function ResizableTh({
   className = '',
   style = {},
   children,
+  ariaSort,
 }: ResizableThProps) {
   const startX = useRef<number>(0);
   const startWidth = useRef<number>(0);
@@ -273,6 +277,7 @@ function ResizableTh({
   return (
     <th
       ref={thRef}
+      aria-sort={ariaSort}
       className={`relative select-none whitespace-nowrap ${className}`}
       style={{ width: width ? `${width}px` : undefined, ...style }}
     >
@@ -418,6 +423,9 @@ interface Document {
   etiquetas: string[];
   tamano: string;
   ultimaModificacion: string;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+  completedAt?: string | null;
   ultimoPaso?: number;
   isDraft?: boolean;
   isFavorite?: boolean;
@@ -498,6 +506,8 @@ interface Carpeta {
   id: string;
   name: string;
   creadoEn: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   parentId: string | null;
   descripcion?: string | null;
   tipoDocumentoId?: string | null;
@@ -507,6 +517,47 @@ interface Carpeta {
   tamano?: string;
   numArchivos?: number;
   numCarpetas?: number;
+}
+
+type MiEspacioSortField =
+  | 'operativo'
+  | 'nombre'
+  | 'ultimaModificacion'
+  | 'fechaCreacion'
+  | 'fechaCompletado'
+  | 'fechaVencimiento'
+  | 'miUltimaEdicion'
+  | 'miUltimaApertura'
+  | 'estado';
+type MiEspacioSortDirection = 'asc' | 'desc';
+type DocumentSortActivity = { openedAt: string | null; editedAt: string | null };
+
+const MI_ESPACIO_SORT_OPTIONS: { value: MiEspacioSortField; label: string }[] = [
+  { value: 'operativo', label: 'Prioridad operativa' },
+  { value: 'nombre', label: 'Nombre' },
+  { value: 'ultimaModificacion', label: 'Fecha de modificación' },
+  { value: 'miUltimaEdicion', label: 'Fecha en que lo modificaste' },
+  { value: 'miUltimaApertura', label: 'Fecha en que lo abriste' },
+  { value: 'fechaCreacion', label: 'Fecha de creación' },
+  { value: 'fechaCompletado', label: 'Fecha de finalización' },
+  { value: 'fechaVencimiento', label: 'Fecha de vencimiento' },
+  { value: 'estado', label: 'Estado' },
+];
+
+const documentNameCollator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+
+function compareSortDates(
+  left: string | null | undefined,
+  right: string | null | undefined,
+  direction: MiEspacioSortDirection
+) {
+  const leftTime = left ? Date.parse(left) : Number.NaN;
+  const rightTime = right ? Date.parse(right) : Number.NaN;
+  const leftMissing = !Number.isFinite(leftTime);
+  const rightMissing = !Number.isFinite(rightTime);
+  if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+  if (leftMissing && rightMissing) return 0;
+  return direction === 'asc' ? leftTime - rightTime : rightTime - leftTime;
 }
 
 interface StatusCounts {
@@ -661,7 +712,9 @@ function DocumentSourceIcon({
   className?: string;
 }) {
   if (document.sourceFormResponseId) {
-    return <ClipboardList size={size} className={className} aria-label="Creado desde un formulario" />;
+    return (
+      <ClipboardList size={size} className={className} aria-label="Creado desde un formulario" />
+    );
   }
   if (document.sourceTemplateId) {
     return (
@@ -803,6 +856,9 @@ function mapDocRow(d: any): Document {
     etiquetas: d.etiquetas_ids || [],
     tamano: d.file_size ? `${Math.round(d.file_size / 1024)} KB` : '—',
     ultimaModificacion: d.updated_at ? formatDateTime(d.updated_at) : '—',
+    updatedAt: d.updated_at || null,
+    createdAt: d.created_at || null,
+    completedAt: d.fecha_completado || null,
     ultimoPaso: d.ultimo_paso || 1,
     isDraft: d.estado === 'borrador',
     isFavorite: !!d.is_favorite,
@@ -2428,7 +2484,14 @@ function MisDocumentosContent() {
   const [dragFolderId, setDragFolderId] = useState<string | null>(null);
 
   // Sort state for Mi Espacio
-  const [miEspacioSortOrder, setMiEspacioSortOrder] = useState('operativo');
+  const [miEspacioSortField, setMiEspacioSortField] = useState<MiEspacioSortField>('operativo');
+  const [miEspacioSortDirection, setMiEspacioSortDirection] =
+    useState<MiEspacioSortDirection>('desc');
+  const [miEspacioFoldersFirst, setMiEspacioFoldersFirst] = useState(true);
+  const [sortActivity, setSortActivity] = useState<Record<string, DocumentSortActivity>>({});
+  const [sortActivityScope, setSortActivityScope] = useState<string | null>(null);
+  const [sortActivityLoading, setSortActivityLoading] = useState(false);
+  const [sortActivityError, setSortActivityError] = useState(false);
 
   const [activeContextMenuDocId, setActiveContextMenuDocId] = useState<string | null>(null);
   const [activeFolderContextMenuId, setActiveFolderContextMenuId] = useState<string | null>(null);
@@ -2837,7 +2900,11 @@ function MisDocumentosContent() {
       return;
     }
     setCarpetas((prev) =>
-      prev.map((c) => (c.id === renameFolderModal.carpetaId ? { ...c, name: nombre } : c))
+      prev.map((c) =>
+        c.id === renameFolderModal.carpetaId
+          ? { ...c, name: nombre, updatedAt: new Date().toISOString() }
+          : c
+      )
     );
     // Update breadcrumb if needed
     setFolderBreadcrumb((prev) =>
@@ -2865,7 +2932,11 @@ function MisDocumentosContent() {
       return;
     }
     setCarpetas((prev) =>
-      prev.map((c) => (c.id === moveFolderModal.carpetaId ? { ...c, parentId: targetParentId } : c))
+      prev.map((c) =>
+        c.id === moveFolderModal.carpetaId
+          ? { ...c, parentId: targetParentId, updatedAt: new Date().toISOString() }
+          : c
+      )
     );
     setMoveFolderModal({ open: false, carpetaId: null, carpetaName: '' });
     showToast(`Carpeta movida a "${targetName || 'Raíz'}"`);
@@ -3089,9 +3160,8 @@ function MisDocumentosContent() {
     };
     // Note: scroll should NOT close context menus — menus are fixed positioned and stay open
     const handleScroll = () => {
-      // Only close filter dropdowns and sort dropdowns on scroll, NOT context menus
+      // Keep the sort menu open so its lower options remain reachable on short viewports.
       setOpenFilterDropdown(null);
-      setMiEspacioSortDropdownOpen(false);
     };
     if (
       contextMenu.open ||
@@ -3317,6 +3387,8 @@ function MisDocumentosContent() {
                   id: c.id,
                   name: c.nombre,
                   creadoEn: c.created_at ? formatDate(c.created_at) : '',
+                  createdAt: c.created_at || null,
+                  updatedAt: c.updated_at || null,
                   parentId: c.parent_id || null,
                   descripcion: c.descripcion || null,
                   tipoDocumentoId: c.tipo_documento_id || null,
@@ -4234,9 +4306,25 @@ function MisDocumentosContent() {
     return true;
   });
 
-  // Sort visible documents for Mi Espacio
-  const sortedDocuments = [...visibleDocuments].sort((a, b) => {
-    if (miEspacioSortOrder === 'operativo') {
+  const documentSortDate = (doc: Document): string | null | undefined => {
+    switch (miEspacioSortField) {
+      case 'fechaCreacion':
+        return doc.createdAt;
+      case 'fechaCompletado':
+        return doc.completedAt;
+      case 'fechaVencimiento':
+        return doc.fechaVencimiento;
+      case 'miUltimaEdicion':
+        return sortActivity[doc.id]?.editedAt;
+      case 'miUltimaApertura':
+        return sortActivity[doc.id]?.openedAt;
+      default:
+        return doc.updatedAt;
+    }
+  };
+
+  const compareDocuments = (a: Document, b: Document) => {
+    if (miEspacioSortField === 'operativo') {
       const priorityDifference =
         operationalPriorityRank({
           priority: a.priority,
@@ -4250,13 +4338,179 @@ function MisDocumentosContent() {
         });
       if (priorityDifference) return priorityDifference;
     }
-    if (miEspacioSortOrder === 'nombre_asc') return a.name.localeCompare(b.name);
-    if (miEspacioSortOrder === 'nombre_desc') return b.name.localeCompare(a.name);
-    if (miEspacioSortOrder === 'estado_asc') return a.estado.localeCompare(b.estado);
-    if (miEspacioSortOrder === 'ultimaModificacion_asc')
-      return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
-    return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
+    if (miEspacioSortField === 'nombre' || miEspacioSortField === 'estado') {
+      const left = miEspacioSortField === 'nombre' ? a.name : a.estado;
+      const right = miEspacioSortField === 'nombre' ? b.name : b.estado;
+      const result = documentNameCollator.compare(left, right);
+      if (result) return miEspacioSortDirection === 'asc' ? result : -result;
+    } else {
+      const dateResult = compareSortDates(
+        documentSortDate(a),
+        documentSortDate(b),
+        miEspacioSortDirection
+      );
+      if (dateResult) return dateResult;
+    }
+    return documentNameCollator.compare(a.name, b.name) || a.id.localeCompare(b.id);
+  };
+
+  const sortedDocuments = [...visibleDocuments].sort(compareDocuments);
+  const sortedCarpetas = [...visibleCarpetas].sort((a, b) => {
+    if (
+      miEspacioSortField === 'nombre' ||
+      miEspacioSortField === 'operativo' ||
+      miEspacioSortField === 'estado'
+    ) {
+      const result = documentNameCollator.compare(a.name, b.name);
+      return miEspacioSortField === 'nombre' && miEspacioSortDirection === 'desc'
+        ? -result
+        : result;
+    }
+    const left =
+      miEspacioSortField === 'fechaCreacion'
+        ? a.createdAt
+        : miEspacioSortField === 'ultimaModificacion'
+          ? a.updatedAt
+          : null;
+    const right =
+      miEspacioSortField === 'fechaCreacion'
+        ? b.createdAt
+        : miEspacioSortField === 'ultimaModificacion'
+          ? b.updatedAt
+          : null;
+    return (
+      compareSortDates(left, right, miEspacioSortDirection) ||
+      documentNameCollator.compare(a.name, b.name)
+    );
   });
+  type SortedItem = { kind: 'folder'; folder: Carpeta } | { kind: 'document'; doc: Document };
+  const sortedItems: SortedItem[] = [
+    ...sortedCarpetas.map((folder): SortedItem => ({ kind: 'folder', folder })),
+    ...sortedDocuments.map((doc): SortedItem => ({ kind: 'document', doc })),
+  ];
+  if (!miEspacioFoldersFirst) {
+    sortedItems.sort((a, b) => {
+      const leftName = a.kind === 'folder' ? a.folder.name : a.doc.name;
+      const rightName = b.kind === 'folder' ? b.folder.name : b.doc.name;
+      if (miEspacioSortField === 'nombre' || miEspacioSortField === 'estado') {
+        const leftValue =
+          miEspacioSortField === 'estado' && a.kind === 'document' ? a.doc.estado : leftName;
+        const rightValue =
+          miEspacioSortField === 'estado' && b.kind === 'document' ? b.doc.estado : rightName;
+        const result = documentNameCollator.compare(leftValue, rightValue);
+        if (result) return miEspacioSortDirection === 'asc' ? result : -result;
+      } else if (miEspacioSortField === 'operativo') {
+        const priority = (item: SortedItem) =>
+          item.kind === 'folder'
+            ? 3
+            : operationalPriorityRank({
+                priority: item.doc.priority,
+                legacyUrgent: item.doc.esUrgente,
+                expiresAt: item.doc.fechaVencimiento,
+              });
+        const result = priority(a) - priority(b);
+        if (result) return result;
+      } else {
+        const date = (item: SortedItem) =>
+          item.kind === 'document'
+            ? documentSortDate(item.doc)
+            : miEspacioSortField === 'fechaCreacion'
+              ? item.folder.createdAt
+              : miEspacioSortField === 'ultimaModificacion'
+                ? item.folder.updatedAt
+                : null;
+        const result = compareSortDates(date(a), date(b), miEspacioSortDirection);
+        if (result) return result;
+      }
+      return documentNameCollator.compare(leftName, rightName);
+    });
+  }
+
+  const loadMySortActivity = async () => {
+    if (!user?.id || realDocuments.length === 0) return;
+    const ids = realDocuments.map((doc) => doc.id);
+    const scope = `${user.id}:${[...ids].sort().join(',')}`;
+    if (sortActivityScope === scope || sortActivityLoading) return;
+    setSortActivityLoading(true);
+    setSortActivityError(false);
+    try {
+      const { data, error } = await createClient().rpc('my_document_sort_activity', {
+        p_document_ids: ids,
+      });
+      if (error) throw error;
+      const activity: Record<string, DocumentSortActivity> = {};
+      for (const row of data || []) {
+        activity[row.documento_id] = {
+          openedAt: row.last_opened_at,
+          editedAt: row.last_edited_at,
+        };
+      }
+      setSortActivity(activity);
+      setSortActivityScope(scope);
+    } catch {
+      setSortActivityError(true);
+    } finally {
+      setSortActivityLoading(false);
+    }
+  };
+
+  const selectMiEspacioSortField = (field: MiEspacioSortField) => {
+    setMiEspacioSortField(field);
+    setMiEspacioSortDirection(field === 'nombre' || field === 'estado' ? 'asc' : 'desc');
+    setMiEspacioSortDropdownOpen(false);
+    if (field === 'miUltimaEdicion' || field === 'miUltimaApertura') void loadMySortActivity();
+  };
+
+  const toggleMiEspacioColumnSort = (field: MiEspacioSortField) => {
+    setMiEspacioSortDirection((current) =>
+      miEspacioSortField === field
+        ? current === 'asc'
+          ? 'desc'
+          : 'asc'
+        : field === 'nombre'
+          ? 'asc'
+          : 'desc'
+    );
+    setMiEspacioSortField(field);
+  };
+
+  const sortableHeader = (field: MiEspacioSortField, label: string) => {
+    const active = miEspacioSortField === field;
+    const nextDirection = active
+      ? miEspacioSortDirection === 'asc'
+        ? 'desc'
+        : 'asc'
+      : field === 'nombre'
+        ? 'asc'
+        : 'desc';
+    const nextLabel =
+      field === 'nombre'
+        ? nextDirection === 'asc'
+          ? 'A a Z'
+          : 'Z a A'
+        : nextDirection === 'asc'
+          ? 'más antiguo primero'
+          : 'más reciente primero';
+    return (
+      <button
+        type="button"
+        onClick={() => toggleMiEspacioColumnSort(field)}
+        aria-label={`Ordenar ${label}: ${nextLabel}`}
+        className={`inline-flex items-center gap-1.5 text-left hover:text-primary ${active ? 'text-primary' : ''}`}
+      >
+        <span>{label}</span>
+        {active ? (
+          miEspacioSortDirection === 'asc' ? (
+            <ArrowUp size={13} />
+          ) : (
+            <ArrowDown size={13} />
+          )
+        ) : (
+          <ArrowUpDown size={12} className="text-slate-400" />
+        )}
+      </button>
+    );
+  };
 
   const toggleSelectAll = () => {
     const allFolderIds = visibleCarpetas.map((c) => c.id);
@@ -4552,6 +4806,8 @@ function MisDocumentosContent() {
             id: json.data.id,
             name: json.data.nombre,
             creadoEn: json.data.created_at ? formatDate(json.data.created_at) : '',
+            createdAt: json.data.created_at || null,
+            updatedAt: json.data.updated_at || json.data.created_at || null,
             parentId: json.data.parent_id || null,
             descripcion: json.data.descripcion || null,
             tipoDocumentoId: json.data.tipo_documento_id || null,
@@ -4677,7 +4933,11 @@ function MisDocumentosContent() {
       setDragFolderId(null);
       if (!error) {
         setCarpetas((prev) =>
-          prev.map((c) => (c.id === folderId ? { ...c, parentId: carpeta.id } : c))
+          prev.map((c) =>
+            c.id === folderId
+              ? { ...c, parentId: carpeta.id, updatedAt: new Date().toISOString() }
+              : c
+          )
         );
         showToast(`Carpeta movida a "${carpeta.name}"`);
       } else {
@@ -5781,7 +6041,13 @@ function MisDocumentosContent() {
         case 'estructura':
           return value === 'carpeta' ? 'Carpetas' : value === 'archivo' ? 'Archivos' : '';
         case 'origen':
-          return value === 'formulario' ? 'Formulario' : value === 'plantilla' ? 'Plantilla' : value === 'documento' ? 'Documento' : '';
+          return value === 'formulario'
+            ? 'Formulario'
+            : value === 'plantilla'
+              ? 'Plantilla'
+              : value === 'documento'
+                ? 'Documento'
+                : '';
         case 'estado':
           return value;
         case 'propietario':
@@ -6452,35 +6718,102 @@ function MisDocumentosContent() {
             <div className="relative" ref={miEspacioSortDropdownRef}>
               <button
                 onClick={() => setMiEspacioSortDropdownOpen((v) => !v)}
+                aria-expanded={miEspacioSortDropdownOpen}
+                aria-haspopup="menu"
+                aria-label="Ordenar documentos"
                 className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
                 <ArrowUpDown size={14} />
                 <span>Ordenar</span>
               </button>
               {miEspacioSortDropdownOpen && (
-                <div className="absolute right-0 top-full z-50 mt-1 min-w-[168px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
-                  {[
-                    { value: 'operativo', label: 'Prioridad operativa' },
-                    { value: 'ultimaModificacion_desc', label: 'Más reciente' },
-                    { value: 'ultimaModificacion_asc', label: 'Más antiguo' },
-                    { value: 'nombre_asc', label: 'Nombre A–Z' },
-                    { value: 'nombre_desc', label: 'Nombre Z–A' },
-                    { value: 'estado_asc', label: 'Estado' },
-                  ].map((opt) => (
+                <div
+                  role="menu"
+                  aria-label="Ordenar documentos"
+                  className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
+                >
+                  <div className="px-3 py-2 text-[11px] font-semibold text-slate-500">
+                    Ordenar por
+                  </div>
+                  {MI_ESPACIO_SORT_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
-                      onClick={() => {
-                        setMiEspacioSortOrder(opt.value);
-                        setMiEspacioSortDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-muted ${miEspacioSortOrder === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                      role="menuitemradio"
+                      aria-checked={miEspacioSortField === opt.value}
+                      onClick={() => selectMiEspacioSortField(opt.value)}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortField === opt.value ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
                     >
+                      <span className="w-4 shrink-0">
+                        {miEspacioSortField === opt.value && <Check size={15} />}
+                      </span>
                       {opt.label}
+                    </button>
+                  ))}
+                  <div className="mt-1 border-t border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                    Orden
+                  </div>
+                  {(['desc', 'asc'] as const).map((direction) => {
+                    const alphabetical =
+                      miEspacioSortField === 'nombre' || miEspacioSortField === 'estado';
+                    const label = alphabetical
+                      ? direction === 'asc'
+                        ? 'De la A a la Z'
+                        : 'De la Z a la A'
+                      : direction === 'asc'
+                        ? 'De antigua a nueva'
+                        : 'De nueva a antigua';
+                    return (
+                      <button
+                        key={direction}
+                        role="menuitemradio"
+                        aria-checked={miEspacioSortDirection === direction}
+                        onClick={() => setMiEspacioSortDirection(direction)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortDirection === direction ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
+                      >
+                        <span className="w-4 shrink-0">
+                          {miEspacioSortDirection === direction && <Check size={15} />}
+                        </span>
+                        {label}
+                      </button>
+                    );
+                  })}
+                  <div className="mt-1 border-t border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                    Carpetas
+                  </div>
+                  {(
+                    [
+                      { first: true, label: 'En la parte superior' },
+                      { first: false, label: 'Combinadas con archivos' },
+                    ] as const
+                  ).map((option) => (
+                    <button
+                      key={option.label}
+                      role="menuitemradio"
+                      aria-checked={miEspacioFoldersFirst === option.first}
+                      onClick={() => setMiEspacioFoldersFirst(option.first)}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioFoldersFirst === option.first ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
+                    >
+                      <span className="w-4 shrink-0">
+                        {miEspacioFoldersFirst === option.first && <Check size={15} />}
+                      </span>
+                      {option.label}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+            {sortActivityLoading && (
+              <span role="status" className="text-xs text-muted-foreground">
+                Consultando actividad...
+              </span>
+            )}
+            {sortActivityError &&
+              (miEspacioSortField === 'miUltimaEdicion' ||
+                miEspacioSortField === 'miUltimaApertura') && (
+                <span role="alert" className="text-xs text-red-600">
+                  No se pudo consultar la actividad.
+                </span>
+              )}
             <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
               <button
                 onClick={() => setViewMode('list')}
@@ -6658,8 +6991,11 @@ function MisDocumentosContent() {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {visibleCarpetas.map(renderFolderGridCard)}
-                {sortedDocuments.map(renderDocGridCard)}
+                {sortedItems.map((item) =>
+                  item.kind === 'folder'
+                    ? renderFolderGridCard(item.folder)
+                    : renderDocGridCard(item.doc)
+                )}
               </div>
             )}
           </div>
@@ -6783,12 +7119,19 @@ function MisDocumentosContent() {
                       </th>
                       <ResizableTh
                         colKey="nombre"
+                        ariaSort={
+                          miEspacioSortField === 'nombre'
+                            ? miEspacioSortDirection === 'asc'
+                              ? 'ascending'
+                              : 'descending'
+                            : 'none'
+                        }
                         width={mainColWidths.nombre}
                         minWidth={120}
                         onResize={resizeMainCol}
                         className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
                       >
-                        Nombre
+                        {sortableHeader('nombre', 'Nombre')}
                       </ResizableTh>
                       {columnConfig
                         .filter((c) => c.visible)
@@ -6808,12 +7151,19 @@ function MisDocumentosContent() {
                         .find((c) => c.id === 'ultimaModificacion') && (
                         <ResizableTh
                           colKey="ultimaModificacion"
+                          ariaSort={
+                            miEspacioSortField === 'ultimaModificacion'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.ultimaModificacion}
                           minWidth={120}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Última modificación
+                          {sortableHeader('ultimaModificacion', 'Última modificación')}
                         </ResizableTh>
                       )}
                       {columnConfig.filter((c) => c.visible).find((c) => c.id === 'tamano') && (
@@ -6906,12 +7256,19 @@ function MisDocumentosContent() {
                         .find((c) => c.id === 'fechaCreacion') && (
                         <ResizableTh
                           colKey="fechaCreacion"
+                          ariaSort={
+                            miEspacioSortField === 'fechaCreacion'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.fechaCreacion}
                           minWidth={100}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Creación
+                          {sortableHeader('fechaCreacion', 'Creación')}
                         </ResizableTh>
                       )}
                       {columnConfig
@@ -6919,12 +7276,19 @@ function MisDocumentosContent() {
                         .find((c) => c.id === 'fechaCompletado') && (
                         <ResizableTh
                           colKey="fechaCompletado"
+                          ariaSort={
+                            miEspacioSortField === 'fechaCompletado'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.fechaCompletado}
                           minWidth={100}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Completado
+                          {sortableHeader('fechaCompletado', 'Completado')}
                         </ResizableTh>
                       )}
                       {columnConfig
@@ -6932,12 +7296,19 @@ function MisDocumentosContent() {
                         .find((c) => c.id === 'fechaVencimiento') && (
                         <ResizableTh
                           colKey="fechaVencimiento"
+                          ariaSort={
+                            miEspacioSortField === 'fechaVencimiento'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.fechaVencimiento}
                           minWidth={90}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Vencimiento
+                          {sortableHeader('fechaVencimiento', 'Vencimiento')}
                         </ResizableTh>
                       )}
                       {columnConfig.filter((c) => c.visible).find((c) => c.id === 'prioridad') && (
@@ -6968,12 +7339,13 @@ function MisDocumentosContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleCarpetas.map(renderFolderTableRow)}
-                    {sortedDocuments.map((doc) =>
-                      renderDocRowWithColumns(
-                        doc,
-                        columnConfig.filter((c) => c.visible)
-                      )
+                    {sortedItems.map((item) =>
+                      item.kind === 'folder'
+                        ? renderFolderTableRow(item.folder)
+                        : renderDocRowWithColumns(
+                            item.doc,
+                            columnConfig.filter((c) => c.visible)
+                          )
                     )}
                     {visibleCarpetas.length === 0 && sortedDocuments.length === 0 && (
                       <tr>
