@@ -9,7 +9,13 @@ const ACTIVITY_DEBOUNCE_MS = 1_000;
 const BROADCAST_CHANNEL_NAME = 'docubox-session';
 const SIGN_OUT_FALLBACK_MS = 2_000;
 
-const SESSION_BOOTSTRAP_PATHS = ['/login', '/auth/', '/register-device', '/formulario-publico/'];
+const SESSION_BOOTSTRAP_PATHS = [
+  '/login',
+  '/auth/',
+  '/register-device',
+  '/formulario-publico/',
+  '/validar-formulario/',
+];
 
 // Deliberately excludes mousemove, scroll, polling and background work.
 const HUMAN_ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
