@@ -11,8 +11,15 @@ export async function POST(req: NextRequest) {
     }
     const token = authorization.slice(7).trim();
     const auth = createAnonClient();
-    const { data, error } = await auth.auth.getUser(token);
-    if (error || !data.user) {
+    const { data, error } = await auth.auth.getClaims(token);
+    const claims = data?.claims;
+    if (
+      error ||
+      !claims ||
+      claims.role !== 'authenticated' ||
+      claims.is_anonymous === true ||
+      typeof claims.sub !== 'string'
+    ) {
       console.warn('[auth/totp/check] Token validation failed', {
         code: error?.code,
         message: error?.message,
@@ -25,7 +32,7 @@ export async function POST(req: NextRequest) {
     const requirementsStartedAt = performance.now();
     const { data: rawRequirements, error: requirementsError } = await service.rpc(
       'get_login_security_requirements',
-      { p_user_id: data.user.id }
+      { p_user_id: claims.sub }
     );
     if (requirementsError || !rawRequirements || typeof rawRequirements !== 'object') {
       console.error('[auth/totp/check] Security requirements lookup failed', requirementsError);

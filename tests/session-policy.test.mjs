@@ -163,9 +163,9 @@ test('transient PostgREST and gateway failures receive bounded retries', () => {
   assert.match(middleware, /TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set\(\['PGRST002'\]\)/);
   assert.match(middleware, /SESSION_POLICY_RETRY_DELAY_MS = 350/);
   assert.match(middleware, /SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200/);
-  assert.match(middleware, /if \(isTransientSessionPolicyError\(result\.error\)\)/);
+  assert.match(middleware, /if \(!requestSignal\.aborted && isTransientSessionPolicyError\(result\.error\)\)/);
   assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
-  assert.match(middleware, /shouldRetrySessionCheckAfterBackoff\(result\.error\)/);
+  assert.match(middleware, /!requestSignal\.aborted && shouldRetrySessionCheckAfterBackoff\(result\.error\)/);
   assert.match(middleware, /waitForSessionPolicyRetry\(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS\)/);
   assert.match(middleware, /if \(policyError\)/);
 });
@@ -186,7 +186,7 @@ test('temporary auth gateway failures receive bounded retries without trusting t
   assert.match(middleware, /fetchWithSessionValidationTimeout/);
   assert.match(
     middleware,
-    /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
+    /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(!requestSignal\.aborted && isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
   );
   assert.match(middleware, /unavailableSessionPolicyResponse\(request, response, isApiRequest\)/);
   assert.doesNotMatch(middleware, /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/);
@@ -214,8 +214,9 @@ test('post-login checks use the freshly issued session token', () => {
 
 test('post-login endpoint validates the user token before retrieving security requirements', () => {
   assert.match(totpCheckRoute, /const auth = createAnonClient\(\)/);
-  assert.match(totpCheckRoute, /auth\.auth\.getUser\(token\)/);
+  assert.match(totpCheckRoute, /auth\.auth\.getClaims\(token\)/);
   assert.doesNotMatch(totpCheckRoute, /service\.auth\.getUser\(token\)/);
   assert.match(totpCheckRoute, /service\.rpc\(\s*'get_login_security_requirements'/);
-  assert.match(totpCheckRoute, /p_user_id: data\.user\.id/);
+  assert.match(totpCheckRoute, /claims\.role !== 'authenticated'/);
+  assert.match(totpCheckRoute, /p_user_id: claims\.sub/);
 });

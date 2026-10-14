@@ -669,10 +669,10 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
   const claimsStartedAt = performance.now();
   try {
     let result = await supabase.auth.getClaims(accessToken);
-    if (isTransientSessionPolicyError(result.error)) {
+    if (!requestSignal.aborted && isTransientSessionPolicyError(result.error)) {
       await waitForSessionPolicyRetry();
       result = await supabase.auth.getClaims(accessToken);
-      if (shouldRetrySessionCheckAfterBackoff(result.error)) {
+      if (!requestSignal.aborted && shouldRetrySessionCheckAfterBackoff(result.error)) {
         await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
         result = await supabase.auth.getClaims(accessToken);
       }
@@ -723,14 +723,14 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
       let result = await supabase.rpc('enforce_docubox_session_policy', {
         p_record_user_activity: false,
       });
-      if (isTransientSessionPolicyError(result.error)) {
+      if (!requestSignal.aborted && isTransientSessionPolicyError(result.error)) {
         // PostgREST can briefly return PGRST002 while rebuilding its schema cache.
         // A persistent failure still blocks protected traffic.
         await waitForSessionPolicyRetry();
         result = await supabase.rpc('enforce_docubox_session_policy', {
           p_record_user_activity: false,
         });
-        if (shouldRetrySessionCheckAfterBackoff(result.error)) {
+        if (!requestSignal.aborted && shouldRetrySessionCheckAfterBackoff(result.error)) {
           // Brief gateway outages also need time to recover before the last attempt.
           await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
           result = await supabase.rpc('enforce_docubox_session_policy', {
