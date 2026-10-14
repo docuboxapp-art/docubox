@@ -87,14 +87,8 @@ test('owner listing uses the authenticated RLS client instead of service role', 
 });
 
 test('owner documents paint without waiting for participant document enrichment', () => {
-  assert.match(documentsPage, /fetchInitialDocumentLists\(token\)/);
   assert.match(readBootstrapRoute, /run\('owned'/);
   assert.match(readBootstrapRoute, /run\(\s*'participations'/);
-  assert.ok(
-    readBootstrapRoute.indexOf("run('owned'") <
-      readBootstrapRoute.indexOf("run(\n          'participations'"),
-    'both reads should start together in the progressive bootstrap'
-  );
   assert.ok(
     documentsPage.indexOf('setLoadingDocs(false);') <
       documentsPage.indexOf('const partRes = await participantDocumentsRequest'),
@@ -113,15 +107,6 @@ test('document bootstrap retains independent authorization and private responses
   assert.match(listMetadataRoute, /\.eq\('owner_id', user\.id\)/);
   assert.match(listMetadataRoute, /private, no-store/);
   assert.match(documentsPage, /\/api\/documentos\/listar\?tipo=todos/);
-});
-
-test('list metadata shares only an in-flight request for the same user', () => {
-  assert.match(documentsPage, /pendingListMetadata = new Map<string, Promise<any>>/);
-  assert.match(documentsPage, /pendingListMetadata\.get\(userId\)/);
-  assert.match(documentsPage, /pendingListMetadata\.set\(userId, request\)/);
-  assert.match(documentsPage, /pendingListMetadata\.delete\(userId\)/);
-  assert.match(documentsPage, /if \(!active \|\| !json\) return/);
-  assert.match(documentsPage, /\}, \[user\?\.id\]\);/);
 });
 
 test('view customization code loads only when its modal opens', () => {

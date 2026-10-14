@@ -68,32 +68,6 @@ const PersonalizarVistaModal = dynamic(() => import('./components/PersonalizarVi
 });
 
 const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_000, 2_500];
-const pendingListMetadata = new Map<string, Promise<any>>();
-
-function fetchListMetadata(userId: string): Promise<any> {
-  const pending = pendingListMetadata.get(userId);
-  if (pending) return pending;
-
-  const request = (async () => {
-    const supabase = createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) return null;
-    const response = await fetchDocumentData('/api/documentos/list-metadata', {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    if (!response.ok) throw new Error(`List metadata request failed: ${response.status}`);
-    return response.json();
-  })();
-
-  pendingListMetadata.set(userId, request);
-  void request.then(
-    () => pendingListMetadata.delete(userId),
-    () => pendingListMetadata.delete(userId)
-  );
-  return request;
-}
 
 function waitForDocumentLoadRetry(delayMs: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
@@ -142,24 +116,32 @@ async function fetchDocumentData(
   return response;
 }
 
-function fetchInitialDocumentLists(token: string) {
+function fetchInitialDocumentLists(token: string, includeMetadata = false) {
   let resolveOwned!: (response: Response) => void;
   let resolveParticipations!: (response: Response | null) => void;
+  let resolveMetadata!: (response: Response | null) => void;
   const owned = new Promise<Response>((resolve) => {
     resolveOwned = resolve;
   });
   const participations = new Promise<Response | null>((resolve) => {
     resolveParticipations = resolve;
   });
+  const metadata = new Promise<Response | null>((resolve) => {
+    resolveMetadata = resolve;
+  });
 
   void (async () => {
     let ownedReceived = false;
     let participationsReceived = false;
+    let metadataReceived = !includeMetadata;
     try {
-      const response = await fetchDocumentData('/api/documentos/read-bootstrap', {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
+      const response = await fetchDocumentData(
+        `/api/documentos/read-bootstrap${includeMetadata ? '?metadata=1' : ''}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        }
+      );
       if (!response.ok || !response.body) throw new Error(`Bootstrap failed: ${response.status}`);
 
       const reader = response.body.getReader();
@@ -175,6 +157,9 @@ function fetchInitialDocumentLists(token: string) {
         } else if (part.part === 'participations' && !participationsReceived) {
           participationsReceived = true;
           resolveParticipations(partResponse);
+        } else if (part.part === 'metadata' && !metadataReceived) {
+          metadataReceived = true;
+          resolveMetadata(partResponse);
         }
       };
       while (true) {
@@ -213,6 +198,16 @@ function fetchInitialDocumentLists(token: string) {
             .catch(() => {})
         );
       }
+      if (!metadataReceived) {
+        fallbackRequests.push(
+          fetchDocumentData('/api/documentos/list-metadata', { headers })
+            .then((response) => {
+              metadataReceived = true;
+              resolveMetadata(response);
+            })
+            .catch(() => {})
+        );
+      }
       await Promise.all(fallbackRequests);
     } finally {
       if (!ownedReceived)
@@ -220,10 +215,12 @@ function fetchInitialDocumentLists(token: string) {
           Response.json({ error: 'No fue posible cargar los documentos.' }, { status: 503 })
         );
       if (!participationsReceived) resolveParticipations(null);
+      if (!metadataReceived) resolveMetadata(null);
     }
   })();
 
-  return { owned, participations };
+  if (!includeMetadata) resolveMetadata(null);
+  return { owned, participations, metadata };
 }
 
 // ─── ResizableTh Component ├───────────────────────────────────────────────────
@@ -331,7 +328,8 @@ function loadColumnWidthsConfig(userId: string): Promise<ColumnWidthsConfig | nu
 function useColumnWidths(
   tableKey: string,
   defaults: Record<string, number>,
-  userId?: string | null
+  userId?: string | null,
+  enabled = true
 ) {
   const storageKey = `docubox_col_widths_${tableKey}`;
   const [widths, setWidths] = useState<Record<string, number>>(() => {
@@ -347,7 +345,7 @@ function useColumnWidths(
 
   // Load from Supabase on mount when userId is available
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !enabled) return;
     let cancelled = false;
     void loadColumnWidthsConfig(userId).then((config) => {
       if (cancelled || !config) return;
@@ -366,7 +364,7 @@ function useColumnWidths(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, tableKey]);
+  }, [userId, tableKey, enabled]);
 
   // Debounce ref for Supabase saves
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2063,7 +2061,8 @@ function MisDocumentosContent() {
       prioridad: 100,
       rutaGuardado: 150,
     },
-    user?.id
+    user?.id,
+    activeSection === 'mi-espacio'
   );
   const { widths: favColWidths, handleResize: resizeFavCol } = useColumnWidths(
     'favoritos',
@@ -2081,7 +2080,8 @@ function MisDocumentosContent() {
       fechaVencimiento: 130,
       prioridad: 100,
     },
-    user?.id
+    user?.id,
+    activeSection === 'favoritos'
   );
   const { widths: porVencerColWidths, handleResize: resizePorVencerCol } = useColumnWidths(
     'por-vencer',
@@ -2099,7 +2099,8 @@ function MisDocumentosContent() {
       tipoDocumento: 110,
       prioridad: 100,
     },
-    user?.id
+    user?.id,
+    activeSection === 'por-vencer'
   );
   const { widths: papeleraColWidths, handleResize: resizePapeleraCol } = useColumnWidths(
     'papelera',
@@ -2113,7 +2114,8 @@ function MisDocumentosContent() {
       tiempoRestante: 180,
       acciones: 76,
     },
-    user?.id
+    user?.id,
+    activeSection === 'papelera'
   );
   const { widths: cfColWidths, handleResize: resizeCfCol } = useColumnWidths(
     'filtros-personalizados',
@@ -2134,7 +2136,8 @@ function MisDocumentosContent() {
       prioridad: 100,
       rutaGuardado: 150,
     },
-    user?.id
+    user?.id,
+    activeSection.startsWith('custom-')
   );
 
   // Folder navigation state
@@ -2146,6 +2149,11 @@ function MisDocumentosContent() {
   const [rawDocumentsData, setRawDocumentsData] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const loadDocumentsInFlightRef = useRef(false);
+  const listMetadataLoadedForUserRef = useRef<string | null>(null);
+  const currentMetadataUserIdRef = useRef<string | null>(user?.id ?? null);
+  useEffect(() => {
+    currentMetadataUserIdRef.current = user?.id ?? null;
+  }, [user?.id]);
   const [favoriteDocuments, setFavoriteDocuments] = useState<Document[]>([]);
   const [participantDocuments, setParticipantDocuments] = useState<Document[]>([]);
   const [loadingFavorites, setLoadingFavorites] = useState(false);
@@ -3283,8 +3291,48 @@ function MisDocumentosContent() {
         return;
       }
 
-      const { owned: ownerDocumentsRequest, participations: participantDocumentsRequest } =
-        fetchInitialDocumentLists(token);
+      const includeMetadata = listMetadataLoadedForUserRef.current !== user.id;
+      if (includeMetadata) setLoadingEtiquetas(true);
+      const {
+        owned: ownerDocumentsRequest,
+        participations: participantDocumentsRequest,
+        metadata: metadataRequest,
+      } = fetchInitialDocumentLists(token, includeMetadata);
+
+      if (includeMetadata) {
+        void metadataRequest
+          .then(async (metadataResponse) => {
+            let response = metadataResponse;
+            if (response && (await isRetryableDocumentLoadResponse(response))) {
+              response = await fetchDocumentData('/api/documentos/list-metadata', {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            }
+            if (!response?.ok) return;
+            const json = await response.json();
+            if (currentMetadataUserIdRef.current !== user.id) return;
+            if (json.carpetas)
+              setCarpetas(
+                json.carpetas.map((c: any) => ({
+                  id: c.id,
+                  name: c.nombre,
+                  creadoEn: c.created_at ? formatDate(c.created_at) : '',
+                  parentId: c.parent_id || null,
+                  descripcion: c.descripcion || null,
+                  tipoDocumentoId: c.tipo_documento_id || null,
+                  tipoDocumentoNombre: c.tipo_documento?.nombre || null,
+                  grupoTipoDocumentoId: c.grupo_tipo_documento_id || null,
+                  grupoTipoDocumentoNombre: c.grupo_tipo_documento?.nombre || null,
+                }))
+              );
+            if (json.etiquetas) setEtiquetasList(json.etiquetas);
+            listMetadataLoadedForUserRef.current = user.id;
+          })
+          .catch((error) => console.error('Error loading document list metadata:', error))
+          .finally(() => {
+            if (currentMetadataUserIdRef.current === user.id) setLoadingEtiquetas(false);
+          });
+      }
 
       const res = await ownerDocumentsRequest;
       const json = await res.json();
@@ -3899,41 +3947,6 @@ function MisDocumentosContent() {
   };
 
   // NOTE: saveActiveFilters removed — active filter values are not persisted (only filter visibility is)
-
-  useEffect(() => {
-    if (!user?.id) return;
-    let active = true;
-    const loadListMetadata = async () => {
-      setLoadingEtiquetas(true);
-      try {
-        const json = await fetchListMetadata(user.id);
-        if (!active || !json) return;
-        if (json.carpetas)
-          setCarpetas(
-            json.carpetas.map((c: any) => ({
-              id: c.id,
-              name: c.nombre,
-              creadoEn: c.created_at ? formatDate(c.created_at) : '',
-              parentId: c.parent_id || null,
-              descripcion: c.descripcion || null,
-              tipoDocumentoId: c.tipo_documento_id || null,
-              tipoDocumentoNombre: c.tipo_documento?.nombre || null,
-              grupoTipoDocumentoId: c.grupo_tipo_documento_id || null,
-              grupoTipoDocumentoNombre: c.grupo_tipo_documento?.nombre || null,
-            }))
-          );
-        if (json.etiquetas) setEtiquetasList(json.etiquetas);
-      } catch (err) {
-        if (active) console.error('Error loading document list metadata:', err);
-      } finally {
-        if (active) setLoadingEtiquetas(false);
-      }
-    };
-    loadListMetadata();
-    return () => {
-      active = false;
-    };
-  }, [user?.id]);
 
   const workspaceDisplayName =
     activeWorkspace?.name ||

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { GET as listOwnedDocuments } from '../listar/route';
 import { GET as listParticipations } from '../mis-participaciones/route';
+import { GET as listMetadata } from '../list-metadata/route';
 
-type BootstrapPart = 'owned' | 'participations';
+type BootstrapPart = 'owned' | 'participations' | 'metadata';
 
 export async function GET(request: NextRequest) {
   if (!request.headers.get('authorization')?.startsWith('Bearer ')) {
@@ -41,6 +42,9 @@ export async function GET(request: NextRequest) {
           '/api/documentos/mis-participaciones?exclude_owned=true&view=list',
           listParticipations
         ),
+        ...(request.nextUrl.searchParams.get('metadata') === '1'
+          ? [run('metadata', '/api/documentos/list-metadata', listMetadata)]
+          : []),
       ]).finally(() => {
         if (!cancelled) controller.close();
       });

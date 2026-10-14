@@ -37,6 +37,35 @@ import {
   invalidateDashboardDocumentData,
 } from '@/lib/dashboard/participations';
 
+const pendingPublishedFormAvailability = new Map<string, Promise<boolean>>();
+
+function fetchPublishedFormAvailability(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  workspaceId: string
+): Promise<boolean> {
+  const key = `${userId}:${workspaceId}`;
+  const pending = pendingPublishedFormAvailability.get(key);
+  if (pending) return pending;
+  const request = Promise.resolve(
+    supabase
+      .from('form_templates')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published')
+      .limit(1)
+  )
+    .then(({ data, error }) => !error && Boolean(data?.length))
+    .catch(() => false);
+  pendingPublishedFormAvailability.set(key, request);
+  void request.finally(() => {
+    if (pendingPublishedFormAvailability.get(key) === request) {
+      pendingPublishedFormAvailability.delete(key);
+    }
+  });
+  return request;
+}
+
 const ActivityAuditLog = dynamic(() => import('@/app/mis-documentos/components/ActivityAuditLog'), {
   ssr: false,
 });
@@ -144,16 +173,11 @@ export default function DocumentsDashboardPage() {
     let requestId = 0;
     const loadPublishedForm = async () => {
       const currentRequest = ++requestId;
-      const { data, error } = await supabase
-        .from('form_templates')
-        .select('id')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'published')
-        .limit(1);
+      const hasPublished = await fetchPublishedFormAvailability(supabase, user.id, workspaceId);
       if (active && currentRequest === requestId) {
         setLaunchAvailability({
           workspaceId,
-          hasPublished: !error && Boolean(data?.length),
+          hasPublished,
         });
       }
     };
