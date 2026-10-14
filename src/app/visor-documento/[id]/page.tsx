@@ -1202,14 +1202,6 @@ export default function VisorDocumentoPage() {
   const [nom151Ready, setNom151Ready] = useState(false);
   const [nom151Blocked, setNom151Blocked] = useState(false);
   const [nom151PadesVerified, setNom151PadesVerified] = useState(false);
-  const nom151Presentation = getNom151Presentation({
-    verificationStatus: nom151Data?.verification_status,
-    environment: nom151Data?.environment,
-    productionTrusted: nom151Data?.production_trusted,
-    processing: nom151Generating || nom151Polling,
-    failed: Boolean(nom151Error),
-    requested: Boolean(nom151Data) || document?.estado === 'completado',
-  });
   const [downloadingAns, setDownloadingAns] = useState(false);
   const [downloadingNom151Pdf, setDownloadingNom151Pdf] = useState(false);
 
@@ -1230,6 +1222,19 @@ export default function VisorDocumentoPage() {
   const [blockchainEvidenceLoading, setBlockchainEvidenceLoading] = useState(false);
   const [blockchainEvidenceError, setBlockchainEvidenceError] = useState('');
   const [evidenceV2, setEvidenceV2] = useState<EvidenceV2Data | null>(null);
+  const nom151DisplayError = nom151Data ? '' : nom151Error || (
+    evidenceV2?.errorCode === 'NOM151_PROVIDER_NOT_CONFIGURED'
+      ? 'La emisión NOM-151 requiere completar la configuración del proveedor.'
+      : ''
+  );
+  const nom151Presentation = getNom151Presentation({
+    verificationStatus: nom151Data?.verification_status,
+    environment: nom151Data?.environment,
+    productionTrusted: nom151Data?.production_trusted,
+    processing: nom151Generating || nom151Polling,
+    failed: Boolean(nom151DisplayError),
+    requested: Boolean(nom151Data) || document?.estado === 'completado',
+  });
   const [evidenceV2Loading, setEvidenceV2Loading] = useState(false);
   const [evidenceV2Error, setEvidenceV2Error] = useState('');
   const [evidenceV2Download, setEvidenceV2Download] = useState<'xml' | 'package' | null>(null);
@@ -2586,7 +2591,7 @@ export default function VisorDocumentoPage() {
   }, [document, docId, participantes]);
 
   const downloadConstanciaGeneralPdf = useCallback(async () => {
-    if (!docId || document?.estado !== 'completado') return;
+    if (!docId || document?.estado !== 'completado' || !finalDeliverableAvailable) return;
 
     setDownloadingConstanciaGeneral(true);
     try {
@@ -2617,7 +2622,7 @@ export default function VisorDocumentoPage() {
     } finally {
       setDownloadingConstanciaGeneral(false);
     }
-  }, [docId, document?.estado]);
+  }, [apiAuthHeaders, docId, document?.estado, finalDeliverableAvailable]);
 
   const downloadAuditCertificate = useCallback(async () => {
     if (!docId || document?.estado !== 'completado') return;
@@ -8485,9 +8490,9 @@ export default function VisorDocumentoPage() {
                         Consulta la evidencia técnica disponible del documento completado. Las constancias personales de los participantes no están incluidas.
                       </p>
                       <button type="button" onClick={downloadConstanciaGeneralPdf}
-                        disabled={downloadingConstanciaGeneral}
+                        disabled={downloadingConstanciaGeneral || !finalDeliverableAvailable}
                         className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                        <Download size={15} /> Descargar constancia general
+                        <Download size={15} /> {finalDeliverableAvailable ? 'Descargar constancia general' : 'Disponible al finalizar la certificación'}
                       </button>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-white p-4">
@@ -9444,14 +9449,14 @@ export default function VisorDocumentoPage() {
                                 className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                   signedPdfReadyForDownload
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : signedPdfError || nom151Error || padesUiStatus === 'PAdES ERROR'
+                                    : signedPdfError || nom151DisplayError || padesUiStatus === 'PAdES ERROR'
                                       ? 'bg-red-50 text-red-700 border-red-200'
                                       : 'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}
                               >
                                 {signedPdfReadyForDownload
                                   ? 'Listo para descarga'
-                                  : signedPdfError || nom151Error || padesUiStatus === 'PAdES ERROR'
+                                  : signedPdfError || nom151DisplayError || padesUiStatus === 'PAdES ERROR'
                                     ? 'Requiere atención'
                                     : 'Pendiente'}
                               </span>
@@ -9462,8 +9467,8 @@ export default function VisorDocumentoPage() {
                                   {document?.nombre || 'Documento'}{signedPdfReadyForDownload ? ' — Firmado' : ''}
                                 </p>
                                 <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                  {nom151Error
-                                    ? nom151Error
+                                  {nom151DisplayError
+                                    ? nom151DisplayError
                                     : !document?.sealed_pdf_path
                                     ? signedPdfError
                                       ? 'La firma quedó registrada, pero aún no existe un PDF final verificable.'
@@ -9527,7 +9532,7 @@ export default function VisorDocumentoPage() {
                                         ? 'Error de verificación PAdES'
                                         : 'Pendiente de verificación PAdES'
                                       : !finalDeliverableAvailable
-                                        ? nom151Error ? 'NOM-151 requiere atención' : 'Pendiente de NOM-151'
+                                        ? nom151DisplayError ? 'NOM-151 requiere atención' : 'Pendiente de NOM-151'
                                       : 'Descargar PDF firmado'}
                               </button>
                             </div>
@@ -9580,7 +9585,7 @@ export default function VisorDocumentoPage() {
                                 Constancia General de Firma
                               </span>
                               <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                PDF
+                                {finalDeliverableAvailable ? 'PDF' : 'Pendiente'}
                               </span>
                             </div>
                             <div className="p-4">
@@ -9589,12 +9594,14 @@ export default function VisorDocumentoPage() {
                                   Constancia General de Firma Electrónica
                                 </p>
                                 <p className="text-xs mt-1 text-muted-foreground leading-relaxed">
-                                  Documento compartido entre todas las partes del proceso de firma
+                                  {finalDeliverableAvailable
+                                    ? 'Documento compartido entre todas las partes del proceso de firma'
+                                    : 'Disponible cuando concluyan la certificación y la verificación NOM-151.'}
                                 </p>
                               </div>
                               <button
                                 onClick={downloadConstanciaGeneralPdf}
-                                disabled={downloadingConstanciaGeneral}
+                                disabled={downloadingConstanciaGeneral || !finalDeliverableAvailable}
                                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl bg-primary text-white hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                               >
                                 {downloadingConstanciaGeneral ? (
@@ -9602,7 +9609,7 @@ export default function VisorDocumentoPage() {
                                 ) : (
                                   <Download size={15} />
                                 )}
-                                {downloadingConstanciaGeneral ? 'Generando…' : 'Descargar PDF'}
+                                {downloadingConstanciaGeneral ? 'Generando…' : finalDeliverableAvailable ? 'Descargar PDF' : 'Pendiente de NOM-151'}
                               </button>
                             </div>
                           </div>
@@ -9719,7 +9726,7 @@ export default function VisorDocumentoPage() {
                                       size={24}
                                       className="animate-spin text-muted-foreground"
                                     />
-                                  ) : nom151Error ? (
+                                  ) : nom151DisplayError ? (
                                     <AlertTriangle size={24} className="text-amber-500" />
                                   ) : (
                                     <Clock size={24} className="text-muted-foreground" />
@@ -9727,14 +9734,14 @@ export default function VisorDocumentoPage() {
                                   <p className="text-sm text-center text-muted-foreground">
                                     {nom151Generating || nom151Polling
                                       ? 'Generando constancia NOM-151…'
-                                      : nom151Error
+                                      : nom151DisplayError
                                         ? 'No fue posible emitir la constancia NOM-151.'
                                       : nom151Blocked
-                                          ? 'En espera del PDF final PAdES-B-T.'
+                                          ? 'Pendiente del cierre criptográfico PAdES-B-T.'
                                           : 'Constancia NOM-151 pendiente de generación.'}
                                     <br />
                                     <span className="text-xs">
-                                      {nom151Error ||
+                                      {nom151DisplayError ||
                                         (nom151Blocked
                                           ? signedPdfError
                                             ? 'Primero debe resolverse el error de certificación del PDF mostrado arriba.'

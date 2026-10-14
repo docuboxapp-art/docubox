@@ -5,9 +5,7 @@ const nextConfig = {
   productionBrowserSourceMaps: true,
   distDir: process.env.DIST_DIR || '.next',
   outputFileTracingIncludes: {
-    '/*': ['./infra/pdf/fonts/**/*'],
-    '/api/nom151/**': ['./infra/nom151/trust/**/*'],
-    '/api/internal/crypto/nom151-health': ['./infra/nom151/trust/**/*'],
+    '/*': ['./infra/pdf/fonts/**/*', './infra/nom151/trust/**/*'],
     '/api/documentos/**/evidence-v2': [
       './src/lib/evidence-v2/schema/**/*',
       './node_modules/xmllint-wasm/**/*',

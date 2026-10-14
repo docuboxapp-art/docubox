@@ -8,6 +8,7 @@ import {
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
 import { abbreviateDocuboxFolio, createCertificateFolio } from '@/lib/documents/certificate-folio';
+import { finalDeliverablePendingResponse, finalDeliverableReady } from '@/lib/nom151/final-deliverable';
 
 export const runtime = 'nodejs';
 
@@ -115,6 +116,9 @@ export async function GET(
         { error: 'La constancia general estará disponible cuando el documento esté completado.' },
         { status: 422 },
       );
+    }
+    if (!(await finalDeliverableReady(service, documentId))) {
+      return finalDeliverablePendingResponse();
     }
 
     const [responsesResult, certificationResult, workspaceResult, nom151Result, auditResult] = await Promise.all([
