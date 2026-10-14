@@ -444,6 +444,7 @@ serve(async (req) => {
       }
     }
 
+    let auditTrailSnapshot: { total: number; events: Array<{ action: string; created_at: string }> } | null = null;
     if (pdfSchema.showEvidenceSheet === true || pdfSchema.showQr === true || pdfSchema.showHash === true || pdfSchema.showAuditTrail === true) {
       const showQr = pdfSchema.showQr === true;
       const detailX = PAGE.margin + (showQr ? 96 : 0);
@@ -469,6 +470,7 @@ serve(async (req) => {
           ...(auditEvents || []),
         ];
         if (!events.length) events.push({ action: 'Respuesta disponible', created_at: new Date().toISOString() });
+        auditTrailSnapshot = { total: events.length, events: events.slice(-3) };
         evidenceLines.push(`Bitácora del envío (${events.length} ${events.length === 1 ? 'evento' : 'eventos'}):`);
         for (const event of events.slice(-3)) {
           evidenceLines.push(...wrapText(`${String(event.created_at || '').slice(0, 19)} · ${String(event.action || '').slice(0, 70)}`, maxChars));
@@ -527,12 +529,18 @@ serve(async (req) => {
     if (generatedError || !generated) throw generatedError || new Error('No se pudo registrar el PDF generado.');
     generatedPdfId = generated?.id || null;
 
-    await supabase.from('form_responses').update({
+    const { error: responseUpdateError } = await supabase.from('form_responses').update({
       pdf_output_path: path,
       pdf_output_hash: hash,
+      pdf_evidence_snapshot: {
+        pdf_sha256: hash,
+        answers_sha256: answerHash || null,
+        audit_trail: auditTrailSnapshot,
+      },
       generated_pdf_id: generatedPdfId,
       status: requiresSignature ? 'signing' : 'pdf_generated',
     }).eq('id', response_id);
+    if (responseUpdateError) throw responseUpdateError;
 
     const eventHash = await sha256Hex(new TextEncoder().encode(`${response_id}:pdf_generated:${hash}`));
     await supabase.from('form_audit_logs').insert({
@@ -542,7 +550,12 @@ serve(async (req) => {
       actor_email: responseRow.respondent_email || null,
       action: 'pdf_generated',
       event_hash: eventHash,
-      metadata: { folio, pdf_sha256: hash, storage_path: path },
+      metadata: {
+        folio,
+        pdf_sha256: hash,
+        storage_path: path,
+        evidence: { answers_sha256: answerHash || null, audit_trail: auditTrailSnapshot },
+      },
       ip_address: responseRow.ip_address,
       user_agent: responseRow.user_agent,
     }).catch(() => undefined);

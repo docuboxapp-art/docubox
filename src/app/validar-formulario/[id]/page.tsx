@@ -13,24 +13,40 @@ interface ValidationData {
   form_name: string;
   submitted_at: string;
   sha256_hash?: string | null;
+  evidence?: {
+    response_id?: string;
+    folio?: string;
+    submitted_at_utc?: string;
+    user_agent?: string | null;
+    ip_address?: string | null;
+    answers_sha256?: string | null;
+    audit_trail?: {
+      total: number;
+      events: Array<{ action: string; created_at: string }>;
+    } | null;
+  };
 }
 
 const validationCopy = {
   verified: {
     title: 'PDF de respuestas íntegro',
-    description: 'El PDF de respuestas almacenado coincide con la huella SHA-256 registrada al generarlo.',
+    description:
+      'El PDF de respuestas almacenado coincide con la huella SHA-256 registrada al generarlo.',
   },
   pending: {
     title: 'PDF de respuestas pendiente',
-    description: 'La respuesta está registrada, pero todavía no hay un PDF disponible para verificar.',
+    description:
+      'La respuesta está registrada, pero todavía no hay un PDF disponible para verificar.',
   },
   mismatch: {
     title: 'Integridad no confirmada',
-    description: 'El PDF de respuestas almacenado no coincide con la huella registrada. No debe considerarse verificado.',
+    description:
+      'El PDF de respuestas almacenado no coincide con la huella registrada. No debe considerarse verificado.',
   },
   unavailable: {
     title: 'No se pudo verificar el PDF',
-    description: 'No fue posible recuperar el PDF de respuestas para comprobar su integridad. Intenta nuevamente más tarde.',
+    description:
+      'No fue posible recuperar el PDF de respuestas para comprobar su integridad. Intenta nuevamente más tarde.',
   },
 };
 
@@ -42,14 +58,18 @@ export default function ValidateFormDocumentPage() {
   useEffect(() => {
     if (!id) return;
     const controller = new AbortController();
-    fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/validate-form-document?id=${encodeURIComponent(id)}`, {
-      signal: controller.signal,
-      cache: 'no-store',
-    })
+    fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/validate-form-document?id=${encodeURIComponent(id)}`,
+      {
+        signal: controller.signal,
+        cache: 'no-store',
+      }
+    )
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'No se pudo verificar la respuesta.');
-        if (!payload.verification_status) throw new Error('La verificación del PDF no está disponible.');
+        if (!payload.verification_status)
+          throw new Error('La verificación del PDF no está disponible.');
         setData(payload);
       })
       .catch((requestError) => {
@@ -62,6 +82,8 @@ export default function ValidateFormDocumentPage() {
 
   const verification = data ? validationCopy[data.verification_status] : null;
   const verified = data?.verification_status === 'verified' && data.valid;
+  const evidence = data?.evidence;
+  const hasEvidence = evidence && Object.keys(evidence).length > 0;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F8F8FB] p-4">
@@ -87,20 +109,79 @@ export default function ValidateFormDocumentPage() {
           </div>
         ) : data && verification ? (
           <div className="p-8">
-            <span className={`flex h-12 w-12 items-center justify-center rounded-full ${verified ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+            <span
+              className={`flex h-12 w-12 items-center justify-center rounded-full ${verified ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}
+            >
               {verified ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
             </span>
             <h1 className="mt-4 text-xl font-semibold text-[#18181B]">{verification.title}</h1>
             <p className="mt-2 text-sm leading-6 text-[#71717A]">{verification.description}</p>
             <p className="mt-3 text-xs leading-5 text-[#64748B]">
-              Esta comprobación corresponde al PDF generado con las respuestas del formulario. La firma y la certificación del PDF final se verifican por separado.
+              Esta comprobación corresponde al PDF generado con las respuestas del formulario. La
+              firma y la certificación del PDF final se verifican por separado.
             </p>
             <dl className="mt-6 space-y-4 rounded-md bg-[#F8F8FB] p-4">
               <Info label="Formulario" value={data.form_name} icon={FileCheck2} />
               <Info label="Folio" value={data.folio} />
               <Info label="Enviado" value={new Date(data.submitted_at).toLocaleString('es-MX')} />
-              {data.sha256_hash && <Info label="SHA-256 del PDF de respuestas" value={data.sha256_hash} icon={Hash} mono />}
+              {data.sha256_hash && (
+                <Info
+                  label="SHA-256 del PDF de respuestas"
+                  value={data.sha256_hash}
+                  icon={Hash}
+                  mono
+                />
+              )}
             </dl>
+            {hasEvidence && (
+              <section className="mt-6 border-t border-[#EBEBF0] pt-5">
+                <h2 className="text-sm font-semibold text-[#18181B]">Evidencia e integridad</h2>
+                <p className="mt-1 text-xs leading-5 text-[#71717A]">
+                  Datos incluidos según la configuración del formulario al generar el PDF.
+                </p>
+                <dl className="mt-4 space-y-4 rounded-md bg-[#F8F8FB] p-4">
+                  {evidence.response_id && (
+                    <Info label="ID de respuesta" value={evidence.response_id} mono />
+                  )}
+                  {evidence.folio && <Info label="Folio" value={evidence.folio} />}
+                  {evidence.submitted_at_utc && (
+                    <Info label="Fecha y hora de envío (UTC)" value={evidence.submitted_at_utc} />
+                  )}
+                  {evidence.user_agent !== undefined && (
+                    <Info
+                      label="Navegador y dispositivo"
+                      value={evidence.user_agent || 'No disponible'}
+                    />
+                  )}
+                  {evidence.ip_address !== undefined && (
+                    <Info label="IP" value={evidence.ip_address || 'No disponible'} />
+                  )}
+                  {evidence.answers_sha256 && (
+                    <Info
+                      label="SHA-256 de respuestas"
+                      value={evidence.answers_sha256}
+                      icon={Hash}
+                      mono
+                    />
+                  )}
+                  {evidence.audit_trail && (
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase text-[#71717A]">
+                        Bitácora del envío ({evidence.audit_trail.total}{' '}
+                        {evidence.audit_trail.total === 1 ? 'evento' : 'eventos'})
+                      </dt>
+                      <dd className="mt-1 space-y-1 text-xs leading-5 text-[#27272A]">
+                        {evidence.audit_trail.events.map((event, index) => (
+                          <p key={`${event.created_at}-${index}`} className="break-words">
+                            {event.created_at.slice(0, 19)} · {event.action}
+                          </p>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
+            )}
           </div>
         ) : null}
       </main>
@@ -108,13 +189,28 @@ export default function ValidateFormDocumentPage() {
   );
 }
 
-function Info({ label, value, icon: Icon, mono }: { label: string; value: string; icon?: React.ElementType; mono?: boolean }) {
+function Info({
+  label,
+  value,
+  icon: Icon,
+  mono,
+}: {
+  label: string;
+  value: string;
+  icon?: React.ElementType;
+  mono?: boolean;
+}) {
   return (
     <div>
       <dt className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-[#71717A]">
-        {Icon && <Icon size={11} />}{label}
+        {Icon && <Icon size={11} />}
+        {label}
       </dt>
-      <dd className={`mt-1 break-all text-xs text-[#27272A] ${mono ? 'font-mono leading-5' : 'font-medium'}`}>{value}</dd>
+      <dd
+        className={`mt-1 break-all text-xs text-[#27272A] ${mono ? 'font-mono leading-5' : 'font-medium'}`}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
