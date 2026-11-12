@@ -45,7 +45,8 @@ test('post-login security requirements stay service-only and use a fixed search 
 
 test('every primary login method passes through the same post-login security gate', () => {
   assert.match(loginForm, /const enforcePostLoginSecurity = async/);
-  assert.equal((loginForm.match(/await enforcePostLoginSecurity\(/g) || []).length, 3);
+  assert.equal((loginForm.match(/await enforcePostLoginSecurity\(/g) || []).length, 4);
+  assert.match(loginForm, /const retryPostLoginSecurity = async/);
   assert.match(loginForm, /\/auth\/totp-enrollment\?redirect=/);
   assert.match(loginForm, /\/login\/totp-verification\?redirect=/);
 });

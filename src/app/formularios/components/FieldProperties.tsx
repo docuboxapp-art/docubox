@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
-import { GitBranch, Plus, Trash2, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Maximize2, Minimize2, Plus, Trash2, X } from 'lucide-react';
 import { useFormBuilder, type FormField } from '@/contexts/FormBuilderContext';
 import { getFieldTypeLabel, getPdfFieldLabel } from '@/lib/forms/schema';
 import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
@@ -16,14 +17,31 @@ import {
   inputClass,
 } from './PropertyControls';
 
-export default function FieldProperties() {
+export default function FieldProperties({ disabled = false, onClose }: { disabled?: boolean; onClose?: () => void }) {
   const { state, selectedField, updateField, selectField } = useFormBuilder();
+  const [expanded, setExpanded] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExpanded = useRef(false);
+  useEffect(() => {
+    if (expanded) wasExpanded.current = true;
+    if (!wasExpanded.current) return;
+    const frame = window.requestAnimationFrame(() => expandButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [expanded]);
+  useEffect(() => {
+    if (!expanded) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [expanded]);
   const update = (updates: Partial<FormField>) => {
     if (selectedField) updateField(selectedField.id, updates);
   };
   const legalContent = selectedField ? legalFieldContent(selectedField) : null;
 
-  return (
+  const panel = (
     <aside className="flex h-full min-h-0 flex-col border-l border-[#E2E8F0] bg-white dark:border-border dark:bg-card">
       <div className="border-b border-[#E2E8F0] px-3 pt-3 dark:border-border">
         <div className="flex items-center justify-between px-1 pb-3">
@@ -33,16 +51,26 @@ export default function FieldProperties() {
               {selectedField ? getFieldTypeLabel(selectedField.type) : 'Campo'}
             </p>
           </div>
-          {selectedField && (
+          {selectedField && <div className="flex items-center gap-1">
+            <button
+              ref={expandButtonRef}
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[#64748B] hover:bg-[#F8FAFC]"
+              title={expanded ? 'Restaurar panel' : 'Ampliar propiedades'}
+              aria-label={expanded ? 'Restaurar panel' : 'Ampliar propiedades'}
+            >
+              {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
             <button
               type="button"
-              onClick={() => selectField(null)}
+              onClick={() => { selectField(null); setExpanded(false); onClose?.(); }}
               className="flex h-8 w-8 items-center justify-center rounded-md text-[#64748B] hover:bg-[#F8FAFC]"
               title="Cerrar propiedades del campo"
             >
               <X size={15} />
             </button>
-          )}
+          </div>}
         </div>
       </div>
 
@@ -232,7 +260,7 @@ export default function FieldProperties() {
               )}
             </PanelSection>}
 
-            {selectedField.type !== 'signature_block' && <PanelSection key={`${selectedField.id}:logica`} title="Lógica condicional" icon={GitBranch}>
+            {selectedField.type !== 'signature_block' && <PanelSection key={`${selectedField.id}:logica`} title="Lógica condicional">
               <Toggle
                 label="Aplicar condición"
                 checked={selectedField.conditionalVisible}
@@ -374,4 +402,16 @@ export default function FieldProperties() {
       </div>
     </aside>
   );
+  return <>
+    {!expanded && panel}
+    {expanded && createPortal(
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Propiedades ampliadas del campo">
+        <button type="button" aria-label="Restaurar panel de propiedades" onClick={() => setExpanded(false)} className="absolute inset-0 bg-slate-950/55" />
+        <fieldset disabled={disabled} className="relative h-[min(90dvh,900px)] w-full max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-border dark:bg-card">
+          {panel}
+        </fieldset>
+      </div>,
+      document.fullscreenElement || document.body
+    )}
+  </>;
 }

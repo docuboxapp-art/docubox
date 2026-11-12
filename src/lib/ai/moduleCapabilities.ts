@@ -419,34 +419,6 @@ const requests = defineModule(
   ['/mis-solicitudes']
 );
 
-const tasks = defineModule(
-  {
-    moduleKey: 'tasks',
-    moduleName: 'Tareas',
-    scope: 'tasks',
-    purpose: 'Priorizar y explicar tareas reales, vencimientos y bloqueos.',
-    entities: ['tasks', 'task_dependencies', 'participations', 'documents'],
-    dataSources: ['tareas', 'task_dependencies', 'participation_responses', 'documentos'],
-    requiredContext: ['route_context', 'user_id', 'allowed_document_ids', 'structured_context'],
-    suggestedPrompts: [
-      '¿Qué debo atender primero?',
-      '¿Qué tareas están vencidas?',
-      'Explícame los bloqueos',
-      'Agrupa mis tareas por urgencia',
-    ],
-    allowedReadActions: [
-      'listar tareas',
-      'agrupar por urgencia',
-      'consultar bloqueos',
-      'consultar vencimientos',
-    ],
-    disallowedActions: NEVER_WRITE,
-    sensitiveFields: ['assignee_email', 'comments'],
-    evidenceRequirements: ['tareas asignadas o visibles', 'documentos autorizados'],
-  },
-  ['/mis-tareas']
-);
-
 const contacts = defineModule(
   {
     moduleKey: 'contacts',
@@ -1227,7 +1199,9 @@ const redirectAliases = defineModule(
   },
   [
     { routePattern: '/documents-dashboard', canonicalRoute: '/inicio' },
-    { routePattern: '/pending-tasks', canonicalRoute: '/mis-tareas' },
+    { routePattern: '/pending-tasks', canonicalRoute: '/inicio' },
+    { routePattern: '/mis-tareas', canonicalRoute: '/inicio' },
+    { routePattern: '/mis-tareas/automatizaciones', canonicalRoute: '/inicio' },
     { routePattern: '/participation-requests', canonicalRoute: '/mis-solicitudes' },
     { routePattern: '/notifications', canonicalRoute: '/notificaciones' },
     { routePattern: '/notificationes', canonicalRoute: '/notificaciones' },
@@ -1344,7 +1318,6 @@ export const MODULE_CAPABILITIES: LuciaModuleCapability[] = [
   ...signing,
   ...participations,
   ...requests,
-  ...tasks,
   ...contacts,
   ...templates,
   ...forms,

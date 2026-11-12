@@ -51,6 +51,9 @@ interface ScheduledFormLaunch {
 
 type FormSort = '' | 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc';
 type FormFilter = 'auto' | 'all' | 'published' | 'draft' | 'archived' | 'favorites' | 'in_review' | 'paused';
+type CreatorFilter = 'all' | 'mine' | 'others';
+type ResponseFilter = 'all' | 'with_responses' | 'without_responses';
+type ModifiedFilter = 'all' | 'today' | '7d' | '30d';
 type RemovalMode = 'checking' | 'delete' | 'archive';
 const TABLE_PAGE_SIZE = 10;
 const FORM_FAVORITES_KEY = 'formularios';
@@ -79,7 +82,7 @@ export default function FormulariosPage() {
   const [publicInviteesError, setPublicInviteesError] = useState(false);
   const [clockTime, setClockTime] = useState(() => Date.now());
   const [formsSummaryOpen, setFormsSummaryOpen] = useState(false);
-  const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(true);
+  const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(false);
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
   const [scheduledDialogOpen, setScheduledDialogOpen] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
@@ -89,6 +92,10 @@ export default function FormulariosPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<FormFilter>('auto');
   const [sortMode, setSortMode] = useState<FormSort>('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>('all');
+  const [responseFilter, setResponseFilter] = useState<ResponseFilter>('all');
+  const [modifiedFilter, setModifiedFilter] = useState<ModifiedFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -275,11 +282,35 @@ export default function FormulariosPage() {
     paused: forms.filter((form) => form.status === 'paused').length,
   }), [forms, favoriteSet]);
   const selectedFilter = status === 'auto' ? (filterCounts.published ? 'published' : 'all') : status;
+  const formTypes = useMemo(
+    () => [...new Set(forms.map((form) => form.typeName || 'Sin clasificar'))]
+      .sort((left, right) => left.localeCompare(right, 'es-MX')),
+    [forms]
+  );
+  const activeFilterCount = [
+    selectedFilter !== 'all',
+    typeFilter !== 'all',
+    creatorFilter !== 'all',
+    responseFilter !== 'all',
+    modifiedFilter !== 'all',
+  ].filter(Boolean).length;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('es-MX');
+    const todayStart = new Date(clockTime).setHours(0, 0, 0, 0);
     return forms.filter((form) => {
       const matchesQuery = `${form.name} ${form.description || ''} ${form.typeName || ''}`.toLocaleLowerCase('es-MX').includes(normalizedQuery);
-      return matchesQuery && (selectedFilter === 'all' || (selectedFilter === 'favorites' ? favoriteSet.has(form.id) : form.status === selectedFilter));
+      const matchesStatus = selectedFilter === 'all' || (selectedFilter === 'favorites' ? favoriteSet.has(form.id) : form.status === selectedFilter);
+      const matchesType = typeFilter === 'all' || (form.typeName || 'Sin clasificar') === typeFilter;
+      const matchesCreator = creatorFilter === 'all' || (Boolean(user?.id) && (creatorFilter === 'mine' ? form.created_by === user?.id : form.created_by !== user?.id));
+      const matchesResponses = responseFilter === 'all' || (responseFilter === 'with_responses' ? form.responseCount > 0 : form.responseCount === 0);
+      const modifiedAt = new Date(form.updated_at).getTime();
+      const modifiedSince = modifiedFilter === 'today'
+        ? todayStart
+        : clockTime - (modifiedFilter === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
+      const matchesModified = modifiedFilter === 'all' || (
+        Number.isFinite(modifiedAt) && modifiedAt >= modifiedSince && modifiedAt <= clockTime
+      );
+      return matchesQuery && matchesStatus && matchesType && matchesCreator && matchesResponses && matchesModified;
     }).sort((left, right) => {
       if (sortMode === 'name_asc') return left.name.localeCompare(right.name, 'es-MX');
       if (sortMode === 'name_desc') return right.name.localeCompare(left.name, 'es-MX');
@@ -289,11 +320,22 @@ export default function FormulariosPage() {
       }
       return 0;
     });
-  }, [forms, query, selectedFilter, sortMode, favoriteSet]);
+  }, [forms, query, selectedFilter, typeFilter, creatorFilter, responseFilter, modifiedFilter, sortMode, favoriteSet, user?.id, clockTime]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const paginatedForms = filtered.slice((safeCurrentPage - 1) * TABLE_PAGE_SIZE, safeCurrentPage * TABLE_PAGE_SIZE);
   const menuForm = paginatedForms.find((form) => form.id === activeMenu);
+
+  const clearFilters = () => {
+    setQuery('');
+    setStatus('all');
+    setTypeFilter('all');
+    setCreatorFilter('all');
+    setResponseFilter('all');
+    setModifiedFilter('all');
+    setSortMode('');
+    setCurrentPage(1);
+  };
 
   const toggleFavorite = async (form: FormRow) => {
     if (!user || !favoritesReady || favoriteRequestPending.current) return;
@@ -616,9 +658,9 @@ export default function FormulariosPage() {
                   value={selectedFilter}
                   onChange={(event) => { setStatus(event.target.value as FormFilter); setCurrentPage(1); }}
                   aria-label="Filtrar formularios por estado"
-                  className="h-10 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
+                  className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
                 >
-                  {(filterCounts.published === 0 || selectedFilter === 'all') && <option value="all">Todos ({forms.length})</option>}
+                  <option value="all">Todos ({forms.length})</option>
                   <option value="published">Publicadas ({filterCounts.published})</option>
                   <option value="draft">Borradores ({filterCounts.draft})</option>
                   <option value="archived">Archivadas ({filterCounts.archived})</option>
@@ -644,6 +686,41 @@ export default function FormulariosPage() {
                 </select>
                 <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3 dark:border-border">
+              <FormQuickFilter
+                label="Tipo de formulario"
+                value={typeFilter}
+                active={typeFilter !== 'all'}
+                options={[{ value: 'all', label: 'Tipo de formulario' }, ...formTypes.map((typeName) => ({ value: typeName, label: typeName }))]}
+                onChange={(value) => { setTypeFilter(value); setCurrentPage(1); }}
+              />
+              <FormQuickFilter
+                label="Creado por"
+                value={creatorFilter}
+                active={creatorFilter !== 'all'}
+                options={[{ value: 'all', label: 'Creado por' }, { value: 'mine', label: 'Creados por mí' }, { value: 'others', label: 'Creados por otros' }]}
+                onChange={(value) => { setCreatorFilter(value as CreatorFilter); setCurrentPage(1); }}
+              />
+              <FormQuickFilter
+                label="Respuestas"
+                value={responseFilter}
+                active={responseFilter !== 'all'}
+                options={[{ value: 'all', label: 'Respuestas' }, { value: 'with_responses', label: 'Con respuestas' }, { value: 'without_responses', label: 'Sin respuestas' }]}
+                onChange={(value) => { setResponseFilter(value as ResponseFilter); setCurrentPage(1); }}
+              />
+              <FormQuickFilter
+                label="Última modificación"
+                value={modifiedFilter}
+                active={modifiedFilter !== 'all'}
+                options={[{ value: 'all', label: 'Última modificación' }, { value: 'today', label: 'Hoy' }, { value: '7d', label: 'Últimos 7 días' }, { value: '30d', label: 'Últimos 30 días' }]}
+                onChange={(value) => { setModifiedFilter(value as ModifiedFilter); setCurrentPage(1); }}
+              />
+              {(activeFilterCount > 0 || query) && (
+                <button type="button" onClick={clearFilters} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary hover:bg-blue-50">
+                  <X size={13} /> Limpiar filtros
+                </button>
+              )}
             </div>
           </section>
 
@@ -765,6 +842,15 @@ export default function FormulariosPage() {
       {notice && <BottomNotice message={notice} onClose={() => setNotice('')} />}
     </AppLayout>
   );
+}
+
+function FormQuickFilter({ label, value, active, options, onChange }: { label: string; value: string; active: boolean; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
+  return <div className="relative min-w-[180px] max-w-[240px] flex-1 sm:flex-none">
+    <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={`Filtrar por ${label.toLocaleLowerCase('es-MX')}`} className={`h-9 w-full appearance-none rounded-md border pl-3 pr-8 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 ${active ? 'border-blue-200 bg-blue-50 text-primary dark:bg-primary/10' : 'border-slate-200 bg-white text-slate-700 dark:border-border dark:bg-background dark:text-foreground'}`}>
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+    <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+  </div>;
 }
 
 const ActionMenu = React.forwardRef<HTMLDivElement, { form: FormRow; position: { top: number; left: number }; onClose: () => void; onPreview: () => void; onResponses: () => void; onLaunch: () => void; onCopyPublic: () => void; onDuplicate: () => void; onPause: () => void; onResume: () => void; onDelete: () => void; onRestore: () => void }>(function ActionMenu({ form, position, onClose, onPreview, onResponses, onLaunch, onCopyPublic, onDuplicate, onPause, onResume, onDelete, onRestore }, ref) {

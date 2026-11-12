@@ -1,10 +1,14 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
+import { ActivitySummary, type ActivitySummaryMetric } from '@/components/documents/ActivitySummary';
 import { useRouter } from 'next/navigation';
+import { hasEffectiveParticipation } from '@/lib/documents/participant-visibility';
 
-import { Send, Search, User, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, ChevronUp, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, UserCheck, UserMinus } from 'lucide-react';
+import { Send, Search, User, UserPlus, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, Tag, UserCheck, UserMinus, MoreHorizontal } from 'lucide-react';
+import { AñadirParticipantesModal, ConfigurarParticipacionModal } from '@/app/crear-documento/components/StepParticipantes';
+import type { Participant } from '@/app/crear-documento/components/types';
 
 interface ParticipantListItem {
   id?: string | null;
@@ -55,9 +59,14 @@ interface ParticipationRequest {
   participants: number;
   etiquetas?: { nombre: string; color?: string }[];
   participantList?: ParticipantListItem[];
+  participantMode?: 'solo_yo' | 'yo_y_otros' | 'solo_otros' | null;
+  participationOrder?: string;
+  uninviteEvents?: { date: string; label: string }[];
+  inviteEvents?: { date: string; label: string }[];
   signaturesTotal: number;
   signaturesDone: number;
   supabaseId?: string;
+  ownerEmail?: string;
 }
 
 const MOTIVOS_CANCELACION = [
@@ -75,6 +84,36 @@ const MOTIVOS_CANCELACION = [
 const TERMINAL_STATUSES = ['completado', 'vencido', 'rechazado', 'cancelado'];
 // Statuses that count as "participated"
 const PARTICIPATED_STATUSES = ['Firmado', 'Rechazado', 'Aprobado', 'Cancelado'];
+
+function canSendReminderToParticipant(req: ParticipationRequest, participant: ParticipantListItem) {
+  if (req.status !== 'en-progreso' || !participant.email?.trim() || participant.currentAccess === false) return false;
+  if (PARTICIPATED_STATUSES.includes(participant.status ?? '')) return false;
+  return true;
+}
+
+async function sendParticipationReminder(
+  req: ParticipationRequest,
+  participant: { name: string; email: string }
+) {
+  const response = await fetch('/api/documentos/send-reminder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      participantEmail: participant.email,
+      participantName: participant.name,
+      documentName: req.documentName,
+      documentId: req.supabaseId ?? req.id,
+    }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(
+      response.status < 500 && typeof payload.error === 'string'
+        ? payload.error
+        : 'No fue posible enviar el recordatorio. Inténtalo de nuevo más tarde.'
+    );
+  }
+}
 
 async function cancelDocumentRequest(
   req: ParticipationRequest,
@@ -108,10 +147,15 @@ const statusFilterOptions = [
   { value: 'cancelado', label: 'Cancelados' },
 ];
 
-const timeFilterOptions = [
-  { value: '7', label: 'Últimos 7 días' },
-  { value: '30', label: 'Últimos 30 días' },
+type TimeFilter = 'todos' | '365' | '30' | '7' | 'today' | 'custom';
+
+const timeFilterOptions: { value: TimeFilter; label: string }[] = [
+  { value: 'todos', label: 'Cualquier fecha' },
   { value: '365', label: 'Último año' },
+  { value: '30', label: 'Últimos 30 días' },
+  { value: '7', label: 'Últimos 7 días' },
+  { value: 'today', label: 'Hoy' },
+  { value: 'custom', label: 'Rango personalizado...' },
 ];
 
 // periodFilterOptions removed - only month selector used in tablero
@@ -159,20 +203,6 @@ function formatCreatedAt(dateStr: string) {
   return `${day} ${month} ${year} a las ${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;
 }
 
-// Format for tablero: "07/05/2026 a las 8:00 a.m."
-function formatBoardDate(dateStr: string) {
-  const date = new Date(dateStr);
-  const day = date.getDate().toString().padStart(2, '0');
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const year = date.getFullYear();
-  let hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const ampm = hours >= 12 ? 'p.m.' : 'a.m.';
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  return `${day}/${month}/${year} a las ${hours}:${minutes} ${ampm}`;
-}
-
 function formatExpiresAt(dateStr: string) {
   const date = new Date(dateStr);
   const day = date.getDate();
@@ -215,14 +245,14 @@ function getStatusBadgeClass(status: ParticipationRequest['status']) {
   }
 }
 
-function getStatusDotColor(status: ParticipationRequest['status']) {
+function getDocumentIconTone(status: ParticipationRequest['status']) {
   switch (status) {
-    case 'en-progreso': return 'bg-[hsl(214,72%,45%)]';
-    case 'en-espera': return 'bg-[hsl(43,96%,52%)]';
-    case 'completado': return 'bg-emerald-500';
-    case 'vencido': return 'bg-gray-400';
-    case 'rechazado': return 'bg-red-500';
-    case 'cancelado': return 'bg-gray-500';
+    case 'en-progreso': return 'bg-primary/10 text-primary';
+    case 'en-espera': return 'bg-amber-50 text-amber-600';
+    case 'completado': return 'bg-emerald-50 text-emerald-600';
+    case 'vencido':
+    case 'rechazado': return 'bg-red-50 text-red-600';
+    case 'cancelado': return 'bg-slate-100 text-slate-500';
   }
 }
 
@@ -329,12 +359,16 @@ interface ReminderModalProps {
 function ReminderModal({ participantName, participantEmail, documentName, onClose, onConfirm }: ReminderModalProps) {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
 
   async function handleConfirm() {
     setLoading(true);
+    setError('');
     try {
       await onConfirm();
       setSent(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible enviar el recordatorio.');
     } finally {
       setLoading(false);
     }
@@ -372,6 +406,7 @@ function ReminderModal({ participantName, participantEmail, documentName, onClos
         <p className="text-sm text-muted-foreground mb-5">
           ¿Deseas enviar un recordatorio a <span className="font-600 text-foreground">{participantName}</span> para que participe en el documento <span className="font-600 text-foreground">{documentName}</span>?
         </p>
+        {error && <p role="alert" className="mb-4 text-xs text-red-600">{error}</p>}
         <div className="flex items-center gap-3">
           <button
             onClick={onClose}
@@ -400,7 +435,8 @@ interface UninviteParticipantButtonProps {
   onRevoked: (
     requestId: string,
     participant: ParticipantListItem,
-    hadEffectiveParticipation: boolean
+    hadEffectiveParticipation: boolean,
+    revokedAt?: string
   ) => void;
 }
 
@@ -414,7 +450,16 @@ function UninviteParticipantButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  if (participant.currentAccess === false || participant.isCurrentUser) return null;
+  if (
+    participant.currentAccess === false ||
+    participant.isCurrentUser ||
+    PARTICIPATED_STATUSES.includes(participant.status ?? '') ||
+    hasEffectiveParticipation({
+      participation_status: participant.status,
+      sub_estado: participant.subEstado,
+      historical_participation: participant.historicalParticipation,
+    })
+  ) return null;
 
   async function handleConfirm() {
     setLoading(true);
@@ -435,7 +480,7 @@ function UninviteParticipantButton({
       if (!response.ok) {
         throw new Error(payload.error || 'No fue posible desinvitar al participante.');
       }
-      onRevoked(request.id, participant, payload.hadEffectiveParticipation === true);
+      onRevoked(request.id, participant, payload.hadEffectiveParticipation === true, payload.revokedAt);
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No fue posible desinvitar al participante.');
@@ -473,7 +518,7 @@ function UninviteParticipantButton({
               </h2>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              {participant.name} perderá el acceso futuro a <span className="font-600 text-foreground">{request.documentName}</span>. Si ya realizó una acción, su participación y evidencia permanecerán en el historial; si no participó, el documento dejará de aparecer en su espacio.
+              {participant.name} perderá el acceso a <span className="font-600 text-foreground">{request.documentName}</span> y el documento dejará de aparecer en su espacio. Solo puedes desinvitar a alguien que aún no lo ha revisado ni ha interactuado con él. La desinvitación quedará en la actividad del documento.
             </p>
             {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             <div className="mt-6 flex justify-end gap-3">
@@ -523,6 +568,8 @@ function CancelModal({ req, onClose, onConfirm }: CancelModalProps) {
     setLoading(true);
     try {
       await onConfirm(motivo, descripcion);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible cancelar el documento.');
     } finally {
       setLoading(false);
     }
@@ -591,10 +638,10 @@ function CancelModal({ req, onClose, onConfirm }: CancelModalProps) {
 }
 
 // ─── Participation Progress Bar ───────────────────────────────────────────────
-function ParticipationProgressBar({ req, size = 'normal' }: { req: ParticipationRequest; size?: 'normal' | 'small' }) {
+function ParticipationProgressBar({ req, size = 'normal' }: { req: ParticipationRequest; size?: 'normal' | 'small' | 'grid' }) {
   const total = req.signaturesTotal;
   const done = req.signaturesDone;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
   // Build status summary
   const parts = req.participantList ?? [];
@@ -643,6 +690,23 @@ function ParticipationProgressBar({ req, size = 'normal' }: { req: Participation
     );
   }
 
+  if (size === 'grid') {
+    return (
+      <div aria-label={`${done} de ${total} participaciones completadas, ${pct}%`}>
+        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200/80">
+          <div className={`h-full rounded-full transition-all duration-300 ${pct === 100 ? 'bg-emerald-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
+        </div>
+        <div className="mt-2 flex min-h-6 flex-wrap gap-1">
+          {chips.map((chip, index) => (
+            <span key={index} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-normal ${chip.cls}`}>
+              {chip.count} {chip.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
@@ -674,355 +738,218 @@ function ParticipantsIcon({ count }: { count: number }) {
   return <Users size={13} className="text-muted-foreground" />;
 }
 
-// ─── Request Card (List View) ─────────────────────────────────────────────────
-interface RequestCardProps {
-  req: ParticipationRequest;
-  onCancelled: (id: string) => void;
-  onParticipantRevoked: (
-    requestId: string,
-    participant: ParticipantListItem,
-    hadEffectiveParticipation: boolean
-  ) => void;
+function InviteParticipantsButton({ request, onInvite, compact = false }: {
+  request: ParticipationRequest;
+  onInvite: (request: ParticipationRequest) => void;
+  compact?: boolean;
+}) {
+  if (request.status !== 'en-progreso' ||
+      (request.participantMode !== 'yo_y_otros' && request.participantMode !== 'solo_otros')) return null;
+  return (
+    <button type="button" onClick={() => onInvite(request)}
+      title="Invitar participantes" aria-label={`Invitar participantes a ${request.documentName}`}
+      className={`inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white text-primary transition-colors hover:border-primary/30 hover:bg-primary/5 ${compact ? 'h-7 px-2 text-[11px]' : 'h-8 px-2.5 text-xs'}`}>
+      <UserPlus size={compact ? 12 : 14} /> Invitar participantes
+    </button>
+  );
 }
 
-function RequestCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
-  const router = useRouter();
-  const [showParticipants, setShowParticipants] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [reminderModal, setReminderModal] = useState<{ idx: number; name: string; email: string } | null>(null);
+function InviteParticipantsModal({ request, onClose, onInvited }: {
+  request: ParticipationRequest;
+  onClose: () => void;
+  onInvited: () => Promise<void>;
+}) {
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
+  const [configuring, setConfiguring] = useState<Participant | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+  const existing: Participant[] = (request.participantList ?? []).map((participant) => ({
+    id: participant.id || participant.userId || participant.email,
+    name: participant.name, email: participant.email,
+    role: 'firmante',
+  }));
 
-  const isCancellable = req.status === 'en-progreso' || req.status === 'en-espera';
-
-  const unsignedParticipants = req.participantList?.filter(p => !PARTICIPATED_STATUSES.includes(p.status ?? '')) ?? [];
-  const rejectedParticipants = req.participantList?.filter(p => p.status === 'Rechazado') ?? [];
-
-  async function handleCancelConfirm(motivo: string, descripcion: string) {
-    await cancelDocumentRequest(req, motivo, descripcion);
-    setShowCancelModal(false);
-    onCancelled(req.id);
-  }
-
-  async function handleSendReminder() {
-    if (!reminderModal) return;
-    await fetch('/api/documentos/send-reminder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        participantEmail: reminderModal.email,
-        participantName: reminderModal.name,
-        documentName: req.documentName,
-        documentId: req.supabaseId ?? req.id,
-      }),
-    });
+  async function submit() {
+    if (!participants.length || participants.some((participant) => !participant.configured)) {
+      setError('Configura el acto, rol, firma y notificación de cada nuevo participante.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/documentos/invitar-participantes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId: request.supabaseId ?? request.id, participants }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'No fue posible invitar participantes.');
+      await onInvited();
+      if (body.queued) {
+        setResult('Participantes agregados. Recibirán la invitación cuando llegue su turno.');
+      } else if (body.deliveryFailed > 0) {
+        setResult('Participantes agregados. Algunas notificaciones no se pudieron enviar; revisa sus canales de contacto.');
+      } else {
+        onClose();
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible invitar participantes.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <>
-      {showCancelModal && (
-        <CancelModal req={req} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelConfirm} />
-      )}
-      {reminderModal && (
-        <ReminderModal
-          participantName={reminderModal.name}
-          participantEmail={reminderModal.email}
-          documentName={req.documentName}
-          documentId={req.supabaseId ?? req.id}
-          onClose={() => setReminderModal(null)}
-          onConfirm={handleSendReminder}
-        />
-      )}
-      <div className="w-full rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 sm:p-5">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          {/* Left: document info */}
-          <div className="flex-1 min-w-0">
-            {/* Dates */}
-            <div className="flex flex-col gap-0.5 mb-2">
-              <div className="flex items-center gap-1.5">
-                <Calendar size={13} className="text-muted-foreground flex-shrink-0" />
-                <span className="text-xs text-muted-foreground">Creado: {formatCreatedAt(req.sentAt)}</span>
-              </div>
-              {req.status === 'completado' && req.completedAt && (
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />
-                  <span className="text-xs text-emerald-600 font-500">Completado: {formatCreatedAt(req.completedAt)}</span>
-                </div>
-              )}
-              {req.status === 'vencido' && req.expiredAt && (
-                <div className="flex items-center gap-1.5">
-                  <Clock size={13} className="text-gray-400 flex-shrink-0" />
-                  <span className="text-xs text-gray-500 font-500">Vencido: {formatCreatedAt(req.expiredAt)}</span>
-                </div>
-              )}
-              {req.status === 'rechazado' && req.rejectedAt && (
-                <div className="flex items-center gap-1.5">
-                  <XCircle size={13} className="text-red-400 flex-shrink-0" />
-                  <span className="text-xs text-red-500 font-500">Rechazado: {formatCreatedAt(req.rejectedAt)}</span>
-                </div>
-              )}
-              {req.status === 'cancelado' && req.canceladoAt && (
-                <div className="flex items-center gap-1.5">
-                  <Ban size={13} className="text-gray-400 flex-shrink-0" />
-                  <span className="text-xs text-gray-500 font-500">Cancelado: {formatCreatedAt(req.canceladoAt)}</span>
-                </div>
-              )}
-              {req.tieneVencimiento && req.expiresAt && req.status !== 'completado' && req.status !== 'vencido' && req.status !== 'rechazado' && req.status !== 'cancelado' && (
-                <div className="flex items-center gap-1.5">
-                  <Clock size={13} className="text-amber-500 flex-shrink-0" />
-                  <span className="text-xs text-amber-600 font-500">Vence: {formatExpiresAt(req.expiresAt)}</span>
-                </div>
-              )}
+      <div className="fixed inset-0 z-[40] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-labelledby="invite-participants-title"
+          className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div>
+              <h2 id="invite-participants-title" className="flex items-center gap-2 text-lg font-600 text-foreground">
+                <UserPlus size={19} className="text-primary" /> Invitar participantes
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">{request.documentName}</p>
             </div>
-
-            {/* Document name */}
-            <h3 className="text-base font-600 text-foreground leading-tight mb-1">{req.documentName}</h3>
-            {req.description && (
-              <p className="text-xs text-muted-foreground mb-2 leading-relaxed">{req.description}</p>
-            )}
-
-            {/* Status + Document Type + Priority badges */}
-            <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <span className={`inline-flex items-center gap-1 text-xs font-500 px-2.5 py-1 rounded-full ${getStatusBadgeClass(req.status)}`}>
-                {getStatusIcon(req.status)}
-                {getStatusLabel(req.status)}
-              </span>
-              {req.documentType && (
-                <span className="inline-flex items-center gap-1 text-xs font-500 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-                  <FileText size={11} />
-                  {req.documentType}
-                </span>
-              )}
-              {req.priority === 'Urgente' && (
-                <span className="inline-flex items-center gap-1 text-xs font-600 px-2.5 py-1 rounded-full bg-red-100 text-red-600 border border-red-200">
-                  <AlertTriangle size={11} />
-                  Urgente
-                </span>
-              )}
-            </div>
-
-            {/* Info box: Vencido */}
-            {req.status === 'vencido' && unsignedParticipants.length > 0 && (
-              <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <AlertCircle size={13} className="text-orange-500 flex-shrink-0" />
-                  <span className="text-xs font-600 text-orange-700">Usuarios que no participaron</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  {unsignedParticipants.map((p, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
-                        <User size={10} className="text-orange-500" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-xs font-500 text-orange-800 leading-tight truncate">{p.name}</span>
-                        <span className="text-[10px] text-orange-600 leading-tight truncate">{p.email}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Info box: Rechazado */}
-            {req.status === 'rechazado' && rejectedParticipants.length > 0 && (
-              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <XCircle size={13} className="text-red-500 flex-shrink-0" />
-                  <span className="text-xs font-600 text-red-700">Rechazo en participación</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {rejectedParticipants.map((p, i) => (
-                    <div key={i} className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-600 text-red-600 tracking-wide">Rechazado por</span>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                          <User size={10} className="text-red-500" />
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-500 text-red-800 leading-tight truncate">{p.name}</span>
-                          <span className="text-[10px] text-red-600 leading-tight truncate">{p.email}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {req.rejectionMotivo && (
-                  <div className="mt-2 pt-2 border-t border-red-200">
-                    <p className="text-xs font-500 text-red-800 mb-0.5">
-                      <span className="text-red-600">Motivo: </span>{req.rejectionMotivo}
-                    </p>
-                    {req.rejectionDescripcion && (
-                      <p className="text-xs text-red-700 leading-relaxed">{req.rejectionDescripcion}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Info box: Cancelado */}
-            {req.status === 'cancelado' && (req.cancelacionMotivo || req.cancelacionDescripcion) && (
-              <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <Ban size={13} className="text-gray-500 flex-shrink-0" />
-                  <span className="text-xs font-600 text-gray-700">Motivo de cancelación</span>
-                </div>
-                {req.cancelacionMotivo && <p className="text-xs font-500 text-gray-800 mb-1">{req.cancelacionMotivo}</p>}
-                {req.cancelacionDescripcion && <p className="text-xs text-gray-600 leading-relaxed">{req.cancelacionDescripcion}</p>}
-              </div>
-            )}
-
-            {/* Info box: En Espera */}
-            {req.status === 'en-espera' && (req.enEsperaUsuario || req.enEsperaMotivo || req.enEsperaDescripcion) && (
-              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <PauseCircle size={13} className="text-amber-500 flex-shrink-0" />
-                  <span className="text-xs font-600 text-amber-700">Documento en espera</span>
-                </div>
-                {req.enEsperaUsuario && (
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <User size={10} className="text-amber-600" />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-500 text-amber-800 leading-tight truncate">{req.enEsperaUsuario}</span>
-                      {req.enEsperaEmail && <span className="text-[10px] text-amber-600 leading-tight truncate">{req.enEsperaEmail}</span>}
-                    </div>
-                  </div>
-                )}
-                {req.enEsperaMotivo && <p className="text-xs font-500 text-amber-800 mb-0.5"><span className="text-amber-600">Motivo: </span>{req.enEsperaMotivo}</p>}
-                {req.enEsperaDescripcion && <p className="text-xs text-amber-700 leading-relaxed">{req.enEsperaDescripcion}</p>}
-              </div>
-            )}
-
-            {/* Participants count */}
-            <div className="flex items-center gap-1.5">
-              <ParticipantsIcon count={req.participants} />
-              <button
-                onClick={() => setShowParticipants(v => !v)}
-                className="text-xs text-muted-foreground hover:text-primary transition-colors underline-offset-2 hover:underline"
-              >
-                {req.participants === 1 ? '1 participante' : `${req.participants} participantes`}
-              </button>
-            </div>
+            <button type="button" onClick={onClose} disabled={saving}
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Cerrar</button>
           </div>
-
-          {/* Right: progress + actions */}
-          <div className="flex w-full shrink-0 flex-col gap-3 border-t border-slate-100 pt-4 lg:w-[330px] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0 xl:w-[380px]">
-            <ParticipationProgressBar req={req} />
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2">
-              {isCancellable && (
-                <button
-                  onClick={() => setShowCancelModal(true)}
-                  className="flex h-9 flex-1 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-                >
-                  Cancelar
-                </button>
-              )}
-              <button
-                onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                className={`${isCancellable ? 'flex-1' : 'w-full'} flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-600 text-white transition-colors hover:bg-primary/90`}
-              >
-                <Eye size={12} />
-                Ver Documento
-              </button>
-            </div>
-
-            {/* Toggle participants */}
-            <button
-              onClick={() => setShowParticipants(v => !v)}
-              className="flex items-center justify-center gap-1.5 text-xs font-500 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showParticipants ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              {showParticipants ? 'Ocultar Participantes' : 'Ver Participantes'}
-            </button>
-
-            {/* Participants panel */}
-            {showParticipants && (
-              <div className="border-t border-border/60 pt-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Users size={16} className="text-muted-foreground" />
-                  <span className="text-sm font-600 text-foreground">Participantes</span>
+          <div className="min-h-0 space-y-3 overflow-y-auto px-5 py-4">
+            {request.participationOrder !== 'paralelo' && (
+              <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                El documento tiene orden de participación. Los nuevos participantes quedarán al final del flujo y recibirán su invitación al llegar su turno.
+              </p>
+            )}
+            {participants.map((participant) => (
+              <div key={participant.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-600 text-foreground">{participant.name}</p>
+                  <p className="truncate text-xs text-slate-500">{participant.email} · {participant.configured ? `${participant.acto} · ${participant.rolDocumento}` : 'Falta configurar participación'}</p>
                 </div>
-                <div className="flex flex-col">
-                  {req.participantList?.map((p, i) => (
-                    <div key={i} className="flex flex-col gap-2 py-4 border-t border-border/60">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <User size={14} className="text-muted-foreground" />
-                        </div>
-                        <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-xs font-600 text-foreground leading-snug">{p.name}</span>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Mail size={10} className="text-muted-foreground flex-shrink-0" />
-                            <span className="text-xs text-muted-foreground leading-tight truncate">{p.email}</span>
-                          </div>
-                          {/* Rol en el documento */}
-                          {p.rol && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <UserCheck size={10} className="text-muted-foreground flex-shrink-0" />
-                              <span className="text-xs text-muted-foreground leading-tight">Rol: <span className="font-600 text-foreground">{p.rol}</span></span>
-                            </div>
-                          )}
-                          {/* Acto en el documento */}
-                          {p.acto && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <FileText size={10} className="text-muted-foreground flex-shrink-0" />
-                              <span className="text-xs text-muted-foreground leading-tight">Acto: <span className="font-600 text-foreground">{p.acto}</span></span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="pl-11 flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className={`text-xs font-500 px-3 py-1 rounded-full ${getParticipantStatusBadge(p.status)}`}>
-                            {getParticipantStatusLabel(p.status)}
-                          </span>
-                          {p.currentAccess === false && p.historicalParticipation && (
-                            <span className="truncate text-xs font-500 text-slate-500">Acceso revocado</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
-                            <button
-                              onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
-                              className="flex items-center gap-1 text-xs font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
-                            >
-                              <Send size={11} />
-                              Enviar recordatorio
-                            </button>
-                          )}
-                          {isCancellable && (
-                            <UninviteParticipantButton
-                              request={req}
-                              participant={p}
-                              onRevoked={onParticipantRevoked}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={() => setConfiguring(participant)} className="text-xs text-primary hover:underline">Configurar</button>
+                  <button type="button" onClick={() => setParticipants((current) => current.filter((item) => item.id !== participant.id))}
+                    className="text-xs text-red-600 hover:underline">Quitar</button>
                 </div>
               </div>
-            )}
+            ))}
+            {!result && <button type="button" onClick={() => setShowPicker(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-4 py-3 text-sm text-primary hover:border-primary/40 hover:bg-primary/5">
+              <UserPlus size={15} /> Agregar participante
+            </button>}
+            {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+            {result && <p role="status" className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{result}</p>}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="h-9 rounded-md border border-slate-200 px-4 text-sm text-slate-700 hover:bg-slate-50">{result ? 'Cerrar' : 'Cancelar'}</button>
+            {!result && <button type="button" onClick={submit} disabled={saving || participants.length === 0}
+              className="h-9 rounded-md bg-primary px-4 text-sm font-600 text-white hover:bg-primary/90 disabled:opacity-50">
+              {saving ? 'Invitando...' : `Invitar ${participants.length || ''} participante${participants.length === 1 ? '' : 's'}`}
+            </button>}
           </div>
         </div>
       </div>
+      {showPicker && <AñadirParticipantesModal
+        onClose={() => setShowPicker(false)}
+        onAdd={(participant) => {
+          setParticipants((current) => [...current, participant]);
+          setShowPicker(false);
+          setConfiguring(participant);
+        }}
+        existingParticipants={[...existing, ...participants]}
+        currentUserEmail={request.ownerEmail}
+        mode={request.participantMode}
+      />}
+      {configuring && <ConfigurarParticipacionModal
+        participant={configuring}
+        onClose={() => setConfiguring(null)}
+        onSave={(updated) => {
+          setParticipants((current) => current.map((item) => item.id === updated.id ? updated : item));
+          return true;
+        }}
+        supplementalResources={[]}
+      />}
     </>
   );
 }
 
-// ─── Request Card (Grid View) ────────────────────────────────────────────────
-function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
+// ─── Request Card (List View) ─────────────────────────────────────────────────
+interface RequestCardProps {
+  req: ParticipationRequest;
+  onCancelled: (id: string) => void;
+  onInvite: (request: ParticipationRequest) => void;
+  onParticipantRevoked: (
+    requestId: string,
+    participant: ParticipantListItem,
+    hadEffectiveParticipation: boolean,
+    revokedAt?: string
+  ) => void;
+}
+
+function RequestCard({
+  req,
+  onCancelled,
+  onInvite,
+  onParticipantRevoked,
+}: RequestCardProps) {
   const router = useRouter();
   const [showParticipants, setShowParticipants] = useState(false);
+  const [showActions, setShowActions] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [reminderModal, setReminderModal] = useState<{ idx: number; name: string; email: string } | null>(null);
+  const [reminderModal, setReminderModal] = useState<{
+    idx: number;
+    name: string;
+    email: string;
+  } | null>(null);
+  const [openedAt] = useState(() => Date.now());
+  const actionsRef = useRef<HTMLDivElement>(null);
 
   const isCancellable = req.status === 'en-progreso' || req.status === 'en-espera';
-  const unsignedParticipants = req.participantList?.filter(p => !PARTICIPATED_STATUSES.includes(p.status ?? '')) ?? [];
-  const rejectedParticipants = req.participantList?.filter(p => p.status === 'Rechazado') ?? [];
+  const total = Math.max(0, req.signaturesTotal);
+  const done = Math.max(0, req.signaturesDone);
+  const progress = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const expiresAt = req.tieneVencimiento && req.expiresAt ? new Date(req.expiresAt) : null;
+  const expiresSoon =
+    isCancellable &&
+    expiresAt !== null &&
+    expiresAt.getTime() > openedAt &&
+    expiresAt.getTime() - openedAt <= 72 * 60 * 60 * 1000;
+  const participants = req.participantList ?? [];
+  const unsignedParticipants = participants.filter(
+    (p) => !PARTICIPATED_STATUSES.includes(p.status ?? '')
+  );
+  const rejectedParticipants = participants.filter((p) => p.status === 'Rechazado');
+  const detailsId = `request-details-${req.id}`;
+  const actionsId = `request-actions-${req.id}`;
+  const activity = [
+    { date: req.sentAt, label: 'Solicitud creada por ti' },
+    ...(req.inviteEvents ?? []),
+    ...(req.uninviteEvents ?? []),
+    ...(req.completedAt ? [{ date: req.completedAt, label: 'Documento completado' }] : []),
+    ...(req.rejectedAt ? [{ date: req.rejectedAt, label: 'Documento rechazado' }] : []),
+    ...(req.canceladoAt ? [{ date: req.canceladoAt, label: 'Documento cancelado' }] : []),
+    ...(req.expiredAt ? [{ date: req.expiredAt, label: 'Documento vencido' }] : []),
+  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  useEffect(() => {
+    if (!showActions) return;
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(event.target as Node)) {
+        setShowActions(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setShowActions(false);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showActions]);
 
   async function handleCancelConfirm(motivo: string, descripcion: string) {
     await cancelDocumentRequest(req, motivo, descripcion);
@@ -1032,16 +959,476 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
 
   async function handleSendReminder() {
     if (!reminderModal) return;
-    await fetch('/api/documentos/send-reminder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        participantEmail: reminderModal.email,
-        participantName: reminderModal.name,
-        documentName: req.documentName,
-        documentId: req.supabaseId ?? req.id,
-      }),
-    });
+    await sendParticipationReminder(req, reminderModal);
+  }
+
+  return (
+    <>
+      {showCancelModal && (
+        <CancelModal
+          req={req}
+          onClose={() => setShowCancelModal(false)}
+          onConfirm={handleCancelConfirm}
+        />
+      )}
+      {reminderModal && (
+        <ReminderModal
+          participantName={reminderModal.name}
+          participantEmail={reminderModal.email}
+          documentName={req.documentName}
+          documentId={req.supabaseId ?? req.id}
+          onClose={() => setReminderModal(null)}
+          onConfirm={handleSendReminder}
+        />
+      )}
+
+      <article className="relative rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center xl:grid-cols-[minmax(260px,2.3fr)_auto_minmax(130px,1fr)_minmax(145px,1fr)_auto] xl:gap-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowParticipants((value) => !value)}
+              aria-label={
+                showParticipants
+                  ? `Ocultar participantes de ${req.documentName}`
+                  : `Ver participantes de ${req.documentName}`
+              }
+              aria-expanded={showParticipants}
+              aria-controls={detailsId}
+              className="flex h-8 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              {showParticipants ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+            </button>
+            <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${getDocumentIconTone(req.status)}`}>
+              <FileText size={19} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-600 text-foreground" title={req.documentName}>
+                {req.documentName}
+              </h3>
+              {req.description && (
+                <p className="mt-1 line-clamp-2 text-xs leading-4 text-slate-600" title={req.description}>
+                  {req.description}
+                </p>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <FileText size={11} aria-hidden="true" />
+                  {req.documentType || 'Documento'}
+                </span>
+                <span className="hidden text-slate-300 sm:inline">·</span>
+                <span>Creado: {formatDate(req.sentAt)}</span>
+                <span className="hidden text-slate-300 sm:inline">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <ParticipantsIcon count={req.participants} />
+                  {req.participants} {req.participants === 1 ? 'participante' : 'participantes'}
+                </span>
+              </div>
+              {req.etiquetas && req.etiquetas.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1" aria-label="Etiquetas del documento">
+                  {req.etiquetas.map((etiqueta, index) => (
+                    <span
+                      key={`${etiqueta.nombre}-${index}`}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700"
+                      title={`Etiqueta: ${etiqueta.nombre}`}
+                    >
+                      <Tag size={10} className="shrink-0" aria-hidden="true" />
+                      <span className="truncate">{etiqueta.nombre}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <span
+            className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-600 ${getStatusBadgeClass(req.status)}`}
+          >
+            {getStatusIcon(req.status)}
+            {getStatusLabel(req.status)}
+          </span>
+
+          <div
+            className="min-w-0"
+            aria-label={`${done} de ${total} participaciones completadas, ${progress}%`}
+          >
+            <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="whitespace-nowrap font-500">
+                {done} de {total} completados
+              </span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
+            <Calendar
+              size={15}
+              className="mt-0.5 flex-shrink-0 text-slate-500"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              {req.priority === 'Urgente' && (
+                <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 font-600 text-red-600">
+                  <AlertTriangle size={11} aria-hidden="true" />
+                  Urgente
+                </span>
+              )}
+              {expiresSoon && req.priority !== 'Urgente' && (
+                <span className="mb-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 font-600 text-amber-700">
+                  Próximo a vencer
+                </span>
+              )}
+              <p className="whitespace-nowrap">
+                {expiresAt
+                  ? `${req.status === 'vencido' ? 'Venció' : 'Vence'}: ${formatExpiresAt(req.expiresAt!)}`
+                  : 'Sin vencimiento'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 md:justify-end">
+            <button
+              type="button"
+              onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-xs font-600 text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <Eye size={14} aria-hidden="true" />
+              Ver documento
+            </button>
+            <div className="relative" ref={actionsRef}>
+              <button
+                type="button"
+                onClick={() => setShowActions((value) => !value)}
+                aria-label={`Acciones de ${req.documentName}`}
+                aria-haspopup="menu"
+                aria-expanded={showActions}
+                aria-controls={actionsId}
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <MoreHorizontal size={17} aria-hidden="true" />
+              </button>
+              {showActions && (
+                <div
+                  id={actionsId}
+                  role="menu"
+                  className="absolute right-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowParticipants((value) => !value);
+                      setShowActions(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Users size={15} aria-hidden="true" />
+                    {showParticipants ? 'Ocultar participantes' : 'Ver participantes'}
+                  </button>
+                  {isCancellable && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowActions(false);
+                        setShowCancelModal(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Ban size={15} aria-hidden="true" />
+                      Cancelar solicitud
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {showParticipants && (
+          <div id={detailsId} className="border-t border-slate-200 bg-slate-50/60 p-3 sm:p-4">
+            <div className="rounded-lg border border-blue-100 bg-blue-50/30 p-4">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="flex items-center gap-2 text-sm font-600 text-foreground">
+                    <Users size={16} className="text-slate-500" aria-hidden="true" />
+                    Participantes ({req.participants})
+                  </h4>
+                  <InviteParticipantsButton request={req} onInvite={onInvite} compact />
+                </div>
+                <div className="w-full sm:max-w-xs">
+                  <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+                    <span>Progreso de participación</span>
+                    <span className="font-600 text-foreground">{progress}%</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {participants.length > 0 ? (
+                <div className="space-y-2">
+                  {participants.map((participant, index) => (
+                    <div
+                      key={participant.id ?? participant.userId ?? index}
+                      className="grid gap-3 rounded-lg border border-blue-100 bg-white/80 px-3 py-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] md:items-center"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-600 text-primary">
+                          {participant.name
+                            .trim()
+                            .split(/\s+/)
+                            .slice(0, 2)
+                            .map((part) => part[0]?.toUpperCase())
+                            .join('') || '—'}
+                        </span>
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-xs font-600 text-foreground"
+                            title={participant.name}
+                          >
+                            {participant.name}
+                          </p>
+                          <p
+                            className="flex items-center gap-1 truncate text-xs text-muted-foreground"
+                            title={participant.email}
+                          >
+                            <Mail size={11} className="flex-shrink-0" aria-hidden="true" />
+                            {participant.email}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="min-w-0 space-y-1 text-xs text-muted-foreground">
+                        {participant.rol && (
+                          <p className="flex items-center gap-1.5">
+                            <UserCheck size={12} aria-hidden="true" />
+                            Rol:{' '}
+                            <span className="truncate font-600 text-foreground">
+                              {participant.rol}
+                            </span>
+                          </p>
+                        )}
+                        {participant.acto && (
+                          <p className="flex items-center gap-1.5">
+                            <FileText size={12} aria-hidden="true" />
+                            Acción:{' '}
+                            <span className="truncate font-600 text-foreground">
+                              {participant.acto}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-600 ${getParticipantStatusBadge(participant.status)}`}
+                        >
+                          {getParticipantStatusLabel(participant.status)}
+                        </span>
+                        {participant.currentAccess === false &&
+                          participant.historicalParticipation && (
+                            <span className="text-xs text-slate-500">Acceso revocado</span>
+                          )}
+                        {canSendReminderToParticipant(req, participant) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setReminderModal({
+                                  idx: index,
+                                  name: participant.name,
+                                  email: participant.email,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-xs font-600 text-primary hover:bg-primary/5"
+                            >
+                              <Send size={12} aria-hidden="true" />
+                              Enviar recordatorio
+                            </button>
+                          )}
+                        {isCancellable && (
+                          <UninviteParticipantButton
+                            request={req}
+                            participant={participant}
+                            onRevoked={onParticipantRevoked}
+                            compact
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg bg-slate-50 px-3 py-4 text-xs text-muted-foreground">
+                  Aún no hay detalles de participantes disponibles.
+                </p>
+              )}
+            </div>
+
+            {req.status === 'vencido' && unsignedParticipants.length > 0 && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Sin participar: {unsignedParticipants.map((p) => p.name).join(', ')}.
+              </p>
+            )}
+            {req.status === 'rechazado' &&
+              (rejectedParticipants.length > 0 || req.rejectionMotivo) && (
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  Rechazado
+                  {rejectedParticipants.length > 0
+                    ? ` por ${rejectedParticipants.map((p) => p.name).join(', ')}`
+                    : ''}
+                  {req.rejectionMotivo ? ` · Motivo: ${req.rejectionMotivo}` : ''}
+                  {req.rejectionDescripcion ? ` · ${req.rejectionDescripcion}` : ''}
+                </p>
+              )}
+            {req.status === 'cancelado' &&
+              (req.cancelacionMotivo || req.cancelacionDescripcion) && (
+                <p className="mt-3 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-700">
+                  Motivo de cancelación: {req.cancelacionMotivo}
+                  {req.cancelacionDescripcion ? ` · ${req.cancelacionDescripcion}` : ''}
+                </p>
+              )}
+            {req.status === 'en-espera' &&
+              (req.enEsperaUsuario || req.enEsperaMotivo || req.enEsperaDescripcion) && (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Documento en espera{req.enEsperaUsuario ? ` por ${req.enEsperaUsuario}` : ''}
+                  {req.enEsperaMotivo ? ` · ${req.enEsperaMotivo}` : ''}
+                  {req.enEsperaDescripcion ? ` · ${req.enEsperaDescripcion}` : ''}
+                </p>
+              )}
+
+            <div className="mt-4 px-1">
+              <h4 className="mb-3 flex items-center gap-2 text-sm font-600 text-foreground">
+                <Clock size={16} className="text-slate-500" aria-hidden="true" />
+                Actividad reciente
+              </h4>
+              <ol className="flex min-w-0 overflow-x-auto pb-2">
+                {activity.map((item, index) => (
+                  <li
+                    key={`${item.label}-${index}`}
+                    className="min-w-48 flex-1 pr-5 text-xs text-muted-foreground last:pr-0"
+                  >
+                    <div className="relative h-4" aria-hidden="true">
+                      <span className="absolute left-0 top-1 h-2 w-2 rounded-full bg-primary" />
+                      {index < activity.length - 1 && (
+                        <span className="absolute left-2 right-0 top-[7px] h-px bg-slate-200" />
+                      )}
+                    </div>
+                    <time dateTime={item.date} className="mt-1 block whitespace-nowrap">
+                      {formatCreatedAt(item.date)}
+                    </time>
+                    <p className="mt-0.5 text-slate-700">{item.label}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        )}
+      </article>
+    </>
+  );
+}
+// ─── Request Card (Grid View) ────────────────────────────────────────────────
+function RequestCardGrid({ req, onCancelled, onInvite, onParticipantRevoked }: RequestCardProps) {
+  const router = useRouter();
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [actionsPlacement, setActionsPlacement] = useState<'top' | 'footer' | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [reminderModal, setReminderModal] = useState<{ idx: number; name: string; email: string } | null>(null);
+  const [openedAt] = useState(() => Date.now());
+  const topActionsRef = useRef<HTMLDivElement>(null);
+  const footerActionsRef = useRef<HTMLDivElement>(null);
+
+  const isCancellable = req.status === 'en-progreso' || req.status === 'en-espera';
+  const unsignedParticipants = req.participantList?.filter(p => !PARTICIPATED_STATUSES.includes(p.status ?? '')) ?? [];
+  const rejectedParticipants = req.participantList?.filter(p => p.status === 'Rechazado') ?? [];
+  const total = Math.max(0, req.signaturesTotal);
+  const done = Math.max(0, req.signaturesDone);
+  const progress = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const expiresAt = req.tieneVencimiento && req.expiresAt ? new Date(req.expiresAt) : null;
+  const expiresSoon = isCancellable && expiresAt !== null &&
+    expiresAt.getTime() > openedAt && expiresAt.getTime() - openedAt <= 72 * 60 * 60 * 1000;
+  const firstParticipant = req.participantList?.[0];
+  const participantNameParts = firstParticipant?.name.trim().split(/\s+/).filter(Boolean) ?? [];
+  const initials = participantNameParts.length > 1
+    ? `${participantNameParts[0][0]}${participantNameParts[participantNameParts.length - 1][0]}`.toUpperCase()
+    : participantNameParts[0]?.slice(0, 2).toUpperCase() || '—';
+  const participantsId = `grid-participants-${req.id}`;
+  const cardTone = req.status === 'completado'
+    ? 'border-emerald-200 bg-white'
+    : req.status === 'vencido' || req.status === 'rechazado'
+      ? 'border-red-200 bg-white'
+      : expiresSoon
+        ? 'border-amber-200 bg-white'
+        : 'border-slate-200/90 bg-white';
+  useEffect(() => {
+    if (!actionsPlacement) return;
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (!topActionsRef.current?.contains(event.target as Node) && !footerActionsRef.current?.contains(event.target as Node)) {
+        setActionsPlacement(null);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setActionsPlacement(null);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [actionsPlacement]);
+
+  async function handleCancelConfirm(motivo: string, descripcion: string) {
+    await cancelDocumentRequest(req, motivo, descripcion);
+    setShowCancelModal(false);
+    onCancelled(req.id);
+  }
+
+  async function handleSendReminder() {
+    if (!reminderModal) return;
+    await sendParticipationReminder(req, reminderModal);
+  }
+
+  function renderActionsMenu(placement: 'top' | 'footer') {
+    const open = actionsPlacement === placement;
+    const menuId = `grid-actions-${placement}-${req.id}`;
+    return (
+      <div className="relative shrink-0" ref={placement === 'top' ? topActionsRef : footerActionsRef}>
+        <button
+          type="button"
+          onClick={() => setActionsPlacement(open ? null : placement)}
+          aria-label={`Acciones de ${req.documentName}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={menuId}
+          className={`flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${placement === 'footer' ? 'h-10 w-10' : 'h-9 w-9'}`}
+        >
+          <MoreHorizontal size={17} aria-hidden="true" />
+        </button>
+        {open && (
+          <div id={menuId} role="menu" className={`absolute right-0 z-30 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg ${placement === 'footer' ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            <button type="button" role="menuitem" onClick={() => { setShowParticipants((value) => !value); setActionsPlacement(null); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <Users size={15} aria-hidden="true" />
+              {showParticipants ? 'Ocultar participantes' : 'Ver participantes'}
+            </button>
+            {isCancellable && (
+              <button type="button" role="menuitem" onClick={() => { setActionsPlacement(null); setShowCancelModal(true); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50">
+                <Ban size={15} aria-hidden="true" /> Cancelar solicitud
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1059,73 +1446,37 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
           onConfirm={handleSendReminder}
         />
       )}
-      <div className="flex flex-col gap-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300">
-        {/* Top: date block */}
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <Calendar size={13} className="text-muted-foreground flex-shrink-0" />
-            <span className="text-xs text-muted-foreground">Creado: {formatCreatedAt(req.sentAt)}</span>
+      <article className={`relative flex h-full min-w-0 flex-col gap-3 rounded-lg border p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 ${cardTone}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full ${expiresSoon ? 'bg-amber-50 text-amber-600' : getDocumentIconTone(req.status)}`}>
+              <FileText size={21} aria-hidden="true" />
+            </span>
+            <span className={`inline-flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-500 ${expiresSoon ? 'bg-amber-100 text-amber-700' : req.status === 'vencido' ? 'bg-red-100 text-red-700' : getStatusBadgeClass(req.status)}`}>
+              {expiresSoon ? <Clock size={13} aria-hidden="true" /> : req.status === 'vencido' ? <AlertTriangle size={13} aria-hidden="true" /> : getStatusIcon(req.status)}
+              {expiresSoon ? 'Próximo a vencer' : getStatusLabel(req.status)}
+            </span>
+            {req.priority === 'Urgente' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[11px] text-red-600">
+                <AlertTriangle size={12} aria-hidden="true" /> Urgente
+              </span>
+            )}
           </div>
-          {req.status === 'completado' && req.completedAt && (
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />
-              <span className="text-xs text-emerald-600 font-500">Completado: {formatCreatedAt(req.completedAt)}</span>
-            </div>
-          )}
-          {req.status === 'vencido' && req.expiredAt && (
-            <div className="flex items-center gap-1.5">
-              <Clock size={13} className="text-gray-400 flex-shrink-0" />
-              <span className="text-xs text-gray-500 font-500">Vencido: {formatCreatedAt(req.expiredAt)}</span>
-            </div>
-          )}
-          {req.status === 'rechazado' && req.rejectedAt && (
-            <div className="flex items-center gap-1.5">
-              <XCircle size={13} className="text-red-400 flex-shrink-0" />
-              <span className="text-xs text-red-500 font-500">Rechazado: {formatCreatedAt(req.rejectedAt)}</span>
-            </div>
-          )}
-          {req.status === 'cancelado' && req.canceladoAt && (
-            <div className="flex items-center gap-1.5">
-              <Ban size={13} className="text-gray-400 flex-shrink-0" />
-              <span className="text-xs text-gray-500 font-500">Cancelado: {formatCreatedAt(req.canceladoAt)}</span>
-            </div>
-          )}
-          {req.tieneVencimiento && req.expiresAt && req.status !== 'completado' && req.status !== 'vencido' && req.status !== 'rechazado' && req.status !== 'cancelado' && (
-            <div className="flex items-center gap-1.5">
-              <Clock size={13} className="text-amber-500 flex-shrink-0" />
-              <span className="text-xs text-amber-600 font-500">Vence: {formatExpiresAt(req.expiresAt)}</span>
-            </div>
-          )}
+          {renderActionsMenu('top')}
         </div>
 
-        {/* Status + Document Type + Priority */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`inline-flex items-center gap-1 text-xs font-500 px-2.5 py-1 rounded-full ${getStatusBadgeClass(req.status)}`}>
-            {getStatusIcon(req.status)}
-            {getStatusLabel(req.status)}
-          </span>
-          {req.documentType && (
-            <span className="inline-flex items-center gap-1 text-xs font-500 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-              <FileText size={11} />
-              {req.documentType}
-            </span>
-          )}
-          {req.priority === 'Urgente' && (
-            <span className="inline-flex items-center gap-1 text-xs font-600 px-2.5 py-1 rounded-full bg-red-100 text-red-600 border border-red-200">
-              <AlertTriangle size={11} />
-              Urgente
-            </span>
-          )}
+        <div className="min-w-0">
+          <h3 className="truncate text-base font-600 text-foreground" title={req.documentName}>{req.documentName}</h3>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {req.documentType || 'Documento'} · Creado: {formatDate(req.sentAt)}
+          </p>
+          <p className="mt-2 min-h-9 line-clamp-2 text-sm leading-relaxed text-slate-500" title={req.description || undefined}>
+            {req.description || ' '}
+          </p>
         </div>
-
-        {/* Document name */}
-        <h3 className="text-base font-600 text-foreground leading-tight -mt-1">{req.documentName}</h3>
-        {req.description && (
-          <p className="text-xs text-muted-foreground leading-relaxed -mt-1">{req.description}</p>
-        )}
 
         {/* Info box: Vencido */}
-        {req.status === 'vencido' && unsignedParticipants.length > 0 && (
+        {showParticipants && req.status === 'vencido' && unsignedParticipants.length > 0 && (
           <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <AlertCircle size={13} className="text-orange-500 flex-shrink-0" />
@@ -1148,7 +1499,7 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
         )}
 
         {/* Info box: Rechazado */}
-        {req.status === 'rechazado' && rejectedParticipants.length > 0 && (
+        {showParticipants && req.status === 'rechazado' && rejectedParticipants.length > 0 && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <XCircle size={13} className="text-red-500 flex-shrink-0" />
@@ -1180,7 +1531,7 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
         )}
 
         {/* Info box: Cancelado */}
-        {req.status === 'cancelado' && (req.cancelacionMotivo || req.cancelacionDescripcion) && (
+        {showParticipants && req.status === 'cancelado' && (req.cancelacionMotivo || req.cancelacionDescripcion) && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <Ban size={13} className="text-gray-500 flex-shrink-0" />
@@ -1192,7 +1543,7 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
         )}
 
         {/* Info box: En Espera */}
-        {req.status === 'en-espera' && (req.enEsperaUsuario || req.enEsperaMotivo || req.enEsperaDescripcion) && (
+        {showParticipants && req.status === 'en-espera' && (req.enEsperaUsuario || req.enEsperaMotivo || req.enEsperaDescripcion) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <PauseCircle size={13} className="text-amber-500 flex-shrink-0" />
@@ -1217,60 +1568,66 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
           </div>
         )}
 
-        {/* Participants count */}
-        <div className="flex items-center gap-1.5">
-          <ParticipantsIcon count={req.participants} />
-          <button
-            onClick={() => setShowParticipants(v => !v)}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors underline-offset-2 hover:underline"
-          >
-            {req.participants === 1 ? '1 participante' : `${req.participants} participantes`}
-          </button>
-        </div>
-
-        {/* Participation progress */}
-        <ParticipationProgressBar req={req} />
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-1.5">
-          {isCancellable && (
+        <div className="mt-auto space-y-3">
+          <div className="flex w-full items-center gap-2.5">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-600 text-slate-600">{initials}</span>
+            {req.participants > 1 && <span className="-ml-4 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-xs text-slate-600">+{req.participants - 1}</span>}
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-500 text-foreground">{req.participants} {req.participants === 1 ? 'participante' : 'participantes'}</span>
+              <span className="block text-xs text-muted-foreground">{done} de {total} completados</span>
+            </span>
+            <span className="text-xs font-600 text-foreground">{progress}%</span>
+          </div>
+          <ParticipationProgressBar req={req} size="grid" />
+          <div className={`flex min-h-8 items-center gap-2 text-xs ${req.status === 'vencido' || expiresSoon ? 'text-red-600' : 'text-muted-foreground'}`}>
+            <Calendar size={14} className={`flex-shrink-0 ${req.status === 'vencido' || expiresSoon ? 'text-red-500' : 'text-slate-500'}`} aria-hidden="true" />
+            <span>
+              {req.status === 'completado' && req.completedAt
+                ? `Completado: ${formatExpiresAt(req.completedAt)}`
+                : req.status === 'vencido' && req.expiresAt
+                  ? `Venció: ${formatExpiresAt(req.expiresAt)}`
+                  : req.status === 'rechazado' && req.rejectedAt
+                    ? `Rechazado: ${formatExpiresAt(req.rejectedAt)}`
+                    : req.status === 'cancelado' && req.canceladoAt
+                      ? `Cancelado: ${formatExpiresAt(req.canceladoAt)}`
+                      : expiresAt && req.expiresAt
+                        ? `Vence: ${formatExpiresAt(req.expiresAt)}`
+                        : 'Sin vencimiento'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowCancelModal(true)}
-              title="Cancelar"
-              className="flex items-center justify-center w-8 h-8 rounded-md border border-border text-foreground bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors flex-shrink-0"
+              type="button"
+              onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
+              className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
-              <Ban size={12} />
+              <Eye size={14} aria-hidden="true" /> Ver documento
             </button>
-          )}
+            {renderActionsMenu('footer')}
+          </div>
           <button
-            title="Ver Documento"
-            onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-            className={`${isCancellable ? 'flex-1' : 'w-full'} flex items-center justify-center gap-1.5 h-8 rounded-md bg-primary text-white hover:bg-primary/90 transition-colors text-xs font-500 px-2`}
+            type="button"
+            onClick={() => setShowParticipants((value) => !value)}
+            aria-expanded={showParticipants}
+            aria-controls={participantsId}
+            aria-label={`${showParticipants ? 'Ocultar' : 'Ver'} participantes de ${req.documentName}`}
+            className="flex w-full items-center justify-between gap-2 border-t border-slate-100 pt-2 text-left text-xs font-500 text-slate-600 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
-            <Eye size={12} />
-            <span>Ver Documento</span>
+            <span className="inline-flex items-center gap-2"><Users size={14} aria-hidden="true" />{showParticipants ? 'Ocultar participantes' : 'Ver participantes'}</span>
+            <ChevronDown size={15} aria-hidden="true" className={showParticipants ? 'rotate-180' : ''} />
           </button>
         </div>
-
-        {/* Toggle participants */}
-        <button
-          onClick={() => setShowParticipants(v => !v)}
-          className="flex items-center justify-center gap-1.5 text-xs font-500 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {showParticipants ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          {showParticipants ? 'Ocultar Participantes' : 'Ver Participantes'}
-        </button>
 
         {/* Participants panel */}
         {showParticipants && req.participantList && req.participantList.length > 0 && (
-          <div className="border-t border-border pt-3">
-            <div className="flex items-center gap-1.5 text-xs font-500 text-foreground mb-3">
-              <Users size={13} className="text-muted-foreground" />
-              <span>Participantes</span>
+          <div id={participantsId} className="rounded-lg border border-blue-100 bg-blue-50/30 p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs font-500 text-foreground">
+              <span className="flex items-center gap-1.5"><Users size={13} className="text-muted-foreground" />Participantes</span>
+              <InviteParticipantsButton request={req} onInvite={onInvite} compact />
             </div>
             <div className="flex flex-col gap-3">
               {req.participantList.map((p, i) => (
-                <div key={i} className="flex flex-col gap-1 border border-border/60 rounded-lg px-3 py-2">
+                <div key={i} className="flex flex-col gap-1 rounded-lg border border-blue-100 bg-white/80 px-3 py-2">
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                       <User size={10} className="text-muted-foreground" />
@@ -1302,7 +1659,7 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
                       )}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {req.status === 'en-progreso' && !PARTICIPATED_STATUSES.includes(p.status ?? '') && (
+                      {canSendReminderToParticipant(req, p) && (
                         <button
                           onClick={() => setReminderModal({ idx: i, name: p.name, email: p.email })}
                           className="flex items-center gap-1 text-[10px] font-500 text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
@@ -1326,14 +1683,139 @@ function RequestCardGrid({ req, onCancelled, onParticipantRevoked }: RequestCard
             </div>
           </div>
         )}
-      </div>
+      </article>
     </>
   );
 }
 
-// ─── Month Calendar ───────────────────────────────────────────────────────────
-function MonthCalendar({ year, month, today, requests, calFilter }: { year: number; month: number; today: Date; requests: ParticipationRequest[]; calFilter: CalendarStatusFilter }) {
+function CalendarRequestCard({
+  req,
+  density = 'compact',
+}: {
+  req: ParticipationRequest;
+  density?: 'compact' | 'standard' | 'expanded';
+}) {
   const router = useRouter();
+  const compact = density === 'compact';
+  const expanded = density === 'expanded';
+  const total = Math.max(0, req.signaturesTotal);
+  const done = Math.max(0, req.signaturesDone);
+  const progress = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const tone =
+    req.status === 'completado'
+      ? 'border-emerald-200 bg-emerald-50/60'
+      : req.status === 'vencido' || req.status === 'rechazado'
+        ? 'border-red-200 bg-red-50/60'
+        : req.status === 'en-espera'
+          ? 'border-amber-200 bg-amber-50/60'
+          : req.status === 'cancelado'
+            ? 'border-slate-200 bg-slate-50'
+            : 'border-primary/20 bg-primary/5';
+  const dateLabel =
+    req.status === 'completado' && req.completedAt
+      ? `Completado: ${formatExpiresAt(req.completedAt)}`
+      : req.status === 'vencido' && (req.expiredAt || req.expiresAt)
+        ? `Venció: ${formatExpiresAt((req.expiredAt || req.expiresAt)!)}`
+        : req.status === 'rechazado' && req.rejectedAt
+          ? `Rechazado: ${formatExpiresAt(req.rejectedAt)}`
+          : req.status === 'cancelado' && req.canceladoAt
+            ? `Cancelado: ${formatExpiresAt(req.canceladoAt)}`
+            : req.tieneVencimiento && req.expiresAt
+              ? `Vence: ${formatExpiresAt(req.expiresAt)}`
+              : 'Sin vencimiento';
+
+  return (
+    <button
+      type="button"
+      onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
+      aria-label={`Ver documento ${req.documentName}, ${getStatusLabel(req.status)}`}
+      title={req.documentName}
+      className={`group block w-full min-w-0 rounded-md border text-left transition-colors hover:border-primary/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${compact ? 'p-1.5' : expanded ? 'p-3.5' : 'p-2.5'} ${tone}`}
+    >
+      <span className="flex min-w-0 items-start gap-1.5">
+        <span
+          className={`flex shrink-0 items-center justify-center rounded-md ${compact ? 'h-5 w-5' : 'h-8 w-8'} ${getDocumentIconTone(req.status)}`}
+        >
+          <FileText size={compact ? 12 : 16} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          {!compact && (
+            <span
+              className={`mb-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] ${getStatusBadgeClass(req.status)}`}
+            >
+              {getStatusIcon(req.status)} {getStatusLabel(req.status)}
+            </span>
+          )}
+          <span
+            className={`block font-600 leading-snug text-slate-900 ${compact ? 'truncate text-[11px]' : 'line-clamp-2 text-xs'}`}
+          >
+            {req.documentName}
+          </span>
+        </span>
+      </span>
+      {compact ? (
+        <span className="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] text-slate-600">
+          <span className="truncate">{getStatusLabel(req.status)}</span>
+          <span className="shrink-0">
+            {req.participants} {req.participants === 1 ? 'part.' : 'parts.'}
+          </span>
+        </span>
+      ) : (
+        <span className="mt-2 block space-y-2">
+          <span className="block truncate text-[11px] text-slate-500">
+            {req.documentType || 'Documento'} · {req.recipientName}
+          </span>
+          {expanded && req.description && (
+            <span className="line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+              {req.description}
+            </span>
+          )}
+          <span className="flex items-center justify-between gap-1 text-[11px] text-slate-600">
+            <span>
+              {req.participants} {req.participants === 1 ? 'participante' : 'participantes'} ·{' '}
+              {done}/{total}
+            </span>
+            <span className="font-600 text-slate-800">{progress}%</span>
+          </span>
+          <span className="block h-1 overflow-hidden rounded-full bg-slate-200">
+            <span
+              className={`block h-full rounded-full ${progress === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
+              style={{ width: `${progress}%` }}
+            />
+          </span>
+          <span className="flex items-start gap-1 text-[11px] text-slate-500">
+            <Calendar size={12} className="mt-0.5 shrink-0" aria-hidden="true" /> {dateLabel}
+          </span>
+          {req.priority === 'Urgente' && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-red-600">
+              <AlertTriangle size={11} aria-hidden="true" /> Urgente
+            </span>
+          )}
+          {expanded && (
+            <span className="flex items-center gap-1 border-t border-slate-200 pt-2 text-xs font-600 text-primary">
+              <Eye size={13} aria-hidden="true" /> Ver documento
+            </span>
+          )}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ─── Month Calendar ───────────────────────────────────────────────────────────
+function MonthCalendar({
+  year,
+  month,
+  today,
+  requests,
+  calFilter,
+}: {
+  year: number;
+  month: number;
+  today: Date;
+  requests: ParticipationRequest[];
+  calFilter: CalendarStatusFilter;
+}) {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const startOffset = firstDay.getDay() === 0 ? -6 : firstDay.getDay() - 1;
@@ -1357,41 +1839,50 @@ function MonthCalendar({ year, month, today, requests, calFilter }: { year: numb
     <div className="flex-1 flex flex-col">
       <div className="grid grid-cols-7 border-b border-gray-200">
         {DAYS_SHORT.map((d) => (
-          <div key={d} className="py-2 text-center text-xs font-600 text-primary border-r border-gray-200 last:border-r-0">{d}</div>
+          <div
+            key={d}
+            className="py-2 text-center text-xs font-600 text-primary border-r border-gray-200 last:border-r-0"
+          >
+            {d}
+          </div>
         ))}
       </div>
       <div className="flex-1 flex flex-col">
         {rows.map((row, ri) => (
-          <div key={ri} className="flex-1 grid grid-cols-7 border-b border-gray-200 last:border-b-0" style={{ minHeight: '90px' }}>
+          <div
+            key={ri}
+            className="flex-1 grid grid-cols-7 border-b border-gray-200 last:border-b-0"
+            style={{ minHeight: '90px' }}
+          >
             {row.map((cell, ci) => {
               const isToday = isSameDay(cell.date, today);
               const dayRequests = getRequestsForDay(cell.date, requests, calFilter);
               return (
-                <div key={ci} className={`border-r border-gray-200 last:border-r-0 p-1.5 relative ${isToday ? 'bg-primary/5' : ''} ${!cell.isCurrentMonth ? 'bg-gray-50/50' : ''}`}>
+                <div
+                  key={ci}
+                  className={`border-r border-gray-200 last:border-r-0 p-1.5 relative ${isToday ? 'bg-primary/5' : ''} ${!cell.isCurrentMonth ? 'bg-gray-50/50' : ''}`}
+                >
                   <div className="flex items-start justify-start mb-1">
                     {isToday ? (
-                      <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-600 flex items-center justify-center">{cell.date.getDate()}</span>
+                      <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-600 flex items-center justify-center">
+                        {cell.date.getDate()}
+                      </span>
                     ) : (
-                      <span className={`text-xs font-500 ${cell.isCurrentMonth ? 'text-gray-800' : 'text-gray-400'}`}>{cell.date.getDate()}</span>
+                      <span
+                        className={`text-xs font-500 ${cell.isCurrentMonth ? 'text-gray-800' : 'text-gray-400'}`}
+                      >
+                        {cell.date.getDate()}
+                      </span>
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5">
                     {dayRequests.slice(0, 2).map((req) => (
-                      <div
-                        key={req.id}
-                        onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                        className="flex items-start gap-1 px-1 py-0.5 rounded text-[10px] font-500 bg-primary/10 text-primary cursor-pointer hover:bg-primary/20 transition-colors"
-                        title={req.documentName}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${getStatusDotColor(req.status)}`} />
-                        <div className="min-w-0">
-                          <p className="truncate font-600 leading-tight">{req.documentName}</p>
-                          <p className="truncate text-primary/60 leading-tight">{req.recipientName} · {req.id}</p>
-                        </div>
-                      </div>
+                      <CalendarRequestCard key={req.id} req={req} />
                     ))}
                     {dayRequests.length > 2 && (
-                      <span className="text-[10px] text-muted-foreground/60 pl-1">+{dayRequests.length - 2} más</span>
+                      <span className="text-[10px] text-muted-foreground/60 pl-1">
+                        +{dayRequests.length - 2} más
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1405,8 +1896,17 @@ function MonthCalendar({ year, month, today, requests, calFilter }: { year: numb
 }
 
 // ─── Week Calendar (board-style when no hourly events) ───────────────────────
-function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Date; today: Date; requests: ParticipationRequest[]; calFilter: CalendarStatusFilter }) {
-  const router = useRouter();
+function WeekCalendar({
+  weekStart,
+  today,
+  requests,
+  calFilter,
+}: {
+  weekStart: Date;
+  today: Date;
+  requests: ParticipationRequest[];
+  calFilter: CalendarStatusFilter;
+}) {
   const days: Date[] = Array.from({ length: 7 }, (_, i) => {
     let d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
@@ -1425,38 +1925,47 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
   function getRelevantDateStr(req: ParticipationRequest): string | undefined {
     if (calFilter === 'todos') {
       switch (req.status) {
-        case 'en-progreso': case 'en-espera': return req.sentAt;
-        case 'completado': return req.completedAt ?? req.sentAt;
-        case 'vencido': return req.expiredAt ?? req.expiresAt ?? undefined;
-        case 'rechazado': return req.rejectedAt ?? req.sentAt;
-        case 'cancelado': return req.canceladoAt ?? req.sentAt;
-        default: return req.sentAt;
+        case 'en-progreso':
+        case 'en-espera':
+          return req.sentAt;
+        case 'completado':
+          return req.completedAt ?? req.sentAt;
+        case 'vencido':
+          return req.expiredAt ?? req.expiresAt ?? undefined;
+        case 'rechazado':
+          return req.rejectedAt ?? req.sentAt;
+        case 'cancelado':
+          return req.canceladoAt ?? req.sentAt;
+        default:
+          return req.sentAt;
       }
     }
     switch (calFilter) {
-      case 'en-progreso': case 'en-espera': return req.sentAt;
-      case 'completado': return req.completedAt;
-      case 'por-vencer': return req.expiresAt ?? undefined;
-      case 'vencido': return req.expiredAt ?? req.expiresAt ?? undefined;
-      case 'rechazado': return req.rejectedAt;
-      case 'cancelado': return req.canceladoAt;
+      case 'en-progreso':
+      case 'en-espera':
+        return req.sentAt;
+      case 'completado':
+        return req.completedAt;
+      case 'por-vencer':
+        return req.expiresAt ?? undefined;
+      case 'vencido':
+        return req.expiredAt ?? req.expiresAt ?? undefined;
+      case 'rechazado':
+        return req.rejectedAt;
+      case 'cancelado':
+        return req.canceladoAt;
     }
     return undefined;
   }
 
   // Check if any request in the week has a specific time
-  const weekRequests = days.flatMap(day => getRequestsForDay(day, requests, calFilter));
-  const hasHourlyEvents = weekRequests.some(req => {
+  const weekRequests = days.flatMap((day) => getRequestsForDay(day, requests, calFilter));
+  const hasHourlyEvents = weekRequests.some((req) => {
     const ds = getRelevantDateStr(req);
     return ds ? hasSpecificTime(ds) : false;
   });
 
   if (!hasHourlyEvents) {
-    // Board-style week view (like the reference image)
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const monthsShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
     return (
       <div className="flex-1 flex flex-col">
         <div className="grid grid-cols-7 border-b border-gray-200">
@@ -1464,10 +1973,14 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
             const isToday = isSameDay(day, today);
             return (
               <div key={i} className="py-2 text-center border-r border-gray-200 last:border-r-0">
-                <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{DAYS_SHORT[i]}</div>
+                <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>
+                  {DAYS_SHORT[i]}
+                </div>
                 <div className="flex items-center justify-center mt-0.5">
                   {isToday ? (
-                    <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">{day.getDate()}</span>
+                    <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">
+                      {day.getDate()}
+                    </span>
                   ) : (
                     <span className="text-sm font-500 text-gray-700">{day.getDate()}</span>
                   )}
@@ -1481,25 +1994,15 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
             const isToday = isSameDay(day, today);
             const dayItems = getRequestsForDay(day, requests, calFilter);
             return (
-              <div key={di} className={`border-r border-gray-200 last:border-r-0 p-2 ${isToday ? 'bg-primary/5' : ''}`}>
+              <div
+                key={di}
+                className={`border-r border-gray-200 last:border-r-0 p-2 ${isToday ? 'bg-primary/5' : ''}`}
+              >
                 <div className="flex flex-col gap-1">
                   {dayItems.map((req) => (
-                    <div
-                      key={req.id}
-                      onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                      className="flex items-start gap-1 px-1.5 py-1 rounded-lg text-xs font-500 bg-primary/10 text-primary cursor-pointer hover:bg-primary/20 transition-colors w-full overflow-hidden"
-                      title={req.documentName}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${getStatusDotColor(req.status)}`} />
-                      <div className="min-w-0 overflow-hidden flex-1">
-                        <p className="truncate font-600 leading-tight text-xs">{req.documentName}</p>
-                        <p className="truncate text-primary/60 leading-tight text-[10px]">{req.recipientName} · {req.id}</p>
-                      </div>
-                    </div>
+                    <CalendarRequestCard key={req.id} req={req} density="standard" />
                   ))}
-                  {dayItems.length === 0 && (
-                    <div className="h-8" />
-                  )}
+                  {dayItems.length === 0 && <div className="h-8" />}
                 </div>
               </div>
             );
@@ -1512,16 +2015,23 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
   // Hourly view
   return (
     <div className="flex-1 flex flex-col overflow-auto">
-      <div className="grid border-b border-gray-200" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+      <div
+        className="grid border-b border-gray-200"
+        style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}
+      >
         <div className="border-r border-gray-200" />
         {days.map((day, i) => {
           const isToday = isSameDay(day, today);
           return (
             <div key={i} className="py-2 text-center border-r border-gray-200 last:border-r-0">
-              <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{DAYS_SHORT[i]}</div>
+              <div className={`text-xs font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>
+                {DAYS_SHORT[i]}
+              </div>
               <div className="flex items-center justify-center mt-0.5">
                 {isToday ? (
-                  <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">{day.getDate()}</span>
+                  <span className="w-7 h-7 rounded-full bg-primary text-white text-sm font-600 flex items-center justify-center">
+                    {day.getDate()}
+                  </span>
                 ) : (
                   <span className="text-sm font-500 text-gray-700">{day.getDate()}</span>
                 )}
@@ -1532,31 +2042,27 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
       </div>
       <div className="flex-1 overflow-y-auto" style={{ maxHeight: '520px' }}>
         {HOURS.map((hour) => (
-          <div key={hour} className="grid border-b border-gray-100" style={{ gridTemplateColumns: '56px repeat(7, 1fr)', minHeight: '48px' }}>
+          <div
+            key={hour}
+            className="grid border-b border-gray-100"
+            style={{ gridTemplateColumns: '56px repeat(7, 1fr)', minHeight: '48px' }}
+          >
             <div className="border-r border-gray-200 px-2 py-1 text-[10px] text-gray-400 text-right leading-none pt-1">
               {hour === 0 ? '' : `${hour.toString().padStart(2, '0')}:00`}
             </div>
             {days.map((day, di) => {
               const isToday = isSameDay(day, today);
-              const dayRequests = getRequestsForDay(day, requests, calFilter).filter(req => {
+              const dayRequests = getRequestsForDay(day, requests, calFilter).filter((req) => {
                 const ds = getRelevantDateStr(req);
                 return ds ? new Date(ds).getHours() === hour : false;
               });
               return (
-                <div key={di} className={`border-r border-gray-100 last:border-r-0 px-0.5 py-0.5 relative overflow-hidden ${isToday ? 'bg-primary/5' : ''}`}>
+                <div
+                  key={di}
+                  className={`border-r border-gray-100 last:border-r-0 px-0.5 py-0.5 relative overflow-hidden ${isToday ? 'bg-primary/5' : ''}`}
+                >
                   {dayRequests.map((req) => (
-                    <div
-                      key={req.id}
-                      onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-500 bg-primary/10 text-primary cursor-pointer hover:bg-primary/20 transition-colors mb-0.5 w-full overflow-hidden max-h-[44px]"
-                      title={req.documentName}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getStatusDotColor(req.status)}`} />
-                      <div className="min-w-0 overflow-hidden flex-1">
-                        <p className="truncate font-600 leading-tight text-xs">{req.documentName}</p>
-                        <p className="truncate text-primary/60 leading-tight text-[10px]">{req.recipientName} · {req.id}</p>
-                      </div>
-                    </div>
+                    <CalendarRequestCard key={req.id} req={req} />
                   ))}
                 </div>
               );
@@ -1569,29 +2075,52 @@ function WeekCalendar({ weekStart, today, requests, calFilter }: { weekStart: Da
 }
 
 // ─── Day Calendar ─────────────────────────────────────────────────────────────
-function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: Date; requests: ParticipationRequest[]; calFilter: CalendarStatusFilter }) {
-  const router = useRouter();
+function DayCalendar({
+  date,
+  today,
+  requests,
+  calFilter,
+}: {
+  date: Date;
+  today: Date;
+  requests: ParticipationRequest[];
+  calFilter: CalendarStatusFilter;
+}) {
   const isToday = isSameDay(date, today);
   const dayName = DAYS_SHORT[(date.getDay() + 6) % 7];
 
   function getRelevantDateStr(req: ParticipationRequest): string | undefined {
     if (calFilter === 'todos') {
       switch (req.status) {
-        case 'en-progreso': case 'en-espera': return req.sentAt;
-        case 'completado': return req.completedAt ?? req.sentAt;
-        case 'vencido': return req.expiredAt ?? req.expiresAt ?? undefined;
-        case 'rechazado': return req.rejectedAt ?? req.sentAt;
-        case 'cancelado': return req.canceladoAt ?? req.sentAt;
-        default: return req.sentAt;
+        case 'en-progreso':
+        case 'en-espera':
+          return req.sentAt;
+        case 'completado':
+          return req.completedAt ?? req.sentAt;
+        case 'vencido':
+          return req.expiredAt ?? req.expiresAt ?? undefined;
+        case 'rechazado':
+          return req.rejectedAt ?? req.sentAt;
+        case 'cancelado':
+          return req.canceladoAt ?? req.sentAt;
+        default:
+          return req.sentAt;
       }
     }
     switch (calFilter) {
-      case 'en-progreso': case 'en-espera': return req.sentAt;
-      case 'completado': return req.completedAt;
-      case 'por-vencer': return req.expiresAt ?? undefined;
-      case 'vencido': return req.expiredAt ?? req.expiresAt ?? undefined;
-      case 'rechazado': return req.rejectedAt;
-      case 'cancelado': return req.canceladoAt;
+      case 'en-progreso':
+      case 'en-espera':
+        return req.sentAt;
+      case 'completado':
+        return req.completedAt;
+      case 'por-vencer':
+        return req.expiresAt ?? undefined;
+      case 'vencido':
+        return req.expiredAt ?? req.expiresAt ?? undefined;
+      case 'rechazado':
+        return req.rejectedAt;
+      case 'cancelado':
+        return req.canceladoAt;
     }
     return undefined;
   }
@@ -1605,12 +2134,12 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
     return true;
   }
 
-  const allDayRequests = getRequestsForDay(date, requests, calFilter).filter(req => {
+  const allDayRequests = getRequestsForDay(date, requests, calFilter).filter((req) => {
     const ds = getRelevantDateStr(req);
     return ds ? !hasSpecificTime(ds) : false;
   });
 
-  const hasHourlyEvents = getRequestsForDay(date, requests, calFilter).some(req => {
+  const hasHourlyEvents = getRequestsForDay(date, requests, calFilter).some((req) => {
     const ds = getRelevantDateStr(req);
     return ds ? hasSpecificTime(ds) : false;
   });
@@ -1620,38 +2149,32 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
     return (
       <div className="flex-1 flex flex-col overflow-auto">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/60">
-          <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{dayName}</div>
+          <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>
+            {dayName}
+          </div>
           {isToday ? (
-            <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">{date.getDate()}</span>
+            <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">
+              {date.getDate()}
+            </span>
           ) : (
             <span className="text-2xl font-600 text-gray-700">{date.getDate()}</span>
           )}
-          <span className="text-sm text-gray-500">{MONTHS_ES[date.getMonth()]} {date.getFullYear()}</span>
+          <span className="text-sm text-gray-500">
+            {MONTHS_ES[date.getMonth()]} {date.getFullYear()}
+          </span>
         </div>
         <div className="flex-1 p-4">
           {allDayRequests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Inbox size={32} className="text-muted-foreground/30" strokeWidth={1.5} />
-              <span className="text-xs text-muted-foreground/60 mt-2">Sin solicitudes para este día</span>
+              <span className="text-xs text-muted-foreground/60 mt-2">
+                Sin solicitudes para este día
+              </span>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {allDayRequests.map((req) => (
-                <div
-                  key={req.id}
-                  onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                  className={`bg-white rounded-lg border shadow-sm p-3 cursor-pointer hover:shadow-md transition-shadow ${req.priority === 'Urgente' ? 'border-l-4 border-l-red-500 border-t-border border-r-border border-b-border' : 'border-border'}`}
-                >
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotColor(req.status)}`} />
-                    <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full ${getStatusBadgeClass(req.status)}`}>{getStatusLabel(req.status)}</span>
-                  </div>
-                  <p className="text-xs font-600 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
-                  <p className="text-[10px] text-muted-foreground">{req.documentType}</p>
-                  <div className="mt-2">
-                    <ParticipationProgressBar req={req} size="small" />
-                  </div>
-                </div>
+                <CalendarRequestCard key={req.id} req={req} density="expanded" />
               ))}
             </div>
           )}
@@ -1663,33 +2186,30 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
   return (
     <div className="flex-1 flex flex-col overflow-auto">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/60">
-        <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>{dayName}</div>
+        <div className={`text-sm font-600 ${isToday ? 'text-primary' : 'text-gray-500'}`}>
+          {dayName}
+        </div>
         {isToday ? (
-          <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">{date.getDate()}</span>
+          <span className="w-9 h-9 rounded-full bg-primary text-white text-lg font-600 flex items-center justify-center">
+            {date.getDate()}
+          </span>
         ) : (
           <span className="text-2xl font-600 text-gray-700">{date.getDate()}</span>
         )}
-        <span className="text-sm text-gray-500">{MONTHS_ES[date.getMonth()]} {date.getFullYear()}</span>
+        <span className="text-sm text-gray-500">
+          {MONTHS_ES[date.getMonth()]} {date.getFullYear()}
+        </span>
       </div>
 
       {allDayRequests.length > 0 && (
         <div className="border-b border-gray-200/60 px-4 py-2 bg-gray-50/60">
           <div className="flex items-start gap-3">
-            <div className="w-16 flex-shrink-0 text-[10px] text-gray-400 text-right pt-1 pr-2">Todo el día</div>
+            <div className="w-16 flex-shrink-0 text-[10px] text-gray-400 text-right pt-1 pr-2">
+              Todo el día
+            </div>
             <div className="flex-1 flex flex-col gap-1">
               {allDayRequests.map((req) => (
-                <div
-                  key={req.id}
-                  onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-                  className="flex items-center gap-2 bg-primary/10 text-primary rounded-lg px-2 py-1 cursor-pointer hover:bg-primary/20 transition-colors"
-                  title={req.documentName}
-                >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotColor(req.status)}`} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-600 leading-tight truncate">{req.documentName}</p>
-                    <p className="text-[10px] text-primary/60">{req.recipientName} · {req.id}</p>
-                  </div>
-                </div>
+                <CalendarRequestCard key={req.id} req={req} density="standard" />
               ))}
             </div>
           </div>
@@ -1698,7 +2218,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
 
       <div className="flex-1 overflow-y-auto" style={{ maxHeight: '520px' }}>
         {HOURS.map((hour) => {
-          const dayItems = getRequestsForDay(date, requests, calFilter).filter(req => {
+          const dayItems = getRequestsForDay(date, requests, calFilter).filter((req) => {
             const ds = getRelevantDateStr(req);
             if (!ds || !hasSpecificTime(ds)) return false;
             return new Date(ds).getHours() === hour;
@@ -1710,13 +2230,7 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
               </div>
               <div className="flex-1 px-2 py-1">
                 {dayItems.map((req) => (
-                  <div key={req.id} className="flex items-center gap-2 bg-primary/10 text-primary rounded-lg px-1 py-0.5 truncate mb-0.5 cursor-pointer hover:bg-primary/20 transition-colors" title={req.documentName} onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}>
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotColor(req.status)}`} />
-                    <div>
-                      <p className="text-xs font-600 leading-tight">{req.documentName}</p>
-                      <p className="text-[10px] text-primary/60">{req.recipientName} · {req.id}</p>
-                    </div>
-                  </div>
+                  <CalendarRequestCard key={req.id} req={req} density="standard" />
                 ))}
               </div>
             </div>
@@ -1728,12 +2242,51 @@ function DayCalendar({ date, today, requests, calFilter }: { date: Date; today: 
 }
 
 // ─── Kanban Card ─────────────────────────────────────────────────────────────
-function KanbanCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps) {
+function KanbanCard({ req, onCancelled, onInvite, onParticipantRevoked }: RequestCardProps) {
   const router = useRouter();
   const [showParticipants, setShowParticipants] = useState(false);
+  const [showActions, setShowActions] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-
+  const [reminderModal, setReminderModal] = useState<{ name: string; email: string } | null>(null);
+  const [openedAt] = useState(() => Date.now());
+  const actionsRef = useRef<HTMLDivElement>(null);
   const isCancellable = req.status === 'en-progreso' || req.status === 'en-espera';
+  const total = Math.max(0, req.signaturesTotal);
+  const done = Math.max(0, req.signaturesDone);
+  const progress = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const expiresAt = req.tieneVencimiento && req.expiresAt ? new Date(req.expiresAt) : null;
+  const expiresSoon =
+    isCancellable &&
+    expiresAt !== null &&
+    expiresAt.getTime() > openedAt &&
+    expiresAt.getTime() - openedAt <= 72 * 60 * 60 * 1000;
+  const cardTone =
+    req.status === 'completado'
+      ? 'border-emerald-200/70 bg-gradient-to-br from-emerald-50/50 via-white to-white'
+      : req.status === 'vencido' || req.status === 'rechazado'
+        ? 'border-red-200/70 bg-gradient-to-br from-red-50/50 via-white to-white'
+        : expiresSoon
+          ? 'border-amber-200/70 bg-gradient-to-br from-amber-50/50 via-white to-white'
+          : 'border-slate-200/90 bg-gradient-to-br from-primary/5 via-white to-white';
+  const actionsId = `board-actions-${req.id}`;
+  const participantsId = `board-participants-${req.id}`;
+
+  useEffect(() => {
+    if (!showActions) return;
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(event.target as Node))
+        setShowActions(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setShowActions(false);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showActions]);
 
   async function handleCancelConfirm(motivo: string, descripcion: string) {
     await cancelDocumentRequest(req, motivo, descripcion);
@@ -1741,106 +2294,191 @@ function KanbanCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps
     onCancelled(req.id);
   }
 
+  async function handleSendReminder() {
+    if (!reminderModal) return;
+    await sendParticipationReminder(req, reminderModal);
+  }
+
   return (
     <>
       {showCancelModal && (
-        <CancelModal req={req} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelConfirm} />
+        <CancelModal
+          req={req}
+          onClose={() => setShowCancelModal(false)}
+          onConfirm={handleCancelConfirm}
+        />
       )}
-      <div className={`rounded-lg border bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 ${req.priority === 'Urgente' ? 'border-l-4 border-l-red-500 border-t-slate-200 border-r-slate-200 border-b-slate-200' : 'border-slate-200'}`}>
-        {req.priority === 'Urgente' && (
-          <div className="flex items-center gap-1 mb-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-600 px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
-              <AlertTriangle size={9} />
-              Urgente
+      {reminderModal && (
+        <ReminderModal
+          participantName={reminderModal.name}
+          participantEmail={reminderModal.email}
+          documentName={req.documentName}
+          documentId={req.supabaseId ?? req.id}
+          onClose={() => setReminderModal(null)}
+          onConfirm={handleSendReminder}
+        />
+      )}
+      <article
+        className={`relative flex min-w-0 flex-col gap-3 rounded-lg border p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 ${cardTone}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${getDocumentIconTone(req.status)}`}
+            >
+              <FileText size={18} aria-hidden="true" />
             </span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-500 ${expiresSoon ? 'bg-amber-100 text-amber-700' : getStatusBadgeClass(req.status)}`}
+            >
+              {expiresSoon ? <Clock size={12} aria-hidden="true" /> : getStatusIcon(req.status)}
+              {expiresSoon ? 'Próximo a vencer' : getStatusLabel(req.status)}
+            </span>
+            {req.priority === 'Urgente' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[11px] text-red-600">
+                <AlertTriangle size={11} aria-hidden="true" /> Urgente
+              </span>
+            )}
           </div>
-        )}
-        {/* Dates row — formatted as "07/05/2026 a las 8:00 a.m." */}
-        <div className="flex flex-col gap-0.5 mb-2">
-          <div className="flex items-center gap-1">
-            <Calendar size={10} className="text-muted-foreground flex-shrink-0" />
-            <span className="text-[10px] text-muted-foreground">Creado: {formatBoardDate(req.sentAt)}</span>
+          <div className="relative shrink-0" ref={actionsRef}>
+            <button
+              type="button"
+              onClick={() => setShowActions((value) => !value)}
+              aria-label={`Acciones de ${req.documentName}`}
+              aria-haspopup="menu"
+              aria-expanded={showActions}
+              aria-controls={actionsId}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <MoreHorizontal size={17} aria-hidden="true" />
+            </button>
+            {showActions && (
+              <div
+                id={actionsId}
+                role="menu"
+                className="absolute right-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowParticipants((value) => !value);
+                    setShowActions(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                >
+                  <Users size={14} aria-hidden="true" />{' '}
+                  {showParticipants ? 'Ocultar participantes' : 'Ver participantes'}
+                </button>
+                {isCancellable && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowActions(false);
+                      setShowCancelModal(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                  >
+                    <Ban size={14} aria-hidden="true" /> Cancelar solicitud
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          {req.tieneVencimiento && req.expiresAt && req.status !== 'completado' && req.status !== 'vencido' && req.status !== 'rechazado' && req.status !== 'cancelado' && (
-            <div className="flex items-center gap-1">
-              <Clock size={10} className="text-amber-500 flex-shrink-0" />
-              <span className="text-[10px] text-amber-600 font-500">Vence: {formatExpiresAt(req.expiresAt)}</span>
-            </div>
-          )}
-          {req.status === 'completado' && req.completedAt && (
-            <div className="flex items-center gap-1">
-              <CheckCircle2 size={10} className="text-emerald-500 flex-shrink-0" />
-              <span className="text-[10px] text-emerald-600 font-500">Completado: {formatExpiresAt(req.completedAt)}</span>
-            </div>
-          )}
-          {req.status === 'vencido' && req.expiredAt && (
-            <div className="flex items-center gap-1">
-              <Clock size={10} className="text-gray-400 flex-shrink-0" />
-              <span className="text-[10px] text-gray-500 font-500">Vencido: {formatExpiresAt(req.expiredAt)}</span>
-            </div>
-          )}
-          {req.status === 'rechazado' && req.rejectedAt && (
-            <div className="flex items-center gap-1">
-              <XCircle size={10} className="text-red-400 flex-shrink-0" />
-              <span className="text-[10px] text-red-500 font-500">Rechazado: {formatExpiresAt(req.rejectedAt)}</span>
-            </div>
-          )}
-          {req.status === 'cancelado' && req.canceladoAt && (
-            <div className="flex items-center gap-1">
-              <Ban size={10} className="text-gray-400 flex-shrink-0" />
-              <span className="text-[10px] text-gray-500 font-500">Cancelado: {formatExpiresAt(req.canceladoAt)}</span>
-            </div>
-          )}
         </div>
-        {/* Document name */}
-        <p className="text-xs font-600 text-foreground leading-tight mb-1 line-clamp-2">{req.documentName}</p>
-        {req.description && (
-          <p className="text-[10px] text-muted-foreground leading-relaxed mb-2 line-clamp-2">{req.description}</p>
-        )}
 
-        {/* Document type badge inline */}
-        {req.documentType && (
-          <div className="mb-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-500 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              <FileText size={9} />
-              {req.documentType}
-            </span>
-          </div>
-        )}
-
-        {/* Participants count */}
-        <div className="flex items-center gap-1 mb-2">
-          <ParticipantsIcon count={req.participants} />
-          <button
-            onClick={() => setShowParticipants(v => !v)}
-            className="text-[10px] text-muted-foreground hover:text-primary transition-colors underline-offset-2 hover:underline"
+        <div className="min-w-0">
+          <h3
+            className="line-clamp-2 text-sm font-600 leading-snug text-foreground"
+            title={req.documentName}
           >
-            {req.participants === 1 ? '1 participante' : `${req.participants} participantes`}
-          </button>
+            {req.documentName}
+          </h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {req.documentType || 'Documento'} · Creado: {formatExpiresAt(req.sentAt)}
+          </p>
+          {req.description && (
+            <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+              {req.description}
+            </p>
+          )}
         </div>
 
-        {/* Participants panel */}
-        {showParticipants && req.participantList && req.participantList.length > 0 && (
-          <div className="border-t border-border/60 pt-2 mb-2">
-            <div className="flex flex-col gap-1.5">
-              {req.participantList.map((p, i) => (
-                <div key={i} className="flex flex-col gap-0.5">
-                  <span className="text-[10px] font-600 text-foreground leading-tight truncate">{p.name}</span>
-                  <div className="flex items-center gap-1">
-                    <Mail size={8} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-[9px] text-muted-foreground leading-tight truncate">{p.email}</span>
-                  </div>
-                  {p.rol && <span className="text-[9px] text-muted-foreground">Rol: <span className="font-500">{p.rol}</span></span>}
-                  {p.acto && <span className="text-[9px] text-muted-foreground">Acto: <span className="font-500">{p.acto}</span></span>}
-                  <div className="flex items-center justify-between gap-1.5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1">
-                      <span className={`text-[9px] font-500 px-1.5 py-0.5 rounded-full w-fit ${getParticipantStatusBadge(p.status)}`}>
-                        {getParticipantStatusLabel(p.status)}
-                      </span>
-                      {p.currentAccess === false && p.historicalParticipation && (
-                        <span className="text-[9px] font-500 text-slate-500">Acceso revocado</span>
-                      )}
-                    </div>
+        <div className="space-y-2 border-t border-slate-200/70 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowParticipants((value) => !value)}
+            aria-expanded={showParticipants}
+            aria-controls={participantsId}
+            className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <ParticipantsIcon count={req.participants} />
+            </span>
+            <span className="min-w-0 flex-1 text-[11px] text-foreground">
+              {req.participants} {req.participants === 1 ? 'participante' : 'participantes'}
+              <span className="block text-muted-foreground">
+                {done} de {total} completados
+              </span>
+            </span>
+            <span className="text-xs font-600 text-foreground">{progress}%</span>
+          </button>
+          <ParticipationProgressBar req={req} size="grid" />
+        </div>
+
+        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Calendar size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            {req.status === 'completado' && req.completedAt
+              ? `Completado: ${formatExpiresAt(req.completedAt)}`
+              : req.status === 'vencido' && req.expiresAt
+                ? `Venció: ${formatExpiresAt(req.expiresAt)}`
+                : req.status === 'rechazado' && req.rejectedAt
+                  ? `Rechazado: ${formatExpiresAt(req.rejectedAt)}`
+                  : req.status === 'cancelado' && req.canceladoAt
+                    ? `Cancelado: ${formatExpiresAt(req.canceladoAt)}`
+                    : req.expiresAt && req.tieneVencimiento
+                      ? `Vence: ${formatExpiresAt(req.expiresAt)}`
+                      : 'Sin vencimiento'}
+          </span>
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
+          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-600 text-white hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <Eye size={14} aria-hidden="true" /> Ver documento
+        </button>
+
+        {showParticipants && (
+          <div id={participantsId} className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/30 p-3">
+            <InviteParticipantsButton request={req} onInvite={onInvite} compact />
+            {req.participantList?.map((p, i) => (
+              <div key={i} className="rounded-md border border-blue-100 bg-white/80 p-2">
+                <p className="truncate text-xs font-600 text-foreground">{p.name}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{p.email}</p>
+                {(p.rol || p.acto) && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {[p.rol, p.acto].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+                <div className="mt-2 flex items-center justify-between gap-1.5">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] ${getParticipantStatusBadge(p.status)}`}
+                  >
+                    {getParticipantStatusLabel(p.status)}
+                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {canSendReminderToParticipant(req, p) && (
+                      <button
+                        type="button"
+                        onClick={() => setReminderModal({ name: p.name, email: p.email })}
+                        className="inline-flex items-center gap-1 text-[11px] font-500 text-primary hover:text-primary/80"
+                      >
+                        <Send size={11} aria-hidden="true" /> Enviar recordatorio
+                      </button>
+                    )}
                     {isCancellable && (
                       <UninviteParticipantButton
                         request={req}
@@ -1851,37 +2489,17 @@ function KanbanCard({ req, onCancelled, onParticipantRevoked }: RequestCardProps
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
+                {p.currentAccess === false && p.historicalParticipation && (
+                  <p className="mt-1 text-[10px] text-slate-500">Acceso revocado</p>
+                )}
+              </div>
+            ))}
+            {!req.participantList?.length && (
+              <p className="text-[11px] text-muted-foreground">Sin participantes disponibles.</p>
+            )}
           </div>
         )}
-
-        {/* Participation progress */}
-        <div className="mb-2">
-          <ParticipationProgressBar req={req} size="small" />
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-1.5">
-          {isCancellable && (
-            <button
-              onClick={() => setShowCancelModal(true)}
-              title="Cancelar"
-              className="flex items-center justify-center w-8 h-8 rounded-md border border-border text-foreground bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors flex-shrink-0"
-            >
-              <Ban size={12} />
-            </button>
-          )}
-          <button
-            title="Ver Documento"
-            onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-            className={`${isCancellable ? 'flex-1' : 'w-full'} flex items-center justify-center gap-1.5 h-8 rounded-md bg-primary text-white hover:bg-primary/90 transition-colors text-xs font-500 px-2`}
-          >
-            <Eye size={12} />
-            <span>Ver Documento</span>
-          </button>
-        </div>
-      </div>
+      </article>
     </>
   );
 }
@@ -1892,13 +2510,20 @@ export default function ParticipationRequestsPage() {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   const [requests, setRequests] = useState<ParticipationRequest[]>([]);
+  const [summaryNow] = useState(() => Date.now());
+  const [inviteRequest, setInviteRequest] = useState<ParticipationRequest | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [listLayout, setListLayout] = useState<'list' | 'grid'>('list');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('en-progreso');
-  const [timeFilter, setTimeFilter] = useState('365');
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('30');
+  const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
+  const [showCustomPeriod, setShowCustomPeriod] = useState(false);
+  const [customPeriodDraft, setCustomPeriodDraft] = useState({ start: '', end: '' });
+  const [customPeriodRange, setCustomPeriodRange] = useState({ start: '', end: '' });
+  const [customPeriodError, setCustomPeriodError] = useState('');
   const [dateSort, setDateSort] = useState<'recientes' | 'antiguos'>('recientes');
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [showCalViewDropdown, setShowCalViewDropdown] = useState(false);
@@ -1912,6 +2537,7 @@ export default function ParticipationRequestsPage() {
   const [calFilter, setCalFilter] = useState<CalendarStatusFilter>('todos');
 
   const dateSortRef = useRef<HTMLDivElement>(null);
+  const periodDropdownRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1921,6 +2547,10 @@ export default function ParticipationRequestsPage() {
       }
       if (dateSortRef.current && !dateSortRef.current.contains(e.target as Node)) {
         setShowDateDropdown(false);
+      }
+      if (periodDropdownRef.current && !periodDropdownRef.current.contains(e.target as Node)) {
+        setShowPeriodDropdown(false);
+        setShowCustomPeriod(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -1948,13 +2578,11 @@ export default function ParticipationRequestsPage() {
     fetchSolicitudes();
   }, []);
 
-  useEffect(() => {
-    if (!TERMINAL_STATUSES.includes(statusFilter)) {
-      setTimeFilter('365');
-    }
-  }, [statusFilter]);
-
   const showTimeFilter = TERMINAL_STATUSES.includes(statusFilter);
+  const selectedPeriodLabel =
+    timeFilter === 'custom'
+      ? 'Rango personalizado'
+      : timeFilterOptions.find((option) => option.value === timeFilter)?.label ?? 'Últimos 30 días';
 
   const filtered = React.useMemo(() => {
     let result = requests.filter(r => {
@@ -1975,17 +2603,30 @@ export default function ParticipationRequestsPage() {
 
       // Time filter (only for terminal statuses)
       if (TERMINAL_STATUSES.includes(statusFilter) && timeFilter !== 'todos') {
-        const days = parseInt(timeFilter, 10);
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
         let dateStr: string | undefined;
         switch (r.status) {
-          case 'completado': dateStr = r.completedAt; break;
-          case 'vencido': dateStr = r.expiredAt ?? r.expiresAt ?? undefined; break;
+          case 'completado': dateStr = r.completedAt ?? r.respondedAt ?? r.sentAt; break;
+          case 'vencido': dateStr = r.expiredAt ?? r.expiresAt ?? r.sentAt; break;
           case 'rechazado': dateStr = r.rejectedAt ?? r.sentAt; break;
           case 'cancelado': dateStr = r.canceladoAt ?? r.sentAt; break;
         }
-        if (dateStr && new Date(dateStr) < cutoff) return false;
+        const eventTime = dateStr ? new Date(dateStr).getTime() : NaN;
+        if (!Number.isFinite(eventTime)) return false;
+
+        if (timeFilter === 'custom') {
+          if (!customPeriodRange.start || !customPeriodRange.end) return false;
+          const start = new Date(`${customPeriodRange.start}T00:00:00`).getTime();
+          const end = new Date(`${customPeriodRange.end}T23:59:59.999`).getTime();
+          if (eventTime < start || eventTime > end) return false;
+        } else {
+          const cutoff = new Date();
+          if (timeFilter === 'today') {
+            cutoff.setHours(0, 0, 0, 0);
+          } else {
+            cutoff.setDate(cutoff.getDate() - Number(timeFilter));
+          }
+          if (eventTime < cutoff.getTime()) return false;
+        }
       }
 
       // Search filter
@@ -2009,7 +2650,7 @@ export default function ParticipationRequestsPage() {
     });
 
     return result;
-  }, [requests, statusFilter, timeFilter, search, dateSort]);
+  }, [requests, statusFilter, timeFilter, customPeriodRange, search, dateSort]);
 
   // Month-filtered requests for tablero (filter by boardMonth/boardYear)
   const boardFiltered = React.useMemo(() => {
@@ -2025,12 +2666,19 @@ export default function ParticipationRequestsPage() {
     });
   }, [requests, boardMonth, boardYear]);
 
-  const visibleRequestCount =
-    viewMode === 'lista'
-      ? filtered.length
-      : viewMode === 'tablero'
-        ? boardFiltered.length
-        : requests.length;
+  const summaryMetrics: ActivitySummaryMetric[] = React.useMemo(() => {
+    const dueSoon = requests.filter((request) => {
+      if (request.status !== 'en-progreso' || !request.expiresAt) return false;
+      const remaining = new Date(request.expiresAt).getTime() - summaryNow;
+      return remaining >= 0 && remaining <= 72 * 60 * 60 * 1000;
+    }).length;
+    return [
+      { label: 'Solicitudes enviadas', value: requests.length, icon: Send, tone: 'blue' },
+      { label: 'En progreso', value: requests.filter((request) => request.status === 'en-progreso').length, icon: Clock, tone: 'indigo' },
+      { label: 'Próximas a vencer (72 h)', value: dueSoon, icon: AlertTriangle, tone: 'amber' },
+      { label: 'Completadas', value: requests.filter((request) => request.status === 'completado').length, icon: CheckCircle2, tone: 'emerald' },
+    ];
+  }, [requests, summaryNow]);
 
   function handleCancelled(id: string) {
     setRequests(prev =>
@@ -2044,7 +2692,8 @@ export default function ParticipationRequestsPage() {
   function handleParticipantRevoked(
     requestId: string,
     participant: ParticipantListItem,
-    hadEffectiveParticipation: boolean
+    hadEffectiveParticipation: boolean,
+    revokedAt?: string
   ) {
     setRequests((current) =>
       current.map((request) => {
@@ -2068,11 +2717,26 @@ export default function ParticipationRequestsPage() {
         return {
           ...request,
           participantList,
+          uninviteEvents: [
+            ...(request.uninviteEvents ?? []),
+            { date: revokedAt || new Date().toISOString(), label: `Se desinvitó a ${participant.name}` },
+          ],
           participants: participantList.length,
           signaturesTotal: participantList.length,
         };
       })
     );
+  }
+
+  async function handleParticipantsInvited() {
+    try {
+      const response = await fetch('/api/documentos/participation-requests');
+      if (!response.ok) throw new Error('No se pudo actualizar la lista. Recarga la página.');
+      const body = await response.json();
+      setRequests(body.solicitudes ?? []);
+    } catch {
+      setDataError('Se agregaron los participantes, pero no se pudo actualizar la lista. Recarga la página.');
+    }
   }
 
   function prevMonth() {
@@ -2139,6 +2803,11 @@ export default function ParticipationRequestsPage() {
 
   return (
     <AppLayout noPadding>
+      {inviteRequest && <InviteParticipantsModal
+        request={inviteRequest}
+        onClose={() => setInviteRequest(null)}
+        onInvited={handleParticipantsInvited}
+      />}
       <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
         <div className="mx-auto w-full max-w-[1600px]">
         {/* Header */}
@@ -2149,12 +2818,6 @@ export default function ParticipationRequestsPage() {
               Monitorea el avance de tus documentos y participantes.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 font-600">
-              {visibleRequestCount}{' '}
-              {visibleRequestCount === 1 ? 'solicitud' : 'solicitudes'}
-            </span>
-          </div>
         </div>
 
         {/* Data error banner */}
@@ -2164,6 +2827,13 @@ export default function ParticipationRequestsPage() {
             {dataError}
           </div>
         )}
+
+        <ActivitySummary
+          id="requests-summary-metrics"
+          title="Resumen de solicitudes"
+          description="Estado de tus solicitudes enviadas."
+          metrics={summaryMetrics}
+        />
 
         {/* View toggle + Search row */}
         <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -2286,7 +2956,7 @@ export default function ParticipationRequestsPage() {
                 </button>
                 <button
                   onClick={() => setListLayout('grid')}
-                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${listLayout === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${listLayout === 'grid' ? 'bg-primary text-white shadow-sm' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
                   title="Vista cuadrícula"
                 >
                   <LayoutGrid size={16} />
@@ -2304,11 +2974,12 @@ export default function ParticipationRequestsPage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 {statusFilterOptions.map((opt) => (
                   <button
+                    type="button"
                     key={opt.value}
                     onClick={() => setStatusFilter(opt.value)}
-                    className={`flex h-8 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
+                    className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${
                       statusFilter === opt.value
-                        ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     {opt.label}
@@ -2318,20 +2989,102 @@ export default function ParticipationRequestsPage() {
 
               {/* Time sub-filter — only for terminal statuses */}
               {showTimeFilter && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground font-500 mr-1">Período:</span>
-                  {timeFilterOptions.map((opt) => (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Período:</span>
+                  <div className="relative" ref={periodDropdownRef}>
                     <button
-                      key={opt.value}
-                      onClick={() => setTimeFilter(opt.value)}
-                    className={`flex h-7 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
-                      timeFilter === opt.value
-                          ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
-                      }`}
+                      type="button"
+                      onClick={() => {
+                        setShowPeriodDropdown((open) => !open);
+                        setShowCustomPeriod(false);
+                      }}
+                      aria-expanded={showPeriodDropdown}
+                      aria-label={`Período: ${selectedPeriodLabel}`}
+                      className="flex min-h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-normal text-slate-900 transition-colors hover:border-slate-300 hover:bg-slate-50"
                     >
-                      {opt.label}
+                      {selectedPeriodLabel}
+                      <ChevronDown size={13} aria-hidden="true" />
                     </button>
-                  ))}
+                    {showPeriodDropdown && (
+                      <div className="absolute right-0 top-full z-30 mt-1 min-w-[200px] rounded-lg border border-slate-200 bg-white py-1 font-normal shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                        {showCustomPeriod ? (
+                          <div className="w-[260px] max-w-[calc(100vw-2rem)] p-3">
+                            <p className="mb-3 text-xs text-slate-600">Rango personalizado</p>
+                            <div className="space-y-2">
+                              <label className="block text-xs text-slate-600">
+                                Desde
+                                <input
+                                  type="date"
+                                  value={customPeriodDraft.start}
+                                  max={customPeriodDraft.end || undefined}
+                                  onChange={(event) => {
+                                    setCustomPeriodDraft((range) => ({ ...range, start: event.target.value }));
+                                    setCustomPeriodError('');
+                                  }}
+                                  className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                                />
+                              </label>
+                              <label className="block text-xs text-slate-600">
+                                Hasta
+                                <input
+                                  type="date"
+                                  value={customPeriodDraft.end}
+                                  min={customPeriodDraft.start || undefined}
+                                  onChange={(event) => {
+                                    setCustomPeriodDraft((range) => ({ ...range, end: event.target.value }));
+                                    setCustomPeriodError('');
+                                  }}
+                                  className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                                />
+                              </label>
+                            </div>
+                            {customPeriodError && <p role="alert" className="mt-2 text-xs text-red-600">{customPeriodError}</p>}
+                            <div className="mt-3 flex justify-end gap-2">
+                              <button type="button" onClick={() => { setShowCustomPeriod(false); setCustomPeriodError(''); }} className="h-8 rounded-md px-2.5 text-xs text-slate-600 hover:bg-slate-50">Volver</button>
+                              <button
+                                type="button"
+                                disabled={!customPeriodDraft.start || !customPeriodDraft.end}
+                                onClick={() => {
+                                  if (customPeriodDraft.start > customPeriodDraft.end) {
+                                    setCustomPeriodError('La fecha inicial debe ser anterior a la final.');
+                                    return;
+                                  }
+                                  setCustomPeriodRange({ ...customPeriodDraft });
+                                  setTimeFilter('custom');
+                                  setShowPeriodDropdown(false);
+                                  setShowCustomPeriod(false);
+                                  setCustomPeriodError('');
+                                }}
+                                className="h-8 rounded-md bg-primary px-3 text-xs text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Aplicar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          timeFilterOptions.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              aria-pressed={timeFilter === option.value}
+                              onClick={() => {
+                                if (option.value === 'custom') {
+                                  setCustomPeriodDraft({ ...customPeriodRange });
+                                  setShowCustomPeriod(true);
+                                  return;
+                                }
+                                setTimeFilter(option.value);
+                                setShowPeriodDropdown(false);
+                              }}
+                              className={`block w-full px-3 py-2 text-left text-sm font-normal text-slate-900 transition-colors hover:bg-slate-50 ${timeFilter === option.value ? 'bg-slate-50' : ''}`}
+                            >
+                              {option.label}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -2351,12 +3104,13 @@ export default function ParticipationRequestsPage() {
                 <p className="mt-1 text-xs text-slate-500">No se encontraron solicitudes con los filtros aplicados.</p>
               </div>
             ) : listLayout === 'grid' ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {filtered.map((req) => (
                   <RequestCardGrid
                     key={req.id}
                     req={req}
                     onCancelled={handleCancelled}
+                    onInvite={setInviteRequest}
                     onParticipantRevoked={handleParticipantRevoked}
                   />
                 ))}
@@ -2368,6 +3122,7 @@ export default function ParticipationRequestsPage() {
                     key={req.id}
                     req={req}
                     onCancelled={handleCancelled}
+                    onInvite={setInviteRequest}
                     onParticipantRevoked={handleParticipantRevoked}
                   />
                 ))}
@@ -2407,6 +3162,7 @@ export default function ParticipationRequestsPage() {
                             key={req.id}
                             req={req}
                             onCancelled={handleCancelled}
+                            onInvite={setInviteRequest}
                             onParticipantRevoked={handleParticipantRevoked}
                           />
                         ))}

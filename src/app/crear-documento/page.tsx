@@ -229,6 +229,8 @@ function generateDocumentoId(): string {
 function CrearDocumentoPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const initialContactId = searchParams?.get('contact');
+  const draftParam = searchParams?.get('draft');
   const { user, emailVerified, refreshEmailVerified } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -491,6 +493,30 @@ function CrearDocumentoPageInner() {
     loadDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Open a new request with a contact ready to configure. No document is sent here.
+  useEffect(() => {
+    if (!user?.id || !initialContactId || draftParam) return;
+    let active = true;
+    const loadContact = async () => {
+      const { data, error } = await createClient().from('contacts')
+        .select('id,nombre,apellido_paterno,apellido_materno,email,telefono')
+        .eq('id', initialContactId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!active || error || (!data?.email && !data?.telefono)) return;
+      const participant: Participant = {
+        id: `contact-${data.id}`,
+        name: [data.nombre, data.apellido_paterno, data.apellido_materno].filter(Boolean).join(' '),
+        email: data.email || '',
+        phone: data.telefono || undefined,
+        role: 'firmante',
+      };
+      setParticipants((current) => current.some((item) => item.id === participant.id || (participant.email && item.email?.toLowerCase() === participant.email.toLowerCase())) ? current : [...current, participant]);
+    };
+    void loadContact();
+    return () => { active = false; };
+  }, [draftParam, initialContactId, user?.id]);
 
   // Refresh email verification status on mount to get latest DB value
   useEffect(() => {

@@ -1,13 +1,14 @@
 import { createClient } from '@/lib/supabase/client';
 import { getFormAppearanceDefaultsStorageKey, normalizeFormAppearanceDefaults, readFormAppearanceDefaults, writeFormAppearanceDefaults } from './appearance-defaults';
 import { getFormExperienceDefaultsStorageKey, normalizeFormExperienceDefaults, readFormExperienceDefaults, writeFormExperienceDefaults } from './experience-defaults';
+import { getFormLegalDefaultsStorageKey, normalizeFormLegalDefaults, readFormLegalDefaults, writeFormLegalDefaults, type FormLegalDefaults } from './legal-field-content';
 import { getFormPdfDefaultsStorageKey, normalizeFormPdfDefaults, readFormPdfDefaults, writeFormPdfDefaults } from './pdf-defaults';
 import type { FormAppearance } from './schema';
 import type { FormExperienceDefaults } from './experience-defaults';
 import type { FormPdfDefaults } from './pdf-defaults';
 
-type DefaultKind = 'experience' | 'appearance' | 'pdf';
-type DefaultValue = { experience: FormExperienceDefaults; appearance: FormAppearance; pdf: FormPdfDefaults };
+type DefaultKind = 'experience' | 'appearance' | 'pdf' | 'legal';
+type DefaultValue = { experience: FormExperienceDefaults; appearance: FormAppearance; pdf: FormPdfDefaults; legal: FormLegalDefaults };
 
 export function formDefaultsErrorMessage(error: unknown): string {
   const failure = error as { code?: string; message?: string } | null;
@@ -20,6 +21,7 @@ export function formDefaultsErrorMessage(error: unknown): string {
 function normalize<K extends DefaultKind>(kind: K, value: unknown): DefaultValue[K] {
   if (kind === 'experience') return normalizeFormExperienceDefaults(value) as DefaultValue[K];
   if (kind === 'appearance') return normalizeFormAppearanceDefaults(value) as DefaultValue[K];
+  if (kind === 'legal') return normalizeFormLegalDefaults(value) as DefaultValue[K];
   return normalizeFormPdfDefaults(value) as DefaultValue[K];
 }
 
@@ -28,6 +30,7 @@ function cache<K extends DefaultKind>(workspaceId: string, kind: K, value: Defau
     if (kind === 'experience') writeFormExperienceDefaults(workspaceId, value as FormExperienceDefaults);
     if (kind === 'appearance') writeFormAppearanceDefaults(workspaceId, value as FormAppearance);
     if (kind === 'pdf') writeFormPdfDefaults(workspaceId, value as FormPdfDefaults);
+    if (kind === 'legal') writeFormLegalDefaults(workspaceId, value as FormLegalDefaults);
   } catch { /* La base de datos sigue siendo la fuente de verdad. */ }
 }
 
@@ -44,13 +47,15 @@ export async function loadFormDefaults(workspaceId: string): Promise<DefaultValu
     pdf: records.has('pdf') ? normalize('pdf', records.get('pdf')) : fallbackPdf,
     appearance: records.has('appearance') ? normalize('appearance', records.get('appearance')) : readFormAppearanceDefaults(workspaceId),
     experience: records.has('experience') ? normalize('experience', records.get('experience')) : readFormExperienceDefaults(workspaceId, fallbackPdf.configurePdfDetails),
+    legal: records.has('legal') ? normalize('legal', records.get('legal')) : readFormLegalDefaults(workspaceId),
   };
   const legacyKeys = {
     experience: getFormExperienceDefaultsStorageKey(workspaceId),
     appearance: getFormAppearanceDefaultsStorageKey(workspaceId),
     pdf: getFormPdfDefaultsStorageKey(workspaceId),
+    legal: getFormLegalDefaultsStorageKey(workspaceId),
   };
-  for (const kind of ['experience', 'appearance', 'pdf'] as const) {
+  for (const kind of ['experience', 'appearance', 'pdf', 'legal'] as const) {
     if (records.has(kind)) {
       cache(workspaceId, kind, defaults[kind]);
       continue;

@@ -21,6 +21,14 @@ interface Props {
   onSwitchToSignup: () => void;
 }
 
+class SecurityCheckUnavailableError extends Error {
+  constructor() {
+    super(
+      'No pudimos verificar los requisitos de seguridad. La sesión se conserva; inténtalo de nuevo.'
+    );
+  }
+}
+
 type AuthTab = 'password' | 'otp' | 'biometric';
 
 const LOGIN_MESSAGES = [
@@ -258,6 +266,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
   const [showPassword, setShowPassword] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [accessServiceError, setAccessServiceError] = useState<string | null>(null);
+  const [securityCheckPending, setSecurityCheckPending] = useState(false);
 
   // OTP tab state
   const [otpCode, setOtpCode] = useState('');
@@ -314,6 +324,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setActiveTab('password');
     setPassword('');
     setPasswordError(null);
+    setAccessServiceError(null);
+    setSecurityCheckPending(false);
+    setShowPassword(false);
     setOtpCode('');
     setOtpSent(false);
     setOtpError(null);
@@ -353,6 +366,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     setAvailableTabs(['password']);
     setActiveTab('password');
     setPasswordError(null);
+    setAccessServiceError(null);
     setOtpCode('');
     setOtpSent(false);
     setOtpError(null);
@@ -476,16 +490,27 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     }
     if (!token) throw new Error('No se pudo validar la sesión iniciada.');
 
-    const response = await fetch('/api/auth/totp/check', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    let response: Response;
+    try {
+      response = await fetch('/api/auth/totp/check', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      throw new SecurityCheckUnavailableError();
+    }
     if (!response.ok) {
-      await supabase.auth.signOut();
-      throw new Error('No se pudieron validar los requisitos de seguridad de la cuenta.');
+      if (response.status === 401) {
+        await supabase.auth.signOut({ scope: 'local' });
+        throw new Error('La sesión emitida ya no es válida. Inicia sesión nuevamente.');
+      }
+      throw new SecurityCheckUnavailableError();
     }
 
-    const requirements = await response.json();
+    const requirements = await response.json().catch(() => {
+      throw new SecurityCheckUnavailableError();
+    });
     if (securityCheckStartedAt) markLoginTiming('security-check', securityCheckStartedAt);
     const target = requirements.platformStaff ? '/panel' : requestedRedirect();
     if (requirements.passkeyRequired && !requirements.passkeyEnrolled) {
@@ -518,6 +543,8 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       return;
     }
     setPasswordError(null);
+    setAccessServiceError(null);
+    setShowPassword(false);
     setPasswordLoading(true);
     const loginStartedAt = performance.now();
 
@@ -534,7 +561,9 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
           recordLoginAttempt(false, 'password');
           setPasswordError('Credenciales incorrectas. Verifica tu correo y contraseña.');
         } else if ((error.status ?? 0) >= 500 || error.name === 'AuthRetryableFetchError') {
-          setPasswordError('El servicio de acceso no responde en este momento. Intenta nuevamente en unos minutos.');
+          setAccessServiceError(
+            'El servicio de acceso no responde en este momento. Tu contraseña no se ha rechazado; intenta nuevamente en unos minutos.'
+          );
         } else if (error.code === 'email_not_confirmed') {
           setPasswordError('Confirma tu correo electrónico antes de iniciar sesión.');
         } else {
@@ -545,6 +574,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       }
 
       if (await enforcePostLoginSecurity('other', authData.session?.access_token)) return;
+      setSecurityCheckPending(false);
       recordLoginAttempt(
         true,
         'password',
@@ -556,11 +586,45 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
       markLoginTiming('password-total', loginStartedAt);
       router.replace(requestedRedirect());
     } catch (error) {
-      setPasswordError(
-        error instanceof Error && error.message === 'No se pudieron validar los requisitos de seguridad de la cuenta.'
-          ? error.message
-          : 'No se pudo conectar con el servicio de acceso. Intenta nuevamente en unos minutos.'
-      );
+      if (error instanceof SecurityCheckUnavailableError) {
+        setSecurityCheckPending(true);
+        setAccessServiceError(error.message);
+      } else if (
+        error instanceof Error &&
+        error.message.includes('La sesión emitida ya no es válida')
+      ) {
+        setPasswordError(error.message);
+      } else {
+        setAccessServiceError(
+          'No se pudo conectar con el servicio de acceso. Intenta nuevamente en unos minutos.'
+        );
+      }
+      setPasswordLoading(false);
+    }
+  };
+
+  const retryPostLoginSecurity = async () => {
+    if (passwordLoading) return;
+    setPasswordLoading(true);
+    setAccessServiceError(null);
+    try {
+      const { data, error } = await createClient().auth.getSession();
+      if (error || !data.session) {
+        throw new SecurityCheckUnavailableError();
+      }
+      if (await enforcePostLoginSecurity('other', data.session.access_token)) return;
+      setSecurityCheckPending(false);
+      recordLoginAttempt(true, 'password', data.session.user.id, data.session.access_token);
+      reportLoginDevice(data.session.user.id, data.session.access_token);
+      router.replace(requestedRedirect());
+    } catch (error) {
+      if (error instanceof SecurityCheckUnavailableError) {
+        setAccessServiceError(error.message);
+      } else {
+        setSecurityCheckPending(false);
+        setPasswordError('La sesión no pudo validarse. Inicia sesión nuevamente.');
+      }
+    } finally {
       setPasswordLoading(false);
     }
   };
@@ -767,6 +831,7 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
     if (activeTab === tab) return; // keep at least one open
     setActiveTab(tab);
     setPasswordError(null);
+    setAccessServiceError(null);
     setOtpError(null);
     setBiometricError(null);
   };
@@ -846,6 +911,15 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                     <p className="text-xs text-red-700">{passwordError}</p>
                   </div>
                 )}
+                {accessServiceError && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
+                  >
+                    <AlertTriangle size={13} className="mt-0.5 flex-shrink-0 text-amber-700" />
+                    <p className="text-xs text-amber-900">{accessServiceError}</p>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label
@@ -860,9 +934,15 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
                       ref={passwordInputRef}
                       type={showPassword ? 'text' : 'password'}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setSecurityCheckPending(false);
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handlePasswordLogin();
+                        if (e.key === 'Enter') {
+                          if (securityCheckPending) void retryPostLoginSecurity();
+                          else void handlePasswordLogin();
+                        }
                       }}
                       placeholder="Tu contraseña"
                       autoComplete="current-password"
@@ -905,12 +985,14 @@ export default function LoginForm({ onSwitchToSignup: _onSwitchToSignup }: Props
 
                 <button
                   type="button"
-                  onClick={handlePasswordLogin}
-                  disabled={passwordLoading || !canSubmitPassword}
+                  onClick={securityCheckPending ? retryPostLoginSecurity : handlePasswordLogin}
+                  disabled={passwordLoading || (!securityCheckPending && !canSubmitPassword)}
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {passwordLoading ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : securityCheckPending ? (
+                    'Reintentar verificación'
                   ) : (
                     'Iniciar sesión'
                   )}

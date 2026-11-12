@@ -51,7 +51,9 @@ export default function PublicFormMobileBiometricModal({
     try {
       const response = await fetch('/api/mobile-upload/create-id-capture-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         cache: 'no-store',
         body: JSON.stringify({ formId, code, email }),
       });
@@ -104,7 +106,7 @@ export default function PublicFormMobileBiometricModal({
         if (!active) return;
         if (!response.ok) throw new Error(result.error || 'La sesión móvil no está disponible.');
         if (result.mode !== 'public_form_liveness')
-          throw new Error('La sesión móvil no corresponde al formulario.');
+          throw new Error('La sesión móvil no corresponde a este acceso.');
         if (result.status === 'completed') {
           void finish(session.token);
         } else if (result.status === 'identity_failed') {
@@ -189,7 +191,12 @@ export default function PublicFormMobileBiometricModal({
         {session && (status === 'waiting' || status === 'verified') && (
           <div className="mt-6 space-y-4">
             <div className="flex justify-center rounded-lg border border-slate-200 bg-white p-4">
-              <QRCodeSVG value={session.url} size={200} marginSize={1} />
+              <QRCodeSVG
+                value={session.url}
+                size={200}
+                marginSize={1}
+                title="Código QR para captura móvil"
+              />
             </div>
             {status === 'waiting' ? (
               <p

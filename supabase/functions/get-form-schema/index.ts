@@ -17,21 +17,23 @@ serve(async (req) => {
     const token = url.searchParams.get('token');
 
     if (!token) {
-      return new Response(
-        JSON.stringify({ error: 'token es requerido' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'token es requerido' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const supabase = createClient(
-      (globalThis.Deno?.env.get('SUPABASE_URL')) ?? '',
-      (globalThis.Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? ''
+      globalThis.Deno?.env.get('SUPABASE_URL') ?? '',
+      globalThis.Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
     // Validate token
     const { data: tokenRow, error: tokenError } = await supabase
       .from('form_tokens')
-      .select('*, form_templates(id, name, description, status, schema, settings, workspace_id, workspaces(name, logo_url))')
+      .select(
+        '*, form_templates(id, name, description, status, schema, settings, workspace_id, workspaces(name, logo_url))'
+      )
       .eq('token', token)
       .single();
 
@@ -53,20 +55,46 @@ serve(async (req) => {
       workspaces: { name: string; logo_url?: string };
     };
 
-    const accessToken = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
-    const { data: { user } } = tokenRow.access_mode === 'public' || !accessToken
-      ? { data: { user: null } }
-      : await supabase.auth.getUser(accessToken);
-    if (tokenRow.access_mode !== 'public' && (!user || user.is_anonymous || !user.email_confirmed_at)) {
-      return new Response(JSON.stringify({ error: 'Inicia sesión para responder el formulario.', code: 'AUTH_REQUIRED' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const accessToken = req.headers
+      .get('Authorization')
+      ?.replace(/^Bearer\s+/i, '')
+      .trim();
+    const {
+      data: { user },
+    } =
+      tokenRow.access_mode === 'public' || !accessToken
+        ? { data: { user: null } }
+        : await supabase.auth.getUser(accessToken);
+    if (
+      tokenRow.access_mode !== 'public' &&
+      (!user || user.is_anonymous || !user.email_confirmed_at)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: 'Inicia sesión para responder el formulario.',
+          code: 'AUTH_REQUIRED',
+        }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
-    const accessDenial = tokenRow.access_mode === 'public'
-      ? publicFormCapabilityDenial(tokenRow) : formAccessDenial(tokenRow, user!);
+    const accessDenial =
+      tokenRow.access_mode === 'public'
+        ? publicFormCapabilityDenial(tokenRow)
+        : formAccessDenial(tokenRow, user!);
     if (accessDenial === 'FORBIDDEN') {
-      return new Response(JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(
+        JSON.stringify({ error: 'Este enlace pertenece a otra cuenta.', code: 'FORBIDDEN' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
     if (accessDenial === 'LIVENESS_REQUIRED') {
-      return new Response(JSON.stringify({ error: 'La prueba de vida es obligatoria antes de abrir este formulario.', code: 'LIVENESS_REQUIRED' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(
+        JSON.stringify({
+          error: 'La prueba de vida es obligatoria antes de abrir este formulario.',
+          code: 'LIVENESS_REQUIRED',
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // A used public capability may still need signing until its 24h proof expires.
@@ -80,7 +108,8 @@ serve(async (req) => {
         .maybeSingle();
       if (responseError) throw responseError;
       const { data: documentRow, error: documentError } = responseRow
-        ? await supabase.from('documentos')
+        ? await supabase
+            .from('documentos')
             .select('id,estado')
             .eq('source_form_response_id', responseRow.id)
             .maybeSingle()
@@ -114,13 +143,18 @@ serve(async (req) => {
       );
     }
 
-    let documentTypeName = typeof template.settings?.documentTypeName === 'string'
-      ? template.settings.documentTypeName : '';
-    const documentTypeId = typeof template.settings?.documentTypeId === 'string'
-      ? template.settings.documentTypeId : '';
+    let documentTypeName =
+      typeof template.settings?.documentTypeName === 'string'
+        ? template.settings.documentTypeName
+        : '';
+    const documentTypeId =
+      typeof template.settings?.documentTypeId === 'string' ? template.settings.documentTypeId : '';
     if (!documentTypeName && documentTypeId) {
-      const { data: documentType } = await supabase.from('tipo_documento')
-        .select('nombre').eq('id', documentTypeId).maybeSingle();
+      const { data: documentType } = await supabase
+        .from('tipo_documento')
+        .select('nombre')
+        .eq('id', documentTypeId)
+        .maybeSingle();
       documentTypeName = documentType?.nombre || '';
     }
 
@@ -128,15 +162,27 @@ serve(async (req) => {
     // code-and-liveness capability. In both cases the bound profile wins over
     // launcher-supplied suggestions.
     const fields = Array.isArray(template.schema) ? template.schema : [];
-    const hasPersonalFields = fields.some((field) =>
-      field && typeof field === 'object' &&
-      ['rfc', 'curp', 'business_name', 'person_first_name', 'person_last_name', 'person_second_last_name', 'fiscal_address'].includes((field as { type?: string }).type || '')
+    const hasPersonalFields = fields.some(
+      (field) =>
+        field &&
+        typeof field === 'object' &&
+        [
+          'rfc',
+          'curp',
+          'business_name',
+          'person_first_name',
+          'person_last_name',
+          'person_second_last_name',
+          'fiscal_address',
+        ].includes((field as { type?: string }).type || '')
     );
     let participantProfile = null;
     if (hasPersonalFields) {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('full_name,nombre,apellido_paterno,apellido_materno,personalidad_juridica,rfc,curp,calle,num_exterior,num_interior,colonia,municipio,localidad,estado')
+        .select(
+          'full_name,nombre,apellido_paterno,apellido_materno,personalidad_juridica,rfc,curp,calle,num_exterior,num_interior,colonia,municipio,localidad,estado'
+        )
         .eq('id', tokenRow.access_mode === 'public' ? tokenRow.recipient_user_id : user!.id)
         .maybeSingle();
       if (error) throw error;
@@ -156,7 +202,7 @@ serve(async (req) => {
           language: template.settings?.language || 'es',
           sections: template.settings?.sections || [],
           allowSaveProgress: template.settings?.allowSaveProgress ?? false,
-          requiresSignature: true,
+          requiresSignature: template.settings?.requiresSignature !== false,
           allowedSignatureTypes: template.settings?.allowedSignatureTypes || [],
           requireOtp: template.settings?.requireOtp ?? false,
           pdfSchema: template.settings?.pdfSchema || {},
@@ -170,19 +216,24 @@ serve(async (req) => {
         expiresAt: tokenRow.expires_at,
         recipientName: tokenRow.recipient_name || null,
         participantProfile: participantProfile || null,
-        launchPrefill: tokenRow.launch_prefill && typeof tokenRow.launch_prefill === 'object'
-          ? tokenRow.launch_prefill : {},
-        signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(tokenRow.signature_type)
-          ? tokenRow.signature_type : 'click_sign',
+        launchPrefill:
+          tokenRow.launch_prefill && typeof tokenRow.launch_prefill === 'object'
+            ? tokenRow.launch_prefill
+            : {},
+        signatureType: ['click_sign', 'autografa_digital', 'efirma_sat'].includes(
+          tokenRow.signature_type
+        )
+          ? tokenRow.signature_type
+          : 'click_sign',
         accessMode: tokenRow.access_mode,
         requireLiveness: tokenRow.require_liveness === true && !tokenRow.liveness_verified_at,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: 'Error interno del servidor' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: 'Error interno del servidor' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });

@@ -27,7 +27,7 @@ export function PanelSection({
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen((current) => !current)}
-          className={`form-property-section-trigger flex w-full items-center gap-2 border-b border-[#E2E8F0] pb-2 text-left font-semibold uppercase text-[#64748B] transition-colors hover:text-[#1E6BFF] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1E6BFF] dark:border-border ${open ? 'mb-3' : ''}`}
+          className={`form-property-section-trigger flex w-full items-center gap-2 border-b border-[#E2E8F0] px-2 py-2.5 text-left font-semibold uppercase tracking-wide text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#1E6BFF] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1E6BFF] dark:border-border dark:text-slate-200 dark:hover:bg-muted ${open ? 'mb-3 border-l-2 border-l-primary bg-blue-50/50 pl-2 text-primary dark:bg-primary/10 dark:text-primary' : ''}`}
         >
           {Icon && <Icon size={13} />}
           <span className="flex-1">{title}</span>

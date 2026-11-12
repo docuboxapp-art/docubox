@@ -3,14 +3,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { assertKioskDocumentScope } from '@/lib/in-person/kiosk-session.server';
 import { consumeServerRateLimit } from '@/lib/security/server-rate-limit';
 import {
-  bearerToken,
-  DocumentAccessError,
   documentAccessResponse,
   requireDocumentAccess,
+  requireDocumentIdentity,
 } from '@/lib/security/document-access';
-import { createAnonClient } from '@/lib/supabase/server';
 import { sha256Hex } from '@/lib/certification/canonical';
 import { participationTermsText, type ParticipationRole } from '@/lib/signing/participation-terms';
+import {
+  assertCaseDocumentSigningReady,
+  refreshCasesForDocument,
+  CaseRuntimeError,
+  runtimeFailure,
+} from '@/lib/case-files/runtime.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,22 +83,9 @@ function completionError(error: unknown) {
   return { status: 500, code: 'COMPLETION_COMMIT_FAILED' };
 }
 
-async function requireCompletionAuthentication(request: NextRequest) {
-  const token = bearerToken(request);
-  if (!token) throw new DocumentAccessError('AUTH_REQUIRED', 'Debes iniciar sesion.', 401);
-
-  const {
-    data: { user },
-    error,
-  } = await createAnonClient().auth.getUser(token);
-  if (error || !user?.email) {
-    throw new DocumentAccessError('AUTH_INVALID', 'La sesion no es valida.', 401);
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
-    await requireCompletionAuthentication(request);
+    const verifiedIdentity = await requireDocumentIdentity(request);
     const body = (await request.json()) as CompletionBody;
     const documentId = String(body.documentId || '');
     const idempotencyKey = String(body.idempotencyKey || '');
@@ -109,7 +100,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { user, document, service } = await requireDocumentAccess(request, documentId);
+    const { user, document, service } = await requireDocumentAccess(
+      request,
+      documentId,
+      {},
+      verifiedIdentity
+    );
     const allowed = await consumeServerRateLimit({
       scope: `participant-completion-${body.action || 'invalid'}`,
       identifiers: [user.id, documentId],
@@ -173,6 +169,22 @@ export async function POST(request: NextRequest) {
 
     const kioskSession = await assertKioskDocumentScope(request, documentId);
     const correlationId = request.headers.get('x-request-id');
+    const priorCompletion = await service
+      .from('participant_completion_attempts')
+      .select('id,status,action_type,actor_user_id,effective_actor_user_id')
+      .eq('document_id', documentId)
+      .eq('idempotency_key', idempotencyKey)
+      .maybeSingle();
+    if (priorCompletion.error) throw priorCompletion.error;
+    if (
+      !(
+        priorCompletion.data?.status === 'committed' &&
+        (priorCompletion.data.effective_actor_user_id || priorCompletion.data.actor_user_id) ===
+          user.id
+      ) &&
+      (body.actionType === 'signature' || priorCompletion.data?.action_type === 'signature')
+    )
+      await assertCaseDocumentSigningReady(documentId);
     if (body.action === 'claim') {
       if (!['signature', 'approval', 'witness'].includes(String(body.actionType || ''))) {
         return NextResponse.json(
@@ -215,18 +227,25 @@ export async function POST(request: NextRequest) {
         ? document.participantes.find((candidate: Record<string, unknown>) => {
             const candidateIds = [candidate.id, candidate.user_id].filter(Boolean).map(String);
             return [reference.participant_json_id, reference.participant_user_id, user.id]
-              .filter(Boolean).map(String).some((id) => candidateIds.includes(id));
+              .filter(Boolean)
+              .map(String)
+              .some((id) => candidateIds.includes(id));
           })
         : null;
       const rawRole = normalized(participant?.role || participant?.acto);
-      const role: ParticipationRole = rawRole === 'aprobador' || rawRole === 'testigo' || rawRole === 'observador'
-        ? rawRole : 'firmante';
+      const role: ParticipationRole =
+        rawRole === 'aprobador' || rawRole === 'testigo' || rawRole === 'observador'
+          ? rawRole
+          : 'firmante';
       const termsText = participationTermsText(document.participation_terms_text, role);
       const termsVersion = document.participation_terms_text
-        ? 'docubox-participation-terms-custom-v1' : 'docubox-participation-terms-default-v1';
+        ? 'docubox-participation-terms-custom-v1'
+        : 'docubox-participation-terms-default-v1';
       const clientMetadata = body.response.signature_metadata;
-      const metadata = clientMetadata && typeof clientMetadata === 'object' && !Array.isArray(clientMetadata)
-        ? clientMetadata as Record<string, unknown> : {};
+      const metadata =
+        clientMetadata && typeof clientMetadata === 'object' && !Array.isArray(clientMetadata)
+          ? (clientMetadata as Record<string, unknown>)
+          : {};
       const committedResponse = {
         ...body.response,
         signature_metadata: {
@@ -245,6 +264,12 @@ export async function POST(request: NextRequest) {
         p_response: committedResponse,
       });
       if (rpc.error) throw rpc.error;
+      // The database has queued a retry before returning the committed signature.
+      try {
+        await refreshCasesForDocument(documentId);
+      } catch {
+        console.warn('[case-runtime] completion refresh pending');
+      }
       return NextResponse.json({ success: true, data: rpc.data }, { headers });
     }
 
@@ -253,6 +278,17 @@ export async function POST(request: NextRequest) {
       { status: 400, headers }
     );
   } catch (error) {
+    if (error instanceof CaseRuntimeError) {
+      const failure = runtimeFailure(error);
+      return NextResponse.json(failure.body, { status: failure.status, headers });
+    }
+    const caseFailure = runtimeFailure(error);
+    if (
+      typeof caseFailure.body.code === 'string' &&
+      caseFailure.body.code.startsWith('CASE_') &&
+      caseFailure.body.code !== 'CASE_OPERATION_FAILED'
+    )
+      return NextResponse.json(caseFailure.body, { status: caseFailure.status, headers });
     const access = documentAccessResponse(error);
     if (access.status !== 500) {
       return NextResponse.json(access.body, { status: access.status, headers });

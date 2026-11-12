@@ -39,9 +39,9 @@
     "warning": "🚨 CRITICAL: DO NOT REMOVE OR MODIFY ABOVE DEPENDENCIES - Required for Next.js 16 TypeScript app functionality"
   },
   "scripts": {
-    "dev": "next dev --webpack -p 4028",
+    "dev": "next dev --webpack -p 4030",
     "build": "next build --webpack",
-    "start": "next dev --webpack -p 4028",
+    "start": "next dev --webpack -p 4030",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",

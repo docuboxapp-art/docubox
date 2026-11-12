@@ -26,15 +26,31 @@ export async function POST(request: NextRequest) {
         .eq('token_hash', hashCapabilityToken(enrollmentToken))
         .maybeSingle();
       if (sessionError) {
-        return NextResponse.json({ error: 'No fue posible verificar la sesión de captura.' }, { status: 503 });
+        return NextResponse.json(
+          { error: 'No fue posible verificar la sesión de captura.' },
+          { status: 503 }
+        );
       }
-      if (session?.metadata?.mode === 'public_form_liveness') {
-        if (session.status !== 'pending' || new Date(session.expires_at) <= new Date() || !session.user_id) {
-          return NextResponse.json({ error: 'La sesión de captura expiró. Solicita un nuevo acceso.' }, { status: 410 });
+      if (
+        session &&
+        ['public_form_liveness', 'case_portal_liveness'].includes(session.metadata?.mode)
+      ) {
+        if (
+          session.status !== 'pending' ||
+          new Date(session.expires_at) <= new Date() ||
+          !session.user_id
+        ) {
+          return NextResponse.json(
+            { error: 'La sesión de captura expiró. Solicita un nuevo acceso.' },
+            { status: 410 }
+          );
         }
         const key = captureEncryptionKey();
         if (!key) {
-          return NextResponse.json({ error: 'El cifrado biométrico no está configurado.' }, { status: 503 });
+          return NextResponse.json(
+            { error: 'El cifrado biométrico no está configurado.' },
+            { status: 503 }
+          );
         }
         const stored = await findStoredIdentity(supabase, session.user_id, key);
         if (stored?.front) comparisonCredential = stored.front;
@@ -42,7 +58,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!comparisonCredential || !captura) {
-      return NextResponse.json({ error: 'Se requieren las imágenes de credencial y selfie' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Se requieren las imágenes de credencial y selfie' },
+        { status: 400 }
+      );
     }
 
     const nubariumUser = process.env.NUBARIUM_USER || '';
@@ -50,7 +69,10 @@ export async function POST(request: NextRequest) {
 
     if (!nubariumUser || !nubariumPass) {
       console.error('[reconocimiento-facial] Missing Nubarium credentials');
-      return NextResponse.json({ error: 'Configuración de servicio biométrico incompleta' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Configuración de servicio biométrico incompleta' },
+        { status: 500 }
+      );
     }
 
     const credentials = Buffer.from(`${nubariumUser}:${nubariumPass}`).toString('base64');
@@ -66,10 +88,15 @@ export async function POST(request: NextRequest) {
     const cleanCredencial = cleanBase64(comparisonCredential);
     const cleanCaptura = cleanBase64(captura);
     if (!validImageBase64(cleanCredencial) || !validImageBase64(cleanCaptura)) {
-      return NextResponse.json({ error: 'Las imágenes de credencial o selfie no son válidas.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Las imágenes de credencial o selfie no son válidas.' },
+        { status: 400 }
+      );
     }
 
-    console.log(`[reconocimiento-facial] Sending request to Nubarium, tipo=imagen, credencial_len=${cleanCredencial.length}, captura_len=${cleanCaptura.length}`);
+    console.log(
+      `[reconocimiento-facial] Sending request to Nubarium, tipo=imagen, credencial_len=${cleanCredencial.length}, captura_len=${cleanCaptura.length}`
+    );
 
     const payload = {
       credencial: cleanCredencial,
@@ -80,40 +107,53 @@ export async function POST(request: NextRequest) {
 
     let data: Record<string, unknown> = {};
     try {
-      const nubariumRes = await fetch('https://biometrics.nubarium.com/antifraude/reconocimiento_facial', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Basic ${credentials}`,
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30000),
-      });
+      const nubariumRes = await fetch(
+        'https://biometrics.nubarium.com/antifraude/reconocimiento_facial',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Basic ${credentials}`,
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30000),
+        }
+      );
 
       // Always try to parse JSON — Nubarium returns JSON even on error status codes
       try {
         data = await nubariumRes.json();
       } catch {
         if (!nubariumRes.ok) {
-          console.error(`[reconocimiento-facial] Nubarium HTTP error ${nubariumRes.status} (no JSON body)`);
+          console.error(
+            `[reconocimiento-facial] Nubarium HTTP error ${nubariumRes.status} (no JSON body)`
+          );
           return NextResponse.json(
-            { error: `Error del servicio biométrico (${nubariumRes.status}). Intente nuevamente.`, networkError: true },
+            {
+              error: `Error del servicio biométrico (${nubariumRes.status}). Intente nuevamente.`,
+              networkError: true,
+            },
             { status: 502 }
           );
         }
       }
 
-      console.log('[reconocimiento-facial] Nubarium response:', JSON.stringify({
-        estatus: data.estatus,
-        mensaje: data.mensaje,
-        similitud: data.similitud,
-        status: nubariumRes.status,
-      }));
-
+      console.log(
+        '[reconocimiento-facial] Nubarium response:',
+        JSON.stringify({
+          estatus: data.estatus,
+          mensaje: data.mensaje,
+          similitud: data.similitud,
+          status: nubariumRes.status,
+        })
+      );
     } catch (fetchErr) {
       console.error('[reconocimiento-facial] Fetch error:', fetchErr);
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      const isTimeout = errMsg.includes('TimeoutError') || errMsg.includes('AbortError') || errMsg.includes('timeout');
+      const isTimeout =
+        errMsg.includes('TimeoutError') ||
+        errMsg.includes('AbortError') ||
+        errMsg.includes('timeout');
       return NextResponse.json(
         {
           error: isTimeout
@@ -126,16 +166,16 @@ export async function POST(request: NextRequest) {
     }
 
     const similitud: number = typeof data.similitud === 'number' ? data.similitud : 0;
-    const aprobado = similitud >= 99.50;
+    const aprobado = similitud >= 99.5;
     const estatus = (data.estatus as string) || '';
     const mensaje = (data.mensaje as string) || '';
 
     // Determine if this is a similarity rejection vs a real error
-    const isSimilarityRejection = estatus === 'ERROR' && (
-      mensaje.toLowerCase().includes('similitud') ||
-      mensaje.toLowerCase().includes('rostro') ||
-      typeof data.similitud === 'number'
-    );
+    const isSimilarityRejection =
+      estatus === 'ERROR' &&
+      (mensaje.toLowerCase().includes('similitud') ||
+        mensaje.toLowerCase().includes('rostro') ||
+        typeof data.similitud === 'number');
 
     // Save log to Supabase using server client
     try {
@@ -163,6 +203,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[reconocimiento-facial] Unexpected error:', error);
-    return NextResponse.json({ error: 'Error interno al comparar rostros. Intente nuevamente.', networkError: true }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Error interno al comparar rostros. Intente nuevamente.', networkError: true },
+      { status: 500 }
+    );
   }
 }

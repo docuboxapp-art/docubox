@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, Layers, Search, Star, X } from 'lucide-react';
 
@@ -11,7 +11,7 @@ export type DocumentType = {
   descripcion?: string | null;
 };
 export type DocumentTypeGroup = { id: string; nombre: string };
-export type CatalogTag = { id: string; nombre: string; color?: string | null };
+export type CatalogTag = { id: string; nombre: string; color?: string | null; group?: string };
 
 function readFavorites(key: string): Set<string> {
   try {
@@ -95,6 +95,15 @@ export function DocumentTypeModal({
   favoriteKeyForType,
   onToggleFavorite,
   includeOther = false,
+  title = 'Tipo de documento',
+  searchPlaceholder = 'Buscar tipo o documento...',
+  typeTabLabel = 'Por tipo',
+  groupTabLabel = 'Por grupo',
+  groupPluralLabel = 'Grupos',
+  groupItemLabel = 'documento',
+  itemPluralLabel = 'tipos',
+  favoriteStorageKey = 'tipo_doc_favorites',
+  showGroupTab = true,
   onSelect,
   onClose,
 }: {
@@ -106,6 +115,15 @@ export function DocumentTypeModal({
   favoriteKeyForType?: (type: DocumentType) => string;
   onToggleFavorite?: (id: string) => void;
   includeOther?: boolean;
+  title?: string;
+  searchPlaceholder?: string;
+  typeTabLabel?: string;
+  groupTabLabel?: string;
+  groupPluralLabel?: string;
+  groupItemLabel?: string;
+  itemPluralLabel?: string;
+  favoriteStorageKey?: string;
+  showGroupTab?: boolean;
   onSelect: (id: string, groupId?: string) => void;
   onClose: () => void;
 }) {
@@ -113,7 +131,7 @@ export function DocumentTypeModal({
   const [search, setSearch] = useState('');
   const [drillGroupId, setDrillGroupId] = useState<string | null>(null);
   const { favorites: localFavorites, toggleFavorite: toggleLocalFavorite } =
-    useFavorites('tipo_doc_favorites');
+    useFavorites(favoriteStorageKey);
   const favorites = favoriteIds || localFavorites;
   const favoriteKey = (type: DocumentType) => favoriteKeyForType?.(type) || type.id;
   const toggleFavorite = onToggleFavorite || toggleLocalFavorite;
@@ -198,14 +216,14 @@ export function DocumentTypeModal({
         <section
           role="dialog"
           aria-modal="true"
-          aria-label="Tipo de documento"
+          aria-label={title}
           className={modalShell}
         >
           <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-border">
             <div className="flex items-center gap-2">
               <Layers size={18} className="text-blue-600" />
               <h3 className="text-base font-semibold text-gray-900 dark:text-foreground">
-                Tipo de documento
+                {title}
               </h3>
             </div>
             <button
@@ -231,8 +249,8 @@ export function DocumentTypeModal({
                   setSearch(event.target.value);
                   setDrillGroupId(null);
                 }}
-                placeholder="Buscar tipo o documento..."
-                aria-label="Buscar tipo de documento"
+                placeholder={searchPlaceholder}
+                aria-label={`Buscar ${title.toLocaleLowerCase('es')}`}
                 className={searchInput}
               />
             </div>
@@ -240,9 +258,9 @@ export function DocumentTypeModal({
           <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
             {(
               [
-                ['tipo', 'Por tipo', types.length],
+                ['tipo', typeTabLabel, types.length],
                 ['favoritos', 'Favoritos', favoriteCount],
-                ['grupo', 'Por grupo', null],
+                ...(showGroupTab ? [['grupo', groupTabLabel, null] as const] : []),
               ] as const
             ).map(([value, label, count]) => (
               <button
@@ -274,7 +292,7 @@ export function DocumentTypeModal({
                 filteredTypes.map(renderType)
               ) : (
                 <div className="px-5 py-10 text-center text-sm text-gray-400">
-                  {tab === 'favoritos' ? 'No tienes favoritos aún' : 'No se encontraron tipos'}
+                  {tab === 'favoritos' ? 'No tienes favoritos aún' : `No se encontraron ${itemPluralLabel}`}
                 </div>
               ))}
             {tab === 'grupo' &&
@@ -295,7 +313,7 @@ export function DocumentTypeModal({
                             {group.nombre}
                           </span>
                           <span className="mt-0.5 block text-xs text-gray-500">
-                            {count} documento{count === 1 ? '' : 's'}
+                            {count} {groupItemLabel}{count === 1 ? '' : 's'}
                           </span>
                         </span>
                         <ArrowRight size={16} className="shrink-0 text-gray-400" />
@@ -304,7 +322,7 @@ export function DocumentTypeModal({
                   })
                 ) : (
                   <div className="px-5 py-10 text-center text-sm text-gray-400">
-                    No se encontraron grupos
+                    No se encontraron {groupPluralLabel.toLocaleLowerCase('es')}
                   </div>
                 )
               ) : (
@@ -315,7 +333,7 @@ export function DocumentTypeModal({
                       onClick={() => setDrillGroupId(null)}
                       className="flex items-center gap-1.5 text-xs font-medium text-blue-600"
                     >
-                      <ArrowRight size={13} className="rotate-180" /> Grupos
+                      <ArrowRight size={13} className="rotate-180" /> {groupPluralLabel}
                     </button>
                     <span className="text-gray-300">/</span>
                     <span className="truncate text-xs font-semibold text-gray-700 dark:text-foreground">
@@ -343,6 +361,7 @@ export function TagsModal({
   selectedIds,
   favoriteIds,
   onToggleFavorite,
+  favoriteStorageKey = 'etiqueta_favorites',
   onConfirm,
   onClose,
 }: {
@@ -350,6 +369,7 @@ export function TagsModal({
   selectedIds: string[];
   favoriteIds?: ReadonlySet<string>;
   onToggleFavorite?: (id: string) => void;
+  favoriteStorageKey?: string;
   onConfirm: (ids: string[]) => void;
   onClose: () => void;
 }) {
@@ -357,7 +377,7 @@ export function TagsModal({
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState(selectedIds);
   const { favorites: localFavorites, toggleFavorite: toggleLocalFavorite } =
-    useFavorites('etiqueta_favorites');
+    useFavorites(favoriteStorageKey);
   const favorites = favoriteIds || localFavorites;
   const toggleFavorite = onToggleFavorite || toggleLocalFavorite;
   useEscapeToClose(onClose);
@@ -427,11 +447,14 @@ export function TagsModal({
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-gray-100 dark:border-border">
             {filtered.length ? (
-              filtered.map((tag) => {
+              filtered.map((tag, index) => {
                 const selected = localSelected.includes(tag.id);
                 return (
+                  <Fragment key={tag.id}>
+                  {tag.group && tag.group !== filtered[index - 1]?.group && (
+                    <div className="sticky top-0 border-b border-gray-100 bg-gray-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-border dark:bg-muted">{tag.group}</div>
+                  )}
                   <div
-                    key={tag.id}
                     className={`group flex items-center border-b border-gray-50 last:border-0 hover:bg-gray-50 dark:border-border dark:hover:bg-muted ${selected ? 'bg-blue-50/50 dark:bg-primary/10' : ''}`}
                   >
                     <button
@@ -452,6 +475,7 @@ export function TagsModal({
                       onClick={() => toggleFavorite(tag.id)}
                     />
                   </div>
+                  </Fragment>
                 );
               })
             ) : (

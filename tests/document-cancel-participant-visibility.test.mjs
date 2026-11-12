@@ -56,6 +56,17 @@ test('only a legally relevant action creates effective participation', () => {
     visibility.hasEffectiveParticipation({ ...participant, sub_estado: 'rechazo' }),
     true
   );
+  assert.equal(
+    visibility.hasEffectiveParticipation({ ...participant, participation_status: 'PENDING', sub_estado: 'firmado' }),
+    true
+  );
+  assert.equal(
+    visibility.hasEffectiveParticipation(participant, [
+      { participante_id: 'user-1', firma_completada: false },
+      { participante_id: 'user-1', firma_completada: true },
+    ]),
+    true
+  );
 });
 
 test('historical participation remains readable while revoked untouched invitations do not', () => {
@@ -160,13 +171,17 @@ test('participant portal resolves a real document name without caching the capab
   assert.doesNotMatch(portalPage, /Participación documental segura/);
 });
 
-test('uninviting evaluates evidence and independently revokes future access', () => {
+test('uninviting blocks completed participation before revoking future access', () => {
   assert.match(updateStateRoute, /action === 'desinvitar'/);
   assert.match(updateStateRoute, /PARTICIPANT_UNINVITED/);
-  assert.match(updateStateRoute, /PARTICIPANT_HISTORY_RETAINED_AFTER_REVOKE/);
+  const participationGuard = updateStateRoute.indexOf('if (hasPriorParticipantInteraction(participant, responses, activity))');
+  const revokeWrite = updateStateRoute.indexOf('.update({ participantes: updatedParticipantes })');
+  assert.ok(participationGuard > 0 && participationGuard < revokeWrite);
+  assert.match(updateStateRoute.slice(participationGuard, revokeWrite), /status: 409/);
   assert.match(updateStateRoute, /participant_relationship_status: 'REVOKED'/);
   assert.match(updateStateRoute, /recordatorios_cancelados_at/);
   assert.match(updateStateRoute, /portal_token_invalidated_at/);
+  assert.match(sentRequestsPage, /hasEffectiveParticipation\(\{/);
 });
 
 test('owner lists remove untouched revoked participants but retain historical participants', () => {

@@ -13,8 +13,10 @@ import {
 } from '@/lib/notificationsInApp.server';
 import {
   hasEffectiveParticipation,
+  hasPriorParticipantInteraction,
   type ParticipationResponseRecord,
   type SignatureEvidenceRecord,
+  type ParticipantActivityRecord,
 } from '@/lib/documents/participant-visibility';
 
 /**
@@ -163,7 +165,7 @@ export async function POST(req: NextRequest) {
       }
 
       const participant = participantes[participantIndex];
-      if (participant.isCurrentUser || participant.user_id === doc.owner_id) {
+      if (participant.isCurrentUser || participant.user_id === doc.owner_id || (isOwner && String(participant.email || '').trim().toLowerCase() === userEmail)) {
         return NextResponse.json(
           { error: 'El propietario no puede desinvitarse del documento.' },
           { status: 409 }
@@ -181,41 +183,53 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const [responsesResult, evidenceResult] = await Promise.all([
-        supabase
-          .from('participation_responses')
-          .select(
-            'participante_id,participante_email,firma_data,firma_completada,aprobacion_completada,terminos_aceptados'
-          )
+      const [responsesResult, activityResult, viewAccessResult, fileAccessResult] = await Promise.all([
+        supabase.from('participation_responses')
+          .select('participante_id,participante_email,firma_completada,aprobacion_completada,terminos_aceptados,consent_accepted,firma_data,campos_completados')
           .eq('documento_id', documentoId),
-        supabase
-          .from('signature_evidence')
-          .select('captured_by,participant_email')
-          .eq('document_id', documentoId),
+        supabase.from('document_activity_log')
+          .select('actor_id,actor_email,action')
+          .eq('documento_id', documentoId),
+        supabase.from('document_lifecycle_audit_events')
+          .select('actor_id,actor_email,action')
+          .eq('document_id', documentoId)
+          .eq('action', 'VIEW_ACCESS_GRANTED')
+          .eq('result', 'success'),
+        supabase.from('document_encryption_security_events')
+          .select('user_id,event_type')
+          .eq('document_id', documentoId)
+          .in('event_type', ['DOCUMENT_VIEWED', 'DOCUMENT_DOWNLOADED', 'LEGACY_PLAINTEXT_ACCESS'])
+          .eq('result', 'success'),
       ]);
-      if (responsesResult.error || evidenceResult.error) {
+      if (responsesResult.error || activityResult.error || viewAccessResult.error || fileAccessResult.error) {
         return NextResponse.json(
-          { error: 'No fue posible comprobar la participación histórica.' },
+          { error: 'No fue posible verificar si el participante ya revisó o interactuó con el documento.' },
           { status: 500 }
         );
       }
 
-      const hadEffectiveParticipation = hasEffectiveParticipation(
-        participant,
-        (responsesResult.data || []) as ParticipationResponseRecord[],
-        (evidenceResult.data || []) as SignatureEvidenceRecord[]
-      );
+      const responses = (responsesResult.data || []) as ParticipationResponseRecord[];
+      const activity: ParticipantActivityRecord[] = [
+        ...((activityResult.data || []) as ParticipantActivityRecord[]),
+        ...((viewAccessResult.data || []) as ParticipantActivityRecord[]),
+        ...(fileAccessResult.data || []).map((event) => ({
+          actor_id: event.user_id,
+          action: event.event_type,
+        })),
+      ];
+      if (hasPriorParticipantInteraction(participant, responses, activity)) {
+        return NextResponse.json(
+          { error: 'No se puede desinvitar a un participante que ya revisó o interactuó con el documento.' },
+          { status: 409 }
+        );
+      }
       const revokedParticipant = {
         ...participant,
-        sub_estado: hadEffectiveParticipation
-          ? participant.sub_estado
-          : 'revocado',
-        participation_status: hadEffectiveParticipation
-          ? participant.participation_status || participant.sub_estado || participant.status
-          : 'REVOKED',
+        sub_estado: 'revocado',
+        participation_status: 'REVOKED',
         current_access: false,
-        historical_participation: hadEffectiveParticipation,
-        visible: hadEffectiveParticipation,
+        historical_participation: false,
+        visible: false,
         participant_relationship_status: 'REVOKED',
         access_revoked_at: now,
         access_revoked_by: user.id,
@@ -242,11 +256,10 @@ export async function POST(req: NextRequest) {
           document_id: documentoId,
           actor_id: user.id,
           actor_email: user.email || null,
-          action: hadEffectiveParticipation
-            ? 'PARTICIPANT_HISTORY_RETAINED_AFTER_REVOKE'
-            : 'PARTICIPANT_UNINVITED',
+          action: 'PARTICIPANT_UNINVITED',
           previous_state: {
             participant_id: participant.id || null,
+            participant_name: participant.nombre || participant.name || null,
             participant_email: participant.email || null,
             current_access: participant.current_access !== false,
             participation_status: participant.participation_status || participant.sub_estado || null,
@@ -254,15 +267,15 @@ export async function POST(req: NextRequest) {
           new_state: {
             participant_relationship_status: 'REVOKED',
             current_access: false,
-            historical_participation: hadEffectiveParticipation,
-            visible: hadEffectiveParticipation,
+            historical_participation: false,
+            visible: false,
           },
           reason: motivo || 'OWNER_UNINVITED_PARTICIPANT',
           result: 'success',
           request_id: req.headers.get('x-request-id') || null,
           ip_address: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
           user_agent: req.headers.get('user-agent') || null,
-          metadata: { had_effective_participation: hadEffectiveParticipation },
+          metadata: { had_effective_participation: false },
         });
       if (auditError) {
         console.error('[update-estado] Could not audit participant revocation:', auditError.message);
@@ -276,9 +289,7 @@ export async function POST(req: NextRequest) {
           category: 'WORKFLOW',
           severity: 'warning',
           title: 'Tu acceso al documento fue revocado',
-          description: hadEffectiveParticipation
-            ? `Ya no puedes realizar acciones en "${docNombre}". Tu participación anterior se conserva.`
-            : `Ya no formas parte del flujo de "${docNombre}".`,
+          description: `Ya no formas parte del flujo de "${docNombre}".`,
           priority: 'media',
           workspaceId: doc.workspace_id,
           actorUserId: user.id,
@@ -290,14 +301,15 @@ export async function POST(req: NextRequest) {
           metadata: {
             documentoId,
             documentName: docNombre,
-            hadEffectiveParticipation,
+            hadEffectiveParticipation: false,
           },
         }).catch(() => {});
       }
 
       return NextResponse.json({
         success: true,
-        hadEffectiveParticipation,
+        hadEffectiveParticipation: false,
+        revokedAt: now,
         participant: {
           id: participant.id || null,
           email: participant.email || null,

@@ -3,12 +3,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft,
   ZoomIn,
   ZoomOut,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  MoreHorizontal,
   Maximize2,
   Users,
   MessageSquare,
@@ -25,6 +25,7 @@ import {
   Eye,
   FilePlus,
   UserPlus,
+  UserMinus,
   Download,
   Shield,
   ShieldCheck,
@@ -74,6 +75,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createNotification } from '@/lib/notificationsInApp';
 import { getNom151Presentation } from '@/lib/nom151/presentation';
+import { evidenceResumeDelay, type EvidenceFinalizationStatus } from '@/lib/evidence-v2/finalization-status';
 import { orderDocumentActivity, removeDuplicateSynthesizedActivity } from '@/lib/documents/activity-timeline';
 import {
   DOCUMENT_VIEWER_SELECT,
@@ -673,7 +675,14 @@ interface PdfCanvasProps {
 interface EvidenceV2Data {
   evidenceVersion: number;
   schemaVersion: string;
-  state: 'preparing' | 'waiting_certifications' | 'generating' | 'generated' | 'verified' | 'error';
+  state:
+    | 'preparing'
+    | 'waiting_certifications'
+    | 'generating'
+    | 'generated'
+    | 'verified'
+    | 'retry_scheduled'
+    | 'error';
   generatedAt: string | null;
   xmlSha256?: string;
   evidenceRoot?: string;
@@ -681,6 +690,7 @@ interface EvidenceV2Data {
   xmlAvailable: boolean;
   packageAvailable: boolean;
   errorCode?: string | null;
+  finalization?: EvidenceFinalizationStatus;
   technical?: { packageId?: string; evidenceId?: string };
 }
 
@@ -1130,12 +1140,33 @@ export default function VisorDocumentoPage() {
   const [changesComment, setChangesComment] = useState('');
   const [changesTipo, setChangesTipo] = useState('Solicitud de Cambios en el Documento');
   const [showCancelDocModal, setShowCancelDocModal] = useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const moreActionsRef = useRef<HTMLDivElement>(null);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const [cancelMotivo, setCancelMotivo] = useState('');
   const [cancelDescripcion, setCancelDescripcion] = useState('');
   const [cancelConfirmStep, setCancelConfirmStep] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [inPersonStartingId, setInPersonStartingId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreActionsOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMoreActionsOpen(false);
+      moreActionsButtonRef.current?.focus();
+    };
+    window.document.addEventListener('pointerdown', closeOnOutsideClick);
+    window.document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.document.removeEventListener('pointerdown', closeOnOutsideClick);
+      window.document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [moreActionsOpen]);
 
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -1237,6 +1268,8 @@ export default function VisorDocumentoPage() {
   });
   const [evidenceV2Loading, setEvidenceV2Loading] = useState(false);
   const [evidenceV2Error, setEvidenceV2Error] = useState('');
+  const [evidenceResumeError, setEvidenceResumeError] = useState('');
+  const [evidenceResumeLoading, setEvidenceResumeLoading] = useState(false);
   const [evidenceV2Download, setEvidenceV2Download] = useState<'xml' | 'package' | null>(null);
   const [certificationDownload, setCertificationDownload] = useState<
     | 'certificate'
@@ -1518,6 +1551,28 @@ export default function VisorDocumentoPage() {
     };
   }, [docId, document?.estado]);
 
+  const resumeEvidenceFinalization = useCallback(async () => {
+    if (!docId || evidenceResumeLoading) return;
+    setEvidenceResumeLoading(true);
+    setEvidenceResumeError('');
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/evidence`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No se pudo reanudar la preparación de evidencia.');
+      }
+    } catch (error) {
+      setEvidenceResumeError(
+        error instanceof Error ? error.message : 'No se pudo reanudar la preparación de evidencia.'
+      );
+    } finally {
+      setEvidenceResumeLoading(false);
+    }
+  }, [docId, evidenceResumeLoading]);
+
   useEffect(() => {
     if (!docId || document?.estado !== 'completado') return;
     let active = true;
@@ -1550,6 +1605,41 @@ export default function VisorDocumentoPage() {
       window.clearInterval(timer);
     };
   }, [docId, document?.estado]);
+
+  useEffect(() => {
+    if (
+      !docId ||
+      document?.estado !== 'completado' ||
+      document.additional_access_level ||
+      user?.id !== document.owner_id ||
+      evidenceV2?.packageAvailable ||
+      evidenceResumeLoading
+    )
+      return;
+    const finalization = evidenceV2?.finalization;
+    const delay = evidenceResumeDelay(finalization);
+    if (delay === null || !finalization) return;
+    const attemptKey = `${docId}:${finalization.state}:${finalization.attemptCount}:${finalization.nextAttemptAt}`;
+    if (evidenceResumeAttemptsRef.current.has(attemptKey)) return;
+    const timer = window.setTimeout(() => {
+      if (evidenceResumeAttemptsRef.current.has(attemptKey)) return;
+      evidenceResumeAttemptsRef.current.add(attemptKey);
+      void resumeEvidenceFinalization();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    docId,
+    document?.estado,
+    document?.additional_access_level,
+    document?.owner_id,
+    user?.id,
+    evidenceV2?.packageAvailable,
+    evidenceV2?.finalization?.state,
+    evidenceV2?.finalization?.attemptCount,
+    evidenceV2?.finalization?.nextAttemptAt,
+    evidenceResumeLoading,
+    resumeEvidenceFinalization,
+  ]);
 
   const downloadEvidenceV2 = useCallback(
     async (kind: 'xml' | 'package') => {
@@ -1641,6 +1731,7 @@ export default function VisorDocumentoPage() {
   const [publicUrlCopied, setPublicUrlCopied] = useState(false);
 
   const artifactGenerationAttemptsRef = useRef<Set<string>>(new Set());
+  const evidenceResumeAttemptsRef = useRef<Set<string>>(new Set());
   const signatureStampGenerationRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -3775,12 +3866,6 @@ export default function VisorDocumentoPage() {
   // ── Send reminder email to a participant ───────────────────────────────────
   const handleSendReminder = async (p: Participante) => {
     if (!p.email || !document) return;
-    const isCreatorOnlyParticipant =
-      document.owner_id === user?.id &&
-      participantes.length === 1 &&
-      (p.id === user.id ||
-        p.email.trim().toLowerCase() === user.email?.trim().toLowerCase());
-    if (isCreatorOnlyParticipant) return;
     setSendingReminderFor(p.id);
     try {
       const res = await fetch('/api/documentos/send-reminder', {
@@ -4012,7 +4097,7 @@ export default function VisorDocumentoPage() {
           if (user?.id) {
             await createNotification({
               userId: user.id,
-              type: 'task',
+              type: 'document',
               title: 'Participación registrada',
               description: `Tu participación en "${documentName}" fue registrada exitosamente.`,
               priority: 'baja',
@@ -4048,7 +4133,7 @@ export default function VisorDocumentoPage() {
           if (user?.id) {
             await createNotification({
               userId: user.id,
-              type: 'task',
+              type: 'document',
               title: 'Participación registrada',
               description: `Tu participación en "${documentName}" fue registrada exitosamente.`,
               priority: 'baja',
@@ -4660,7 +4745,7 @@ export default function VisorDocumentoPage() {
     if (a === 'documento_editado') return <PenLine size={14} />;
     if (a === 'participante_asignado' || a === 'participante_sustituido')
       return <UserPlus size={14} />;
-    if (a === 'participante_removido') return <XCircle size={14} />;
+    if (a === 'participante_removido' || a === 'participant_uninvited') return <UserMinus size={14} />;
     if (a === 'cambio_estado_participacion') return <RefreshCw size={14} />;
     if (a === 'firma_completada' || a === 'autografa_capturada') return <PenLine size={14} />;
     if (a === 'firma_rechazada' || a === 'aprobacion_rechazada') return <XCircle size={14} />;
@@ -4697,7 +4782,7 @@ export default function VisorDocumentoPage() {
     if (a.startsWith('legal_hold_')) return { bg: 'bg-amber-100', text: 'text-amber-700' };
     if (a === 'participante_asignado' || a === 'participante_sustituido')
       return { bg: 'bg-purple-100', text: 'text-purple-600' };
-    if (a === 'participante_removido') return { bg: 'bg-red-100', text: 'text-red-500' };
+    if (a === 'participante_removido' || a === 'participant_uninvited') return { bg: 'bg-red-100', text: 'text-red-500' };
     if (a === 'cambio_estado_participacion') return { bg: 'bg-cyan-100', text: 'text-cyan-600' };
     if (a === 'firma_completada' || a === 'autografa_capturada')
       return { bg: 'bg-green-100', text: 'text-green-600' };
@@ -4745,6 +4830,8 @@ export default function VisorDocumentoPage() {
       vista_previa_generada: 'Vista previa generada',
       participante_asignado: 'Participante asignado',
       participante_removido: 'Participante removido',
+      PARTICIPANT_UNINVITED: 'Participante desinvitado',
+      PARTICIPANT_INVITED: 'Participante invitado',
       participante_sustituido: 'Participante sustituido',
       cambio_estado_participacion: 'Cambio de estado de participación',
       invitacion_enviada: 'Invitación enviada',
@@ -6041,20 +6128,11 @@ export default function VisorDocumentoPage() {
         style={{ height: sidebarOpen ? 'calc(100dvh - 4rem)' : 'calc(100dvh - 6.5rem)' }}
       >
         {/* Document Top Bar */}
-        <div className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:px-5">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {document.estado !== 'completado' && (
-              <button
-                onClick={() => router.back()}
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950"
-                title="Volver"
-              >
-                <ArrowLeft size={17} />
-              </button>
-            )}
+        <div className="flex min-h-16 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:flex-nowrap md:px-5">
+          <div className="flex min-w-0 basis-full items-center gap-3 md:basis-auto md:flex-1">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-[15px] font-600 text-slate-950 md:text-base">
+                <h1 className="truncate text-[15px] font-600 text-slate-950 md:text-base">
                   {document.nombre}
                 </h1>
                 {(document.legal_hold === true || document.legal_hold_status === 'ACTIVE') && (
@@ -6101,47 +6179,87 @@ export default function VisorDocumentoPage() {
             // Participation actions blocked when doc is en_espera or terminal
             const actionsBlocked = isEnEspera || isTerminal || iAlreadyActed;
             return (
-              <div className="flex flex-shrink-0 items-center gap-2">
-                {/* Cerrar button: only when document is completado */}
-                {document.estado === 'completado' && (
-                  <button
-                    onClick={() => router.push('/mis-documentos')}
-                    className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-600 text-white transition-colors hover:bg-blue-700"
-                  >
-                    <X size={16} />
-                    <span>Cerrar</span>
-                  </button>
+              <div className="ml-auto flex flex-shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => (isEnProgreso ? router.back() : router.push('/mis-documentos'))}
+                  className={`flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-600 transition-colors ${
+                    isEnProgreso
+                      ? 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                  aria-label="Cerrar visor"
+                >
+                  <X size={16} />
+                  <span>Cerrar</span>
+                </button>
+                {isEnProgreso && (isOwner || !actionsBlocked) && (
+                  <div className="relative" ref={moreActionsRef}>
+                    <button
+                      ref={moreActionsButtonRef}
+                      type="button"
+                      onClick={() => setMoreActionsOpen((open) => !open)}
+                      aria-expanded={moreActionsOpen}
+                      aria-controls="document-more-actions"
+                      className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800"
+                    >
+                      <MoreHorizontal size={16} aria-hidden="true" />
+                      <span>Más acciones</span>
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                    {moreActionsOpen && (
+                      <div
+                        id="document-more-actions"
+                        className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg"
+                        role="group"
+                        aria-label="Acciones del documento"
+                      >
+                        {!actionsBlocked && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMoreActionsOpen(false);
+                                setShowChangesModal(true);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                            >
+                              <RefreshCw size={16} aria-hidden="true" />
+                              Solicitar cambios
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMoreActionsOpen(false);
+                                setShowRejectModal(true);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <XCircle size={16} aria-hidden="true" />
+                              Rechazar documento
+                            </button>
+                          </>
+                        )}
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMoreActionsOpen(false);
+                              setShowCancelDocModal(true);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                          >
+                            <XCircle size={16} aria-hidden="true" />
+                            Cancelar documento
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
-                {/* Cancel button: only for owner when doc is en_proceso */}
-                {isOwner && isEnProgreso && (
-                  <button
-                    onClick={() => setShowCancelDocModal(true)}
-                    className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white text-sm font-500 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 xl:w-auto xl:px-3"
-                    title="Cancelar documento"
-                  >
-                    <XCircle size={16} />
-                    <span className="hidden xl:inline">Cancelar</span>
-                  </button>
-                )}
-                {/* Participation action buttons: hidden when blocked */}
+                {/* Participation action button: hidden when blocked */}
                 {!actionsBlocked && (
                   <>
-                    <button
-                      onClick={() => setShowRejectModal(true)}
-                      className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white text-sm font-500 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 xl:w-auto xl:px-3"
-                      title="Rechazar documento"
-                    >
-                      <XCircle size={16} />
-                      <span className="hidden xl:inline">Rechazar</span>
-                    </button>
-                    <button
-                      onClick={() => setShowChangesModal(true)}
-                      className="flex h-9 w-9 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-white text-sm font-500 text-amber-600 transition-colors hover:bg-amber-50 hover:text-amber-700 xl:w-auto xl:px-3"
-                      title="Solicitar cambios"
-                    >
-                      <RefreshCw size={16} />
-                      <span className="hidden xl:inline">Solicitar cambios</span>
-                    </button>
                     <button
                       onClick={() => {
                         if (packageReadiness.hasContent && !packageReadiness.ready) {
@@ -7632,10 +7750,6 @@ export default function VisorDocumentoPage() {
                             (p.id === user.id ||
                               p.email.trim().toLowerCase() === user.email?.trim().toLowerCase())
                           );
-                          const isCreatorOnlyParticipant =
-                            participantes.length === 1 &&
-                            document.owner_id === user?.id &&
-                            isAuthenticatedParticipant;
                           const ownSignedResponse = participationResponses.find(
                             (response) =>
                               response.participante_email.trim().toLowerCase() ===
@@ -7850,7 +7964,6 @@ export default function VisorDocumentoPage() {
                                 </button>
                               )}
                               {p.email &&
-                                !isCreatorOnlyParticipant &&
                                 ![
                                   'firmo',
                                   'firmado',
@@ -8506,7 +8619,15 @@ export default function VisorDocumentoPage() {
                     </div>
                     <div className="rounded-md border border-slate-200 bg-white p-4">
                       <h3 className="text-sm font-semibold text-slate-900">Paquete de evidencia</h3>
-                      <p className="mt-1 text-xs text-slate-600">{evidenceV2?.packageAvailable && finalDeliverableAvailable ? 'Disponible' : 'Pendiente'}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {evidenceV2?.packageAvailable && finalDeliverableAvailable
+                          ? 'Disponible'
+                          : evidenceV2?.state === 'error'
+                            ? 'Requiere atención'
+                            : evidenceV2?.state === 'retry_scheduled'
+                              ? 'Reintento programado'
+                              : 'Pendiente'}
+                      </p>
                       <button type="button" onClick={() => void downloadEvidenceV2('package')}
                         disabled={!evidenceV2?.packageAvailable || !finalDeliverableAvailable || evidenceV2Download !== null}
                         className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -9346,6 +9467,14 @@ export default function VisorDocumentoPage() {
                               <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
                                 Disponible
                               </span>
+                            ) : evidenceV2?.state === 'error' || evidenceV2Error ? (
+                              <span className="ml-auto rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                Requiere atención
+                              </span>
+                            ) : evidenceV2?.state === 'retry_scheduled' ? (
+                              <span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                Reintento programado
+                              </span>
                             ) : evidenceV2Loading || evidenceV2?.state === 'generating' ? (
                               <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                                 Preparando…
@@ -9408,22 +9537,26 @@ export default function VisorDocumentoPage() {
                               </div>
                             ) : (
                               <div className="flex flex-col items-center gap-3 py-4">
-                                {evidenceV2Loading || evidenceV2?.state === 'generating' ? (
+                                {evidenceV2Error || evidenceV2?.state === 'error' ? (
+                                  <AlertTriangle size={24} className="text-red-600" />
+                                ) : evidenceV2?.state === 'retry_scheduled' ? (
+                                  <Clock size={24} className="text-amber-600" />
+                                ) : evidenceV2Loading || evidenceV2?.state === 'generating' || evidenceResumeLoading ? (
                                   <RefreshCw
                                     size={24}
                                     className="animate-spin text-muted-foreground"
                                   />
-                                ) : evidenceV2Error || evidenceV2?.state === 'error' ? (
-                                  <AlertTriangle size={24} className="text-amber-500" />
                                 ) : (
                                   <Clock size={24} className="text-muted-foreground" />
                                 )}
                                 <p className="text-sm text-center text-muted-foreground">
-                                  {evidenceV2Loading || evidenceV2?.state === 'generating'
-                                    ? 'Preparando paquete de evidencia…'
-                                    : evidenceV2Error || evidenceV2?.state === 'error'
-                                      ? 'No fue posible preparar el paquete de evidencia.'
-                                      : 'Paquete de evidencia pendiente.'}
+                                  {evidenceV2Error || evidenceV2?.state === 'error'
+                                    ? 'No fue posible cerrar el paquete de evidencia.'
+                                    : evidenceV2?.state === 'retry_scheduled'
+                                      ? 'La preparación se reintentará automáticamente.'
+                                      : evidenceV2Loading || evidenceV2?.state === 'generating' || evidenceResumeLoading
+                                        ? 'Preparando paquete de evidencia…'
+                                        : 'Paquete de evidencia pendiente.'}
                                   <br />
                                   <span className="text-xs">
                                     {evidenceV2Error ||
@@ -9431,6 +9564,31 @@ export default function VisorDocumentoPage() {
                                       'Estará disponible automáticamente junto con el XML.'}
                                   </span>
                                 </p>
+                                {evidenceV2?.state === 'retry_scheduled' &&
+                                  evidenceV2.finalization?.nextAttemptAt &&
+                                  Number.isFinite(Date.parse(evidenceV2.finalization.nextAttemptAt)) && (
+                                    <p className="text-center text-xs text-muted-foreground">
+                                      Próximo intento: {new Date(evidenceV2.finalization.nextAttemptAt).toLocaleString('es-MX')}
+                                    </p>
+                                  )}
+                                {evidenceResumeError && (
+                                  <p className="text-center text-xs text-red-700" role="alert">
+                                    {evidenceResumeError}
+                                  </p>
+                                )}
+                                {evidenceResumeError &&
+                                  user?.id === document.owner_id &&
+                                  !document.additional_access_level &&
+                                  evidenceResumeDelay(evidenceV2?.finalization) !== null && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void resumeEvidenceFinalization()}
+                                      disabled={evidenceResumeLoading}
+                                      className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/50 disabled:opacity-60"
+                                    >
+                                      Reintentar ahora
+                                    </button>
+                                  )}
                               </div>
                             )}
                           </div>
@@ -9638,15 +9796,25 @@ export default function VisorDocumentoPage() {
                                   <div className="flex items-center gap-2">
                                     <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
                                     <p className="text-sm font-semibold text-foreground">
-                                      Constancia NOM-151 verificada
+                                      {nom151Data.production_trusted
+                                        ? 'Constancia NOM-151 verificada'
+                                        : 'Integridad de constancia verificada'}
                                     </p>
                                   </div>
-                                  {!nom151Data.production_trusted && (
-                                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                                      Emisión de desarrollo verificada técnicamente; no confirmada como constancia productiva.
-                                    </p>
-                                  )}
                                   <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Ámbito de emisión
+                                      </span>
+                                      <span className="text-right text-xs text-foreground">
+                                        {nom151Data.production_trusted
+                                          ? 'Producción confirmada'
+                                          : nom151Data.environment === 'development' ||
+                                              nom151Data.environment === 'sandbox'
+                                            ? 'Entorno de pruebas'
+                                            : 'Producción no confirmada'}
+                                      </span>
+                                    </div>
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                                         PSC

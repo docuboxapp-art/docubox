@@ -96,6 +96,16 @@ test('authentication routes finish session bootstrap before timeout enforcement 
   assert.match(timeoutHook, /if \(!sessionPolicyEnabled \|\| signedOutRef\.current\) return/);
 });
 
+test('case invitations retain their route while account expiry still signs out', () => {
+  assert.match(timeoutHook, /redirectExpiredAccountSession\(window\.location\)/);
+  assert.match(timeoutHook, /createClient\(\)\.auth\.signOut\(\{ scope: 'local' \}\)/);
+  assert.doesNotMatch(timeoutHook, /['"]\/expediente\/['"]/);
+  assert.doesNotMatch(timeoutHook, /['"]\/expedientes\/?['"]/);
+  assert.match(timeoutHook, /pathname\.startsWith\(path\)/);
+  assert.match(timeoutHook, /sessionPolicyEnabled = isAuthenticated && !isSessionBootstrapPath/);
+  assert.match(middleware, /'\/expediente\/'/);
+});
+
 test('middleware validates authenticated browser and API traffic server-side', () => {
   assert.doesNotMatch(middleware, /'\/api\/'\s*,/);
   assert.match(middleware, /enforce_docubox_session_policy/);
@@ -147,26 +157,19 @@ test('timeout modal actions close only explicitly invalid browser sessions', () 
 
 test('temporary policy or permission errors do not erase an otherwise valid session', () => {
   assert.doesNotMatch(middleware, /permission denied for function enforce_docubox_session_policy/);
-  assert.match(middleware, /No cerramos tu sesión\. El servicio de verificación no respondió correctamente\./);
+  assert.match(middleware, /Estamos verificando tu sesión de forma automática/);
   assert.match(middleware, /status: 503/);
-  assert.match(middleware, /'Retry-After': String\(retryAfterSeconds\)/);
-  assert.match(middleware, /<a href="">Reintentar<\/a>/);
-  assert.match(middleware, /SESSION_RETRY_COOKIE_NAME/);
-  assert.match(middleware, /SESSION_PAGE_RETRY_DELAYS_SECONDS = \[5, 15, 30, 60, 60\]/);
-  assert.match(middleware, /retryCount < SESSION_PAGE_RETRY_DELAYS_SECONDS\.length/);
-  assert.match(middleware, /retryAfterSeconds = SESSION_PAGE_RETRY_DELAYS_SECONDS\[retryCount\] \|\| 60/);
-  assert.match(middleware, /setTimeout\(function \(\) \{ window\.location\.reload\(\); \}, \$\{retryAfterSeconds \* 1000\}\)/);
-  assert.match(middleware, /maxAge: 600/);
+  assert.match(middleware, /'Retry-After': '15'/);
+  assert.match(middleware, /fetch\('\/api\/auth\/session-probe'/);
+  assert.match(middleware, /for \(const cookie of response\.cookies\.getAll\(\)\)/);
 });
 
-test('transient PostgREST and gateway failures receive bounded retries', () => {
-  assert.match(middleware, /TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set\(\['PGRST002'\]\)/);
+test('only a quick schema-cache miss can retry once in middleware', () => {
   assert.match(middleware, /SESSION_POLICY_RETRY_DELAY_MS = 350/);
-  assert.match(middleware, /SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200/);
-  assert.match(middleware, /if \(!requestSignal\.aborted && isTransientSessionPolicyError\(result\.error\)\)/);
+  assert.match(middleware, /result\.error\?\.code === 'PGRST002'/);
+  assert.match(middleware, /performance\.now\(\) - firstAttemptAt < 1_000/);
   assert.match(middleware, /await waitForSessionPolicyRetry\(\);/);
-  assert.match(middleware, /!requestSignal\.aborted && shouldRetrySessionCheckAfterBackoff\(result\.error\)/);
-  assert.match(middleware, /waitForSessionPolicyRetry\(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS\)/);
+  assert.doesNotMatch(middleware, /SESSION_POLICY_BACKOFF_RETRY_DELAY_MS/);
   assert.match(middleware, /if \(policyError\)/);
 });
 
@@ -179,15 +182,10 @@ test('concurrent requests from one session share only the policy validation in p
   assert.doesNotMatch(middleware, /SESSION_POLICY_SUCCESS_CACHE_TTL/);
 });
 
-test('temporary auth gateway failures receive bounded retries without trusting the session', () => {
-  assert.match(middleware, /TRANSIENT_SESSION_HTTP_STATUSES = new Set\(\[0, 502, 503, 504\]\)/);
-  assert.match(middleware, /error\.name === 'AuthRetryableFetchError'/);
+test('temporary auth gateway failures do not multiply claims requests or trust the session', () => {
   assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 12_000/);
   assert.match(middleware, /fetchWithSessionValidationTimeout/);
-  assert.match(
-    middleware,
-    /let result = await supabase\.auth\.getClaims\(accessToken\);[\s\S]*if \(!requestSignal\.aborted && isTransientSessionPolicyError\(result\.error\)\)[\s\S]*result = await supabase\.auth\.getClaims\(accessToken\);/
-  );
+  assert.equal((middleware.match(/supabase\.auth\.getClaims\(accessToken\)/g) || []).length, 1);
   assert.match(middleware, /unavailableSessionPolicyResponse\(request, response, isApiRequest\)/);
   assert.doesNotMatch(middleware, /if \(claimsError\)[\s\S]{0,500}NextResponse\.next\(\)/);
 });
@@ -213,7 +211,7 @@ test('post-login checks use the freshly issued session token', () => {
 });
 
 test('post-login endpoint validates the user token before retrieving security requirements', () => {
-  assert.match(totpCheckRoute, /const auth = createAnonClient\(\)/);
+  assert.match(totpCheckRoute, /const auth = createAnonClient\(undefined, deadline\)/);
   assert.match(totpCheckRoute, /auth\.auth\.getClaims\(token\)/);
   assert.doesNotMatch(totpCheckRoute, /service\.auth\.getUser\(token\)/);
   assert.match(totpCheckRoute, /service\.rpc\(\s*'get_login_security_requirements'/);

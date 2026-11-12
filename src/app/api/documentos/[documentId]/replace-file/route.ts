@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
+import { assertCaseSourceReplacementAllowed, CaseRuntimeError, runtimeFailure } from '@/lib/case-files/runtime.server';
 import {
   documentEncryptionPolicy,
   encryptAndUploadDocumentObject,
@@ -17,6 +18,7 @@ export async function POST(
     const { user, document, service } = await requireDocumentAccess(request, documentId, {
       requireEdit: true,
     });
+    await assertCaseSourceReplacementAllowed(documentId);
     if (['completado', 'cancelado', 'rechazado'].includes(String(document.estado))) {
       return NextResponse.json(
         { error: 'El archivo de un documento cerrado no puede reemplazarse.' },
@@ -128,6 +130,7 @@ export async function POST(
       bytes.fill(0);
     }
   } catch (error) {
+    if (error instanceof CaseRuntimeError) { const failure=runtimeFailure(error); return NextResponse.json(failure.body,{status:failure.status}); }
     const access = documentAccessResponse(error);
     if (access.status !== 500) {
       return NextResponse.json(access.body, { status: access.status });

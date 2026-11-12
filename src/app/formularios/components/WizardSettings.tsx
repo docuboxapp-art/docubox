@@ -7,12 +7,18 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { ExperienceOption, InfoTooltip } from '@/components/forms/ExperienceOption';
 import { FormTypographySelect } from '@/components/forms/FormTypographySelect';
 import { hasFormExperienceChanges, snapshotFormExperience } from '@/lib/forms/experience-defaults';
-import { normalizeFormAppearanceDefaults, reusableFormAppearance } from '@/lib/forms/appearance-defaults';
+import {
+  normalizeFormAppearanceDefaults,
+  reusableFormAppearance,
+} from '@/lib/forms/appearance-defaults';
 import { normalizeFormPdfDefaults, PDF_CONTENT_OPTIONS } from '@/lib/forms/pdf-defaults';
 import { FORM_PAGE_SIZES, type FormPageSize } from '@/lib/forms/pdf-page-sizes';
-import { formDefaultsErrorMessage, loadFormDefaults, saveFormDefault } from '@/lib/forms/remote-defaults';
+import {
+  formDefaultsErrorMessage,
+  loadFormDefaults,
+  saveFormDefault,
+} from '@/lib/forms/remote-defaults';
 import { formSaveError } from '@/lib/forms/lifecycle';
-import { isLegalField, legalFieldContent } from '@/lib/forms/legal-field-content';
 import { FormDesignSaveError, saveFormAndDesignDefaults } from '@/lib/forms/design-save';
 import { WizardDesignPreview } from './WizardDesignPreview';
 import { createClient } from '@/lib/supabase/client';
@@ -38,26 +44,38 @@ export function GeneralSettings() {
   const [experienceError, setExperienceError] = useState('');
   const defaultsRevision = useRef(0);
   const [expirationUnit, setExpirationUnit] = useState<'minutes' | 'hours'>(() =>
-    state.template.settings.expirationHours < 1 || !Number.isInteger(state.template.settings.expirationHours)
-      ? 'minutes' : 'hours'
+    state.template.settings.expirationHours < 1 ||
+    !Number.isInteger(state.template.settings.expirationHours)
+      ? 'minutes'
+      : 'hours'
   );
   const [picker, setPicker] = useState<'types' | 'tags' | null>(null);
   const settings = state.template.settings;
   const experienceChanged = hasFormExperienceChanges(settings, state.savedExperience);
-  const invalidExpiration = settings.configureLinkExpiration &&
-    (!Number.isFinite(settings.expirationHours) || settings.expirationHours < 1 / 60 || settings.expirationHours > 720);
+  const invalidExpiration =
+    settings.configureLinkExpiration &&
+    (!Number.isFinite(settings.expirationHours) ||
+      settings.expirationHours < 1 / 60 ||
+      settings.expirationHours > 720);
 
   useEffect(() => {
     if (!activeWorkspace?.id) return;
     let active = true;
     const revision = defaultsRevision.current;
-    void loadFormDefaults(activeWorkspace.id).then((defaults) => {
-      if (active && defaultsRevision.current === revision) {
-        dispatch({ type: 'SAVE_EXPERIENCE_DEFAULTS', payload: defaults.experience });
-        setExperienceError('');
-      }
-    }).catch((error) => { if (active && defaultsRevision.current === revision) setExperienceError(formDefaultsErrorMessage(error)); });
-    return () => { active = false; };
+    void loadFormDefaults(activeWorkspace.id)
+      .then((defaults) => {
+        if (active && defaultsRevision.current === revision) {
+          dispatch({ type: 'SAVE_EXPERIENCE_DEFAULTS', payload: defaults.experience });
+          setExperienceError('');
+        }
+      })
+      .catch((error) => {
+        if (active && defaultsRevision.current === revision)
+          setExperienceError(formDefaultsErrorMessage(error));
+      });
+    return () => {
+      active = false;
+    };
   }, [activeWorkspace?.id, dispatch]);
 
   const saveExperienceDefaults = async () => {
@@ -99,7 +117,6 @@ export function GeneralSettings() {
 
   const selectedType = types.find((item) => item.id === settings.documentTypeId);
   const selectedTags = tags.filter((item) => settings.tagIds.includes(item.id));
-  const legalFields = state.template.schema.filter((field) => isLegalField(field.type));
   return (
     <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
@@ -172,7 +189,10 @@ export function GeneralSettings() {
                   <button
                     type="button"
                     onClick={() =>
-                      dispatch({ type: 'SET_SETTINGS', payload: { documentTypeId: '', documentTypeName: '' } })
+                      dispatch({
+                        type: 'SET_SETTINGS',
+                        payload: { documentTypeId: '', documentTypeName: '' },
+                      })
                     }
                     aria-label="Quitar tipo de formulario"
                     className="absolute right-2.5 top-3 text-slate-400 hover:text-slate-600"
@@ -243,27 +263,6 @@ export function GeneralSettings() {
             </p>
           )}
         </div>
-        <div className="mt-6 border-t border-slate-200 pt-5 dark:border-border">
-          <h3 className="text-sm font-semibold text-slate-950 dark:text-foreground">Consentimientos y declaraciones</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">Configura el texto que leerá y aceptará el participante en cada campo legal. También puedes editarlo desde las propiedades del campo.</p>
-          {legalFields.length ? <div className="mt-4 space-y-5">
-            {legalFields.map((field) => {
-              const content = legalFieldContent(field);
-              if (!content) return null;
-              return <div key={field.id} className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-border">
-                <p className="text-sm font-medium text-slate-900 dark:text-foreground">{field.label}</p>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium text-slate-600">Texto que verá el participante</span>
-                  <textarea rows={4} maxLength={1000} value={field.description ?? content.description} onChange={(event) => dispatch({ type: 'UPDATE_FIELD', payload: { id: field.id, updates: { description: event.target.value } } })} className={`${formInputClass} h-auto resize-y py-2.5`} />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium text-slate-600">Texto de la casilla de aceptación</span>
-                  <input maxLength={160} value={field.acceptanceLabel ?? content.acceptanceLabel} onChange={(event) => dispatch({ type: 'UPDATE_FIELD', payload: { id: field.id, updates: { acceptanceLabel: event.target.value } } })} className={formInputClass} />
-                </label>
-              </div>;
-            })}
-          </div> : <p className="mt-3 text-xs text-slate-500">Agrega un campo de Consentimiento o Declaración bajo protesta en Contenido para configurar sus textos.</p>}
-        </div>
       </section>
       <aside className="h-fit xl:sticky xl:top-5 xl:max-h-[calc(100dvh-220px)] xl:overflow-y-auto">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
@@ -309,13 +308,14 @@ export function GeneralSettings() {
                 dispatch({ type: 'SET_SETTINGS', payload: { configurePdfDetails: value } })
               }
             />
-            <div className="flex items-start gap-3 border-t border-slate-100 py-4 text-sm dark:border-border">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-slate-900 dark:text-foreground">Firma obligatoria</p>
-                <p className="mt-1 text-xs text-slate-500">Agrega el campo Firma en Contenido para publicar el formulario. El tipo de firma se elige al lanzarlo.</p>
-              </div>
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-primary">Siempre activa</span>
-            </div>
+            <ExperienceOption
+              title="Firma obligatoria"
+              description="Si está activa, agrega el campo Firma en Contenido. El tipo de firma se elige al lanzar el formulario. Puedes desactivar esta opción para recibir respuestas sin firma."
+              checked={settings.requiresSignature}
+              onChange={(value) =>
+                dispatch({ type: 'SET_SETTINGS', payload: { requiresSignature: value } })
+              }
+            />
           </div>
           <div className="border-t border-slate-100 pt-1 dark:border-border">
             <ExperienceOption
@@ -327,63 +327,93 @@ export function GeneralSettings() {
               }
             />
           </div>
-          {settings.configureLinkExpiration && <div className="border-t border-slate-100 pt-4 dark:border-border">
-            <div className="flex items-center gap-1">
-              <label htmlFor="form-link-expiration" className="text-sm font-medium text-slate-700 dark:text-foreground">
-                Vigencia predeterminada del enlace
-              </label>
-              <InfoTooltip label="Vigencia predeterminada del enlace" description="Puedes ajustarla para cada envío al compartir el formulario." />
+          {settings.configureLinkExpiration && (
+            <div className="border-t border-slate-100 pt-4 dark:border-border">
+              <div className="flex items-center gap-1">
+                <label
+                  htmlFor="form-link-expiration"
+                  className="text-sm font-medium text-slate-700 dark:text-foreground"
+                >
+                  Vigencia predeterminada del enlace
+                </label>
+                <InfoTooltip
+                  label="Vigencia predeterminada del enlace"
+                  description="Puedes ajustarla para cada envío al compartir el formulario."
+                />
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input
+                  id="form-link-expiration"
+                  type="number"
+                  min={expirationUnit === 'minutes' ? 1 : 1 / 60}
+                  step={expirationUnit === 'minutes' ? 1 : 'any'}
+                  max={expirationUnit === 'minutes' ? 43200 : 720}
+                  value={
+                    settings.expirationHours > 0
+                      ? expirationUnit === 'minutes'
+                        ? Math.round(settings.expirationHours * 60)
+                        : Number(settings.expirationHours.toFixed(2))
+                      : ''
+                  }
+                  onChange={(event) =>
+                    dispatch({
+                      type: 'SET_SETTINGS',
+                      payload: {
+                        expirationHours:
+                          (Number(event.target.value) || 0) /
+                          (expirationUnit === 'minutes' ? 60 : 1),
+                      },
+                    })
+                  }
+                  aria-invalid={settings.expirationHours < 1 / 60 || settings.expirationHours > 720}
+                  className={`${formInputBaseClass} min-w-0 flex-1`}
+                />
+                <select
+                  aria-label="Unidad de vigencia"
+                  value={expirationUnit}
+                  onChange={(event) => setExpirationUnit(event.target.value as 'minutes' | 'hours')}
+                  className={`${formInputBaseClass} w-28 shrink-0`}
+                >
+                  <option value="minutes">Minutos</option>
+                  <option value="hours">Horas</option>
+                </select>
+              </div>
+              {(settings.expirationHours < 1 / 60 || settings.expirationHours > 720) && (
+                <p className="mt-1 text-xs text-red-600">Elige entre 1 minuto y 720 horas.</p>
+              )}
             </div>
-            <div className="mt-2 flex gap-2">
-              <input
-                id="form-link-expiration"
-                type="number"
-                min={expirationUnit === 'minutes' ? 1 : 1 / 60}
-                step={expirationUnit === 'minutes' ? 1 : 'any'}
-                max={expirationUnit === 'minutes' ? 43200 : 720}
-                value={settings.expirationHours > 0 ? expirationUnit === 'minutes' ? Math.round(settings.expirationHours * 60) : Number(settings.expirationHours.toFixed(2)) : ''}
-                onChange={(event) =>
-                  dispatch({
-                    type: 'SET_SETTINGS',
-                    payload: { expirationHours: (Number(event.target.value) || 0) / (expirationUnit === 'minutes' ? 60 : 1) },
-                  })
-                }
-                aria-invalid={settings.expirationHours < 1 / 60 || settings.expirationHours > 720}
-                className={`${formInputBaseClass} min-w-0 flex-1`}
-              />
-              <select
-                aria-label="Unidad de vigencia"
-                value={expirationUnit}
-                onChange={(event) => setExpirationUnit(event.target.value as 'minutes' | 'hours')}
-                className={`${formInputBaseClass} w-28 shrink-0`}
-              >
-                <option value="minutes">Minutos</option>
-                <option value="hours">Horas</option>
-              </select>
-            </div>
-            {(settings.expirationHours < 1 / 60 || settings.expirationHours > 720) && (
-              <p className="mt-1 text-xs text-red-600">Elige entre 1 minuto y 720 horas.</p>
-            )}
-          </div>}
+          )}
           <div className="mt-4 border-t border-slate-100 pt-4 dark:border-border">
-            {(experienceChanged || Boolean(experienceError)) && state.template.status === 'draft' && (
-              <button
-                type="button"
-                onClick={saveExperienceDefaults}
-                disabled={state.isSaving || invalidExpiration}
-                title="Guardar solo estas opciones como predeterminadas"
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {state.isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                {state.isSaving ? 'Guardando...' : 'Guardar cambios'}
-              </button>
-            )}
+            {(experienceChanged || Boolean(experienceError)) &&
+              state.template.status === 'draft' && (
+                <button
+                  type="button"
+                  onClick={saveExperienceDefaults}
+                  disabled={state.isSaving || invalidExpiration}
+                  title="Guardar solo estas opciones como predeterminadas"
+                  className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {state.isSaving ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Save size={15} />
+                  )}
+                  {state.isSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              )}
             {!experienceChanged && !experienceError && (
-              <span role="status" className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground">
+              <span
+                role="status"
+                className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground"
+              >
                 <Check size={14} className="text-emerald-600" /> Configuración aplicada
               </span>
             )}
-            {experienceError && <p role="alert" className="mt-2 text-xs text-red-600">{experienceError}</p>}
+            {experienceError && (
+              <p role="alert" className="mt-2 text-xs text-red-600">
+                {experienceError}
+              </p>
+            )}
           </div>
         </section>
       </aside>
@@ -393,10 +423,13 @@ export function GeneralSettings() {
           groups={groups}
           selectedId={settings.documentTypeId}
           onSelect={(id) => {
-            dispatch({ type: 'SET_SETTINGS', payload: {
-              documentTypeId: id,
-              documentTypeName: types.find((item) => item.id === id)?.nombre || '',
-            } });
+            dispatch({
+              type: 'SET_SETTINGS',
+              payload: {
+                documentTypeId: id,
+                documentTypeName: types.find((item) => item.id === id)?.nombre || '',
+              },
+            });
             setPicker(null);
           }}
           onClose={() => setPicker(null)}
@@ -417,30 +450,44 @@ export function GeneralSettings() {
   );
 }
 
-export function FormAppearanceSettings({ onSaveForm }: { onSaveForm: () => Promise<string | undefined> }) {
+export function FormAppearanceSettings({
+  onSaveForm,
+}: {
+  onSaveForm: () => Promise<string | undefined>;
+}) {
   const { state, dispatch } = useFormBuilder();
   const { activeWorkspace } = useWorkspace();
   const appearance = state.template.settings.appearance;
-  const update = (payload: Partial<typeof appearance>) => dispatch({ type: 'SET_APPEARANCE', payload });
+  const update = (payload: Partial<typeof appearance>) =>
+    dispatch({ type: 'SET_APPEARANCE', payload });
   const [saveError, setSaveError] = useState('');
   const [savingDesign, setSavingDesign] = useState(false);
   const [catalogType, setCatalogType] = useState<{ id: string; name: string } | null>(null);
   const documentTypeId = state.template.settings.documentTypeId;
-  const documentTypeName = state.template.settings.documentTypeName ||
+  const documentTypeName =
+    state.template.settings.documentTypeName ||
     (catalogType?.id === documentTypeId ? catalogType.name : '');
   useEffect(() => {
     if (!documentTypeId || state.template.settings.documentTypeName) return;
     let active = true;
-    void Promise.resolve(createClient().from('tipo_documento').select('nombre').eq('id', documentTypeId).maybeSingle())
+    void Promise.resolve(
+      createClient().from('tipo_documento').select('nombre').eq('id', documentTypeId).maybeSingle()
+    )
       .then(({ data }) => {
         if (!active) return;
         const name = data?.nombre || '';
         setCatalogType({ id: documentTypeId, name });
         if (name) dispatch({ type: 'SET_SETTINGS', payload: { documentTypeName: name } });
-      }).catch(() => { if (active) setCatalogType({ id: documentTypeId, name: '' }); });
-    return () => { active = false; };
+      })
+      .catch(() => {
+        if (active) setCatalogType({ id: documentTypeId, name: '' });
+      });
+    return () => {
+      active = false;
+    };
   }, [dispatch, documentTypeId, state.template.settings.documentTypeName]);
-  const hasChanges = JSON.stringify(normalizeFormAppearanceDefaults(appearance)) !==
+  const hasChanges =
+    JSON.stringify(normalizeFormAppearanceDefaults(appearance)) !==
     JSON.stringify(normalizeFormAppearanceDefaults(state.savedAppearance));
 
   const saveDefaults = async () => {
@@ -452,16 +499,20 @@ export function FormAppearanceSettings({ onSaveForm }: { onSaveForm: () => Promi
     setSaveError('');
     setSavingDesign(true);
     try {
-      await saveFormAndDesignDefaults(
-        onSaveForm,
-        () => saveFormDefault(activeWorkspace.id, 'appearance', reusableFormAppearance(appearance))
+      await saveFormAndDesignDefaults(onSaveForm, () =>
+        saveFormDefault(activeWorkspace.id, 'appearance', reusableFormAppearance(appearance))
       );
-      dispatch({ type: 'SAVE_APPEARANCE_DESIGN', payload: normalizeFormAppearanceDefaults(appearance) });
+      dispatch({
+        type: 'SAVE_APPEARANCE_DESIGN',
+        payload: normalizeFormAppearanceDefaults(appearance),
+      });
       setSaveError('');
     } catch (error) {
-      setSaveError(error instanceof FormDesignSaveError && error.stage === 'defaults'
-        ? `Se guardó el formulario actual, pero no el diseño predeterminado. ${formDefaultsErrorMessage(error.cause)}`
-        : formSaveError(error instanceof FormDesignSaveError ? error.cause : error));
+      setSaveError(
+        error instanceof FormDesignSaveError && error.stage === 'defaults'
+          ? `Se guardó el formulario actual, pero no el diseño predeterminado. ${formDefaultsErrorMessage(error.cause)}`
+          : formSaveError(error instanceof FormDesignSaveError ? error.cause : error)
+      );
     } finally {
       setSavingDesign(false);
     }
@@ -471,95 +522,253 @@ export function FormAppearanceSettings({ onSaveForm }: { onSaveForm: () => Promi
     <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.85fr)]">
       <div className="min-w-0 space-y-5">
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
-          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">Encabezado del formulario</h2>
-          <p className="mt-1 text-sm text-slate-500">Define la identidad visible al abrir el formulario.</p>
+          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
+            Encabezado del formulario
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Define la identidad visible al abrir el formulario.
+          </p>
           <div className="mt-5 space-y-4">
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">Texto superior</span>
-              <input value={appearance.headerText || state.template.name} onChange={(event) => update({ headerText: event.target.value })} maxLength={120} placeholder="Nombre del formulario" className={formInputClass} />
+              <input
+                value={appearance.headerText || state.template.name}
+                onChange={(event) => update({ headerText: event.target.value })}
+                maxLength={120}
+                placeholder="Nombre del formulario"
+                className={formInputClass}
+              />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">Descripción visible</span>
-              <textarea value={appearance.headerDescription || state.template.description} onChange={(event) => update({ headerDescription: event.target.value })} maxLength={500} rows={3} placeholder="Descripción del formulario" className={`${formInputClass} h-auto resize-y py-2.5`} />
+              <textarea
+                value={appearance.headerDescription || state.template.description}
+                onChange={(event) => update({ headerDescription: event.target.value })}
+                maxLength={500}
+                rows={3}
+                placeholder="Descripción del formulario"
+                className={`${formInputClass} h-auto resize-y py-2.5`}
+              />
             </label>
-            <p className="text-xs text-slate-500">Estos textos solo cambian la vista del participante. Si los dejas vacíos, se usan el nombre y la descripción de General.</p>
+            <p className="text-xs text-slate-500">
+              Estos textos solo cambian la vista del participante. Si los dejas vacíos, se usan el
+              nombre y la descripción de General.
+            </p>
             <div className="space-y-4">
               <div>
-                <span className="mb-1.5 block text-sm font-medium">Número o clave del formulario</span>
-                <div className={`${formInputClass} flex items-center truncate bg-slate-50 text-slate-600 dark:bg-muted`}>{state.template.settings.documentNumber || 'Sin código'}</div>
+                <span className="mb-1.5 block text-sm font-medium">
+                  Número o clave del formulario
+                </span>
+                <div
+                  className={`${formInputClass} flex items-center truncate bg-slate-50 text-slate-600 dark:bg-muted`}
+                >
+                  {state.template.settings.documentNumber || 'Sin código'}
+                </div>
               </div>
               <div>
                 <span className="mb-1.5 block text-sm font-medium">Tipo de formulario</span>
-                <div className={`${formInputClass} flex items-center truncate bg-slate-50 text-slate-600 dark:bg-muted`}>{documentTypeName || 'Sin tipo seleccionado'}</div>
+                <div
+                  className={`${formInputClass} flex items-center truncate bg-slate-50 text-slate-600 dark:bg-muted`}
+                >
+                  {documentTypeName || 'Sin tipo seleccionado'}
+                </div>
               </div>
             </div>
             <p className="text-xs text-slate-500">El código y el tipo se eligen en General.</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium">Alineación</span>
-                <select value={appearance.headerAlignment} onChange={(event) => update({ headerAlignment: event.target.value as typeof appearance.headerAlignment })} className={formInputClass}>
-                  <option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option>
+                <select
+                  value={appearance.headerAlignment}
+                  onChange={(event) =>
+                    update({
+                      headerAlignment: event.target.value as typeof appearance.headerAlignment,
+                    })
+                  }
+                  className={formInputClass}
+                >
+                  <option value="left">Izquierda</option>
+                  <option value="center">Centro</option>
+                  <option value="right">Derecha</option>
                 </select>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium">Color principal</span>
                 <span className="flex h-10 items-center gap-3 rounded-lg border border-slate-200 px-3 dark:border-border">
-                  <input type="color" aria-label="Color principal del formulario" value={appearance.accentColor} onChange={(event) => update({ accentColor: event.target.value })} className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0" />
+                  <input
+                    type="color"
+                    aria-label="Color principal del formulario"
+                    value={appearance.accentColor}
+                    onChange={(event) => update({ accentColor: event.target.value })}
+                    className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0"
+                  />
                   <span className="font-mono text-sm text-slate-600">{appearance.accentColor}</span>
                 </span>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium">Color de fondo</span>
                 <span className="flex h-10 items-center gap-3 rounded-lg border border-slate-200 px-3 dark:border-border">
-                  <input type="color" aria-label="Color de fondo del formulario" value={appearance.backgroundColor} onChange={(event) => update({ backgroundColor: event.target.value })} className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0" />
-                  <span className="font-mono text-sm text-slate-600">{appearance.backgroundColor}</span>
+                  <input
+                    type="color"
+                    aria-label="Color de fondo del formulario"
+                    value={appearance.backgroundColor}
+                    onChange={(event) => update({ backgroundColor: event.target.value })}
+                    className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0"
+                  />
+                  <span className="font-mono text-sm text-slate-600">
+                    {appearance.backgroundColor}
+                  </span>
                 </span>
               </label>
             </div>
             <div className="divide-y divide-slate-100 dark:divide-border">
-              <ExperienceOption title="Mostrar encabezado" checked={appearance.showHeader} onChange={(showHeader) => update({ showHeader })} />
-              <ExperienceOption title="Mostrar nombre del formulario" checked={appearance.showTitle} onChange={(showTitle) => update({ showTitle })} />
-              <ExperienceOption title="Mostrar franja de color" checked={appearance.showAccentBar} onChange={(showAccentBar) => update({ showAccentBar })} />
-              <ExperienceOption title="Mostrar descripción del formulario" checked={appearance.showDescription} onChange={(showDescription) => update({ showDescription })} />
-              <ExperienceOption title="Mostrar número o clave" checked={appearance.showDocumentNumber} onChange={(showDocumentNumber) => update({ showDocumentNumber })} />
-              <ExperienceOption title="Mostrar tipo de formulario" checked={appearance.showDocumentType} onChange={(showDocumentType) => update({ showDocumentType })} />
-              <ExperienceOption title="Mostrar barra de progreso" description="Indica cuánto falta para completar el formulario." checked={appearance.showProgressBar} onChange={(showProgressBar) => update({ showProgressBar })} />
+              <ExperienceOption
+                title="Mostrar encabezado"
+                checked={appearance.showHeader}
+                onChange={(showHeader) => update({ showHeader })}
+              />
+              <ExperienceOption
+                title="Mostrar nombre del formulario"
+                checked={appearance.showTitle}
+                onChange={(showTitle) => update({ showTitle })}
+              />
+              <ExperienceOption
+                title="Mostrar franja de color"
+                checked={appearance.showAccentBar}
+                onChange={(showAccentBar) => update({ showAccentBar })}
+              />
+              <ExperienceOption
+                title="Mostrar descripción del formulario"
+                checked={appearance.showDescription}
+                onChange={(showDescription) => update({ showDescription })}
+              />
+              <ExperienceOption
+                title="Mostrar número o clave"
+                checked={appearance.showDocumentNumber}
+                onChange={(showDocumentNumber) => update({ showDocumentNumber })}
+              />
+              <ExperienceOption
+                title="Mostrar tipo de formulario"
+                checked={appearance.showDocumentType}
+                onChange={(showDocumentType) => update({ showDocumentType })}
+              />
+              <ExperienceOption
+                title="Mostrar barra de progreso"
+                description="Indica cuánto falta para completar el formulario."
+                checked={appearance.showProgressBar}
+                onChange={(showProgressBar) => update({ showProgressBar })}
+              />
             </div>
           </div>
         </section>
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
-          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">Contenido y estructura</h2>
+          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
+            Contenido y estructura
+          </h2>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">Ancho del formulario</span>
-              <select value={appearance.width} onChange={(event) => update({ width: event.target.value as typeof appearance.width })} className={formInputClass}>
-                <option value="standard">Estándar</option><option value="wide">Amplio</option>
+              <select
+                value={appearance.width}
+                onChange={(event) =>
+                  update({ width: event.target.value as typeof appearance.width })
+                }
+                className={formInputClass}
+              >
+                <option value="standard">Estándar</option>
+                <option value="wide">Amplio</option>
               </select>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">Tipografía</span>
-              <FormTypographySelect value={appearance.typography} onChange={(typography) => update({ typography })} className={formInputClass} />
+              <FormTypographySelect
+                value={appearance.typography}
+                onChange={(typography) => update({ typography })}
+                className={formInputClass}
+              />
             </label>
           </div>
           <div className="mt-4 divide-y divide-slate-100 dark:divide-border">
-            <ExperienceOption title="Numerar secciones" checked={appearance.showSectionNumbers} onChange={(showSectionNumbers) => update({ showSectionNumbers })} />
-            <ExperienceOption title="Mostrar descripciones de secciones" checked={appearance.showSectionDescriptions} onChange={(showSectionDescriptions) => update({ showSectionDescriptions })} />
-            <ExperienceOption title="Espaciado compacto" checked={appearance.compactSpacing} onChange={(compactSpacing) => update({ compactSpacing })} />
+            <ExperienceOption
+              title="Numerar secciones"
+              checked={appearance.showSectionNumbers}
+              onChange={(showSectionNumbers) => update({ showSectionNumbers })}
+            />
+            <ExperienceOption
+              title="Mostrar descripciones de secciones"
+              checked={appearance.showSectionDescriptions}
+              onChange={(showSectionDescriptions) => update({ showSectionDescriptions })}
+            />
+            <ExperienceOption
+              title="Espaciado compacto"
+              checked={appearance.compactSpacing}
+              onChange={(compactSpacing) => update({ compactSpacing })}
+            />
           </div>
         </section>
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
-          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">Pie y cierre</h2>
+          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
+            Pie y cierre
+          </h2>
           <div className="mt-5 space-y-4">
-            <ExperienceOption title="Mostrar pie del formulario" checked={appearance.showFooter} onChange={(showFooter) => update({ showFooter })} />
-            {appearance.showFooter && <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
-              <label className="block"><span className="mb-1.5 block text-sm font-medium">Texto del pie</span><input value={appearance.footerText} onChange={(event) => update({ footerText: event.target.value })} maxLength={200} className={formInputClass} /></label>
-              <label className="block"><span className="mb-1.5 block text-sm font-medium">Alineación</span><select value={appearance.footerAlignment} onChange={(event) => update({ footerAlignment: event.target.value as typeof appearance.footerAlignment })} className={formInputClass}><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label>
-            </div>}
-            <label className="block"><span className="mb-1.5 block text-sm font-medium">Mensaje tras enviar</span><textarea rows={2} value={appearance.confirmationMessage} onChange={(event) => update({ confirmationMessage: event.target.value })} maxLength={300} className={formInputClass + ' h-auto resize-y py-2.5'} /><span className="mt-1 block text-xs text-slate-500">Se muestra después de registrar la respuesta.</span></label>
+            <ExperienceOption
+              title="Mostrar pie del formulario"
+              checked={appearance.showFooter}
+              onChange={(showFooter) => update({ showFooter })}
+            />
+            {appearance.showFooter && (
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium">Texto del pie</span>
+                  <input
+                    value={appearance.footerText}
+                    onChange={(event) => update({ footerText: event.target.value })}
+                    maxLength={200}
+                    className={formInputClass}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium">Alineación</span>
+                  <select
+                    value={appearance.footerAlignment}
+                    onChange={(event) =>
+                      update({
+                        footerAlignment: event.target.value as typeof appearance.footerAlignment,
+                      })
+                    }
+                    className={formInputClass}
+                  >
+                    <option value="left">Izquierda</option>
+                    <option value="center">Centro</option>
+                    <option value="right">Derecha</option>
+                  </select>
+                </label>
+              </div>
+            )}
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium">Mensaje tras enviar</span>
+              <textarea
+                rows={2}
+                value={appearance.confirmationMessage}
+                onChange={(event) => update({ confirmationMessage: event.target.value })}
+                maxLength={300}
+                className={formInputClass + ' h-auto resize-y py-2.5'}
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                Se muestra después de registrar la respuesta.
+              </span>
+            </label>
           </div>
         </section>
       </div>
-      <WizardDesignPreview mode="web" hasChanges={hasChanges} isSaving={savingDesign || state.isSaving} onSaveDefaults={saveDefaults} saveError={hasChanges ? saveError : ''} documentTypeName={documentTypeName} />
+      <WizardDesignPreview
+        mode="web"
+        hasChanges={hasChanges}
+        isSaving={savingDesign || state.isSaving}
+        onSaveDefaults={saveDefaults}
+        saveError={hasChanges ? saveError : ''}
+        documentTypeName={documentTypeName}
+      />
     </div>
   );
 }
@@ -570,9 +779,11 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
   const pdf = state.template.settings.pdfSchema;
   const [saveError, setSaveError] = useState('');
   const [savingDesign, setSavingDesign] = useState(false);
-  const hasChanges = JSON.stringify(normalizeFormPdfDefaults({ pdfSchema: pdf }).pdfSchema) !==
-    JSON.stringify(normalizeFormPdfDefaults({ pdfSchema: state.savedPdfSchema }).pdfSchema) ||
-    JSON.stringify(snapshotPdfSectionLayout(state.template.sections)) !== JSON.stringify(state.savedPdfSections);
+  const hasChanges =
+    JSON.stringify(normalizeFormPdfDefaults({ pdfSchema: pdf }).pdfSchema) !==
+      JSON.stringify(normalizeFormPdfDefaults({ pdfSchema: state.savedPdfSchema }).pdfSchema) ||
+    JSON.stringify(snapshotPdfSectionLayout(state.template.sections)) !==
+      JSON.stringify(state.savedPdfSections);
 
   const saveDefaults = async () => {
     if (!hasChanges || savingDesign) return;
@@ -583,19 +794,23 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
     setSaveError('');
     setSavingDesign(true);
     try {
-      const saved = await saveFormAndDesignDefaults(
-        onSaveForm,
-        () => saveFormDefault(activeWorkspace.id, 'pdf', {
+      const saved = await saveFormAndDesignDefaults(onSaveForm, () =>
+        saveFormDefault(activeWorkspace.id, 'pdf', {
           configurePdfDetails: state.template.settings.configurePdfDetails,
           pdfSchema: pdf,
         })
       );
-      dispatch({ type: 'SAVE_PDF_DESIGN', payload: { pdfSchema: saved.pdfSchema, sections: state.template.sections } });
+      dispatch({
+        type: 'SAVE_PDF_DESIGN',
+        payload: { pdfSchema: saved.pdfSchema, sections: state.template.sections },
+      });
       setSaveError('');
     } catch (error) {
-      setSaveError(error instanceof FormDesignSaveError && error.stage === 'defaults'
-        ? `Se guardó el formulario actual, pero no el diseño predeterminado del PDF. ${formDefaultsErrorMessage(error.cause)}`
-        : formSaveError(error instanceof FormDesignSaveError ? error.cause : error));
+      setSaveError(
+        error instanceof FormDesignSaveError && error.stage === 'defaults'
+          ? `Se guardó el formulario actual, pero no el diseño predeterminado del PDF. ${formDefaultsErrorMessage(error.cause)}`
+          : formSaveError(error instanceof FormDesignSaveError ? error.cause : error)
+      );
     } finally {
       setSavingDesign(false);
     }
@@ -652,7 +867,9 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
                   className={formInputClass}
                 >
                   {FORM_PAGE_SIZES.map((size) => (
-                    <option key={size.value} value={size.value}>{size.label}</option>
+                    <option key={size.value} value={size.value}>
+                      {size.label}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -680,7 +897,118 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
             </div>
           </div>
         </section>
-        <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card"><h2 className="text-base font-medium">Formato y distribución</h2><div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">Orientación</span><select value={pdf.orientation} onChange={(event) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { orientation: event.target.value as 'portrait' | 'landscape' } })} className={formInputClass}><option value="portrait">Vertical</option><option value="landscape">Horizontal</option></select></label><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">Márgenes</span><select value={pdf.margins} onChange={(event) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { margins: event.target.value as 'normal' | 'narrow' | 'wide' } })} className={formInputClass}><option value="normal">Normales</option><option value="narrow">Estrechos</option><option value="wide">Amplios</option></select></label><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">Tipografía</span><FormTypographySelect value={pdf.typography} onChange={(typography) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { typography } })} className={formInputClass} /></label><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">Alineación del encabezado</span><select value={pdf.headerAlignment} onChange={(event) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { headerAlignment: event.target.value as 'left' | 'center' | 'right' } })} className={formInputClass}><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></label><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">Distribución de respuestas</span><select value={pdf.columns} onChange={(event) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { columns: event.target.value as 'one' | 'two' } })} className={formInputClass}><option value="one">Una columna</option><option value="two">Dos columnas</option></select></label></div><ExperienceOption title="Numerar secciones" checked={pdf.showSectionNumbers} onChange={(value) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { showSectionNumbers: value } })} /><ExperienceOption title="Mostrar descripción del formulario" checked={pdf.showDescription} onChange={(value) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { showDescription: value } })} /><ExperienceOption title="Incluir campos sin respuesta" checked={pdf.showUnanswered} onChange={(value) => dispatch({ type: 'SET_PDF_SCHEMA', payload: { showUnanswered: value } })} /></section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
+          <h2 className="text-base font-medium">Formato y distribución</h2>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
+                Orientación
+              </span>
+              <select
+                value={pdf.orientation}
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_PDF_SCHEMA',
+                    payload: { orientation: event.target.value as 'portrait' | 'landscape' },
+                  })
+                }
+                className={formInputClass}
+              >
+                <option value="portrait">Vertical</option>
+                <option value="landscape">Horizontal</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
+                Márgenes
+              </span>
+              <select
+                value={pdf.margins}
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_PDF_SCHEMA',
+                    payload: { margins: event.target.value as 'normal' | 'narrow' | 'wide' },
+                  })
+                }
+                className={formInputClass}
+              >
+                <option value="normal">Normales</option>
+                <option value="narrow">Estrechos</option>
+                <option value="wide">Amplios</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
+                Tipografía
+              </span>
+              <FormTypographySelect
+                value={pdf.typography}
+                onChange={(typography) =>
+                  dispatch({ type: 'SET_PDF_SCHEMA', payload: { typography } })
+                }
+                className={formInputClass}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
+                Alineación del encabezado
+              </span>
+              <select
+                value={pdf.headerAlignment}
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_PDF_SCHEMA',
+                    payload: { headerAlignment: event.target.value as 'left' | 'center' | 'right' },
+                  })
+                }
+                className={formInputClass}
+              >
+                <option value="left">Izquierda</option>
+                <option value="center">Centro</option>
+                <option value="right">Derecha</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-foreground">
+                Distribución de respuestas
+              </span>
+              <select
+                value={pdf.columns}
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_PDF_SCHEMA',
+                    payload: { columns: event.target.value as 'one' | 'two' },
+                  })
+                }
+                className={formInputClass}
+              >
+                <option value="one">Una columna</option>
+                <option value="two">Dos columnas</option>
+              </select>
+            </label>
+          </div>
+          <ExperienceOption
+            title="Numerar secciones"
+            checked={pdf.showSectionNumbers}
+            onChange={(value) =>
+              dispatch({ type: 'SET_PDF_SCHEMA', payload: { showSectionNumbers: value } })
+            }
+          />
+          <ExperienceOption
+            title="Mostrar descripción del formulario"
+            checked={pdf.showDescription}
+            onChange={(value) =>
+              dispatch({ type: 'SET_PDF_SCHEMA', payload: { showDescription: value } })
+            }
+          />
+          <ExperienceOption
+            title="Incluir campos sin respuesta"
+            checked={pdf.showUnanswered}
+            onChange={(value) =>
+              dispatch({ type: 'SET_PDF_SCHEMA', payload: { showUnanswered: value } })
+            }
+          />
+        </section>
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
           <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
             Secciones del PDF
@@ -721,14 +1049,24 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
           </div>
         </section>
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
-          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">Contenido automático</h2>
-          <p className="mt-1 text-sm text-slate-500">Controla qué datos y hojas se incluyen en el documento.</p>
+          <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
+            Contenido automático
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Controla qué datos y hojas se incluyen en el documento.
+          </p>
           <div className="mt-4 grid gap-x-6 divide-y divide-slate-100 dark:divide-border sm:grid-cols-2 sm:divide-y-0">
             <PdfToggles />
           </div>
         </section>
       </div>
-      <WizardDesignPreview mode="pdf" hasChanges={hasChanges} isSaving={savingDesign || state.isSaving} onSaveDefaults={saveDefaults} saveError={hasChanges ? saveError : ''} />
+      <WizardDesignPreview
+        mode="pdf"
+        hasChanges={hasChanges}
+        isSaving={savingDesign || state.isSaving}
+        onSaveDefaults={saveDefaults}
+        saveError={hasChanges ? saveError : ''}
+      />
     </div>
   );
 }

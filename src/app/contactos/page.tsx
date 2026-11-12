@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, LayoutList, MoreVertical, Eye, Tag, FileText, ChevronDown, Activity, Edit2, Save, Hash, StickyNote, MapPin, X, Pencil, ExternalLink, Shield, ShieldOff, ShieldAlert, AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle, Info, Calendar, User, Copy } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, LayoutList, MoreVertical, Eye, Star, Tag, FileText, ChevronDown, ChevronLeft, ChevronRight, Hash, X, ExternalLink, SlidersHorizontal, Building2, ArrowUpDown, Maximize2, Minimize2, Filter } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import Icon from '@/components/ui/AppIcon';
+import ContactDetailWorkspace from './ContactDetailWorkspace';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -37,60 +37,10 @@ interface ContactNote {
   created_at: string;
 }
 
-interface ContactCustomField {
-  id: string;
-  contact_id: string;
-  user_id: string;
-  field_name: string;
-  field_value: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface UserProfile {
-  nombre: string | null;
-  apellido_paterno: string | null;
-  apellido_materno: string | null;
-  email: string | null;
-  telefono: string | null;
-  rfc: string | null;
-  curp: string | null;
-  personalidad_juridica: string | null;
-  regimen_fiscal: string | null;
-  codigo_postal: string | null;
-  estado: string | null;
-  municipio: string | null;
-  colonia: string | null;
-  localidad: string | null;
-  calle: string | null;
-  num_exterior: string | null;
-  num_interior: string | null;
-}
-
-interface ContactFormData {
-  nombre: string;
-  apellido_paterno: string;
-  apellido_materno: string;
-  email: string;
-  telefono: string;
-  rfc: string;
-  curp: string;
-  tipo_persona: string;
-  empresa: string;
-  cargo: string;
-  direccion: string;
-  canal_preferido: string;
-}
-
 interface PlatformUser {
   id: string;
   full_name: string;
   email: string;
-}
-
-interface RolOption {
-  id: string;
-  nombre: string;
 }
 
 interface SharedDocument {
@@ -100,13 +50,6 @@ interface SharedDocument {
   estado: string | null;
   created_at: string;
 }
-
-const emptyForm: ContactFormData = {
-  nombre: '', apellido_paterno: '', apellido_materno: '',
-  email: '', telefono: '', rfc: '', curp: '',
-  tipo_persona: 'Persona física', empresa: '', cargo: '',
-  direccion: '', canal_preferido: 'WhatsApp',
-};
 
 const avatarColors = [
   'bg-blue-500', 'bg-violet-500', 'bg-emerald-500',
@@ -140,1163 +83,6 @@ function Spinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
     </svg>
-  );
-}
-
-// ─── Profile Field ────────────────────────────────────────────────────────────
-function ProfileField({
-  label, value, mono = false, fullWidth = false, icon,
-}: {
-  label: string; value: string | null | undefined; mono?: boolean; fullWidth?: boolean; icon?: React.ReactNode;
-}) {
-  return (
-    <div className={fullWidth ? 'sm:col-span-2 xl:col-span-3' : ''}>
-      <p className="mb-1 text-[11px] font-medium text-slate-400">{label}</p>
-      <div className="flex min-h-[42px] items-center gap-2 rounded-md bg-slate-50/80 px-3 py-2">
-        {icon}
-        <span className={`text-sm font-medium text-slate-700 ${mono ? 'font-mono' : ''}`}>
-          {value || <span className="font-normal text-slate-300">Sin información</span>}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Smart Alerts Widget ──────────────────────────────────────────────────────
-function SmartAlertsWidget({ contact, userProfile }: { contact: Contact; userProfile: UserProfile | null }) {
-  const alerts: { id: string; label: string; desc: string; level: 'error' | 'warning' | 'info' }[] = [];
-
-  if (!contact.email) {
-    alerts.push({ id: 'no-email', label: 'Correo no verificado', desc: 'No se recomienda enviar documentos legales.', level: 'error' });
-  }
-  if (!contact.rfc && !userProfile?.rfc) {
-    alerts.push({ id: 'no-rfc', label: 'RFC incompleto', desc: 'Faltan datos fiscales.', level: 'warning' });
-  }
-  if (!userProfile?.curp && !contact.curp) {
-    alerts.push({ id: 'no-identity', label: 'Identidad no validada', desc: 'No tiene INE, CURP o e.firma validada.', level: 'warning' });
-  }
-  if (!contact.telefono && !userProfile?.telefono) {
-    alerts.push({ id: 'no-method', label: 'Método de firma no configurado', desc: 'No tiene teléfono o correo válido para OTP.', level: 'warning' });
-  }
-
-  const levelConfig = {
-    error: { icon: XCircle, bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', iconColor: 'text-red-500' },
-    warning: { icon: AlertCircle, bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', iconColor: 'text-amber-500' },
-    info: { icon: Info, bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', iconColor: 'text-blue-500' },
-  };
-
-  if (alerts.length === 0) {
-    return (
-      <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-          <AlertTriangle size={13} className="text-amber-500" />
-          <span className="text-xs font-semibold text-slate-700">Alertas inteligentes</span>
-        </div>
-        <div className="px-4 py-4 flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-          <p className="text-xs text-emerald-600 font-medium">Sin alertas activas</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={13} className="text-amber-500" />
-          <span className="text-xs font-semibold text-slate-700">Alertas inteligentes</span>
-        </div>
-        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{alerts.length}</span>
-      </div>
-      <div className="space-y-2 p-3">
-        {alerts.map((alert) => {
-          const cfg = levelConfig[alert.level];
-          const Icon = cfg.icon;
-          return (
-            <div key={alert.id} className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${cfg.bg} ${cfg.border}`}>
-              <Icon size={13} className={`${cfg.iconColor} shrink-0 mt-0.5`} />
-              <div>
-                <p className={`text-[11px] font-semibold ${cfg.text}`}>{alert.label}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{alert.desc}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Identity Verification Widget ─────────────────────────────────────────────
-function IdentityVerificationWidget({ contact, userProfile }: { contact: Contact; userProfile: UserProfile | null }) {
-  const hasCurp = !!(userProfile?.curp || contact.curp);
-  const hasRfc = !!(userProfile?.rfc || contact.rfc);
-  const hasPhone = !!(userProfile?.telefono || contact.telefono);
-  const isVerified = hasCurp && hasRfc;
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-        <Shield size={13} className="text-blue-500" />
-        <span className="text-xs font-semibold text-slate-700">Verificación de identidad</span>
-      </div>
-      <div className="px-4 py-3">
-        <div className={`flex items-center gap-3 rounded-md px-3 py-3 ${isVerified ? 'bg-emerald-50' : 'bg-slate-50'}`}>
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isVerified ? 'bg-emerald-100' : 'bg-slate-200'}`}>
-            {isVerified
-              ? <ShieldAlert size={16} className="text-emerald-600" />
-              : <ShieldOff size={16} className="text-gray-400" />}
-          </div>
-          <div>
-            <p className={`text-xs font-semibold ${isVerified ? 'text-emerald-700' : 'text-gray-600'}`}>
-              {isVerified ? 'Verificado' : 'No verificado'}
-            </p>
-            <p className="text-[10px] text-gray-400">
-              {isVerified ? 'Identidad confirmada' : 'Pendiente de validar identidad'}
-            </p>
-          </div>
-        </div>
-        <div className="mt-3 space-y-1.5">
-          {[
-            { label: 'CURP', ok: hasCurp },
-            { label: 'RFC', ok: hasRfc },
-            { label: 'Teléfono', ok: hasPhone },
-          ].map(({ label, ok }) => (
-            <div key={label} className="flex items-center justify-between border-b border-slate-100 py-1.5 last:border-0">
-              <span className="text-[11px] text-gray-500">{label}</span>
-              <span className={`flex items-center gap-1 text-[10px] font-semibold ${ok ? 'text-emerald-600' : 'text-slate-400'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                {ok ? 'Disponible' : 'No cargado'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Recent Documents Widget ───────────────────────────────────────────────────
-function RecentDocumentsWidget({ docs, loading }: { docs: SharedDocument[]; loading: boolean }) {
-  const recent = [...docs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 4);
-
-  const estadoColor: Record<string, string> = {
-    completado: 'bg-emerald-100 text-emerald-700',
-    en_progreso: 'bg-blue-100 text-blue-700',
-    en_espera: 'bg-yellow-100 text-yellow-700',
-    vencido: 'bg-orange-100 text-orange-700',
-    cancelado: 'bg-gray-100 text-gray-500',
-    rechazado: 'bg-red-100 text-red-700',
-    borrador: 'bg-gray-100 text-gray-600',
-  };
-
-  const estadoLabel: Record<string, string> = {
-    completado: 'Firmado', en_progreso: 'En progreso', en_espera: 'En espera',
-    vencido: 'Vencido', cancelado: 'Cancelado', rechazado: 'Rechazado', borrador: 'Borrador',
-  };
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-        <Clock size={13} className="text-gray-400" />
-        <span className="text-xs font-semibold text-slate-700">Documentos recientes</span>
-      </div>
-      <div className="px-3 py-3">
-        {loading ? (
-          <div className="flex justify-center py-3"><Spinner /></div>
-        ) : recent.length === 0 ? (
-          <p className="text-xs text-gray-300 italic text-center py-2">Sin documentos recientes</p>
-        ) : (
-          <div className="space-y-2">
-            {recent.map((doc) => (
-              <div key={doc.id} className="flex items-center gap-2 group">
-                <FileText size={12} className="text-primary shrink-0" />
-                <span className="flex-1 text-[11px] text-gray-700 truncate leading-tight">{doc.nombre}</span>
-                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${estadoColor[doc.estado || ''] || 'bg-gray-100 text-gray-500'}`}>
-                  {estadoLabel[doc.estado || ''] || doc.estado || '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Quick Actions Panel ───────────────────────────────────────────────────────
-function QuickActionsPanel({
-  contact,
-  onEdit,
-  onShowDocuments,
-  onAddNote,
-}: {
-  contact: Contact;
-  onEdit: () => void;
-  onShowDocuments: () => void;
-  onAddNote: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const copyEmail = async () => {
-    if (!contact.email) return;
-    await navigator.clipboard.writeText(contact.email);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  };
-
-  const actions = [
-    { icon: Edit2, label: 'Editar contacto', desc: 'Actualizar información', onClick: onEdit, disabled: false },
-    { icon: FileText, label: 'Ver documentos', desc: 'Revisar historial', onClick: onShowDocuments, disabled: false },
-    { icon: StickyNote, label: 'Agregar nota', desc: 'Registrar seguimiento', onClick: onAddNote, disabled: false },
-    { icon: copied ? Check : Copy, label: copied ? 'Correo copiado' : 'Copiar correo', desc: contact.email || 'Correo no disponible', onClick: copyEmail, disabled: !contact.email },
-  ];
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-        <Activity size={13} className="text-primary" />
-        <span className="text-xs font-semibold text-slate-700">Acciones rápidas</span>
-      </div>
-      <div className="grid grid-cols-2 gap-2 p-3">
-        {actions.map(({ icon: Icon, label, desc, onClick, disabled }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            className="group flex min-h-[76px] flex-col items-start justify-between rounded-md border border-slate-200 bg-white p-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <Icon size={15} className={copied && label === 'Correo copiado' ? 'text-emerald-600' : 'text-primary'} />
-            <div className="mt-2 min-w-0">
-              <p className="text-xs font-semibold leading-tight text-slate-700">{label}</p>
-              <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-400">{desc}</p>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── History Timeline ──────────────────────────────────────────────────────────
-function HistoryTimeline({ contact, docs, notes }: { contact: Contact; docs: SharedDocument[]; notes: ContactNote[] }) {
-  type TimelineEvent = {
-    id: string;
-    date: string;
-    label: string;
-    type: 'document' | 'note' | 'contact' | 'system';
-  };
-
-  const events: TimelineEvent[] = [];
-
-  // Contact creation
-  events.push({
-    id: 'created',
-    date: contact.created_at,
-    label: `Contacto agregado al sistema`,
-    type: 'contact',
-  });
-
-  // Documents
-  docs.forEach((doc) => {
-    const stateLabel: Record<string, string> = {
-      completado: 'Firmó',
-      en_progreso: 'Recibió para firma',
-      en_espera: 'Documento en espera de firma',
-      vencido: 'Documento vencido sin firma',
-      cancelado: 'Documento cancelado',
-      rechazado: 'Rechazó',
-      borrador: 'Documento en borrador',
-    };
-    events.push({
-      id: `doc-${doc.id}`,
-      date: doc.created_at,
-      label: `${stateLabel[doc.estado || ''] || 'Documento'}: ${doc.nombre}`,
-      type: 'document',
-    });
-  });
-
-  // Notes
-  notes.forEach((note) => {
-    events.push({
-      id: `note-${note.id}`,
-      date: note.created_at,
-      label: `Nota registrada: "${note.content.slice(0, 60)}${note.content.length > 60 ? '…' : ''}"`,
-      type: 'note',
-    });
-  });
-
-  // Sort descending
-  events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  const typeConfig = {
-    document: { color: 'bg-blue-500', icon: FileText },
-    note: { color: 'bg-amber-400', icon: StickyNote },
-    contact: { color: 'bg-emerald-500', icon: User },
-    system: { color: 'bg-gray-400', icon: Activity },
-  };
-
-  const formatDate = (d: string) =>
-    new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
-  return (
-    <div className="p-5">
-      <div className="flex items-center gap-2 mb-5">
-        <Calendar size={15} className="text-primary" />
-        <h3 className="text-sm font-semibold text-gray-800">Línea de tiempo de actividad</h3>
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-semibold">{events.length}</span>
-      </div>
-      {events.length === 0 ? (
-        <div className="text-center py-12">
-          <Clock size={28} className="text-gray-200 mx-auto mb-2" />
-          <p className="text-sm text-gray-400">Sin historial registrado.</p>
-        </div>
-      ) : (
-        <div className="relative">
-          {/* Vertical line */}
-          <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-200" />
-          <div className="space-y-4">
-            {events.map((event) => {
-              const cfg = typeConfig[event.type];
-              const Icon = cfg.icon;
-              return (
-                <div key={event.id} className="flex items-start gap-4 relative">
-                  <div className={`w-[30px] h-[30px] rounded-full ${cfg.color} flex items-center justify-center shrink-0 z-10 shadow-sm`}>
-                    <Icon size={13} className="text-white" />
-                  </div>
-                  <div className="flex-1 bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-sm">
-                    <p className="text-sm text-gray-800 leading-snug">{event.label}</p>
-                    <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
-                      <Clock size={9} />
-                      {formatDate(event.date)}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Contact Detail View ──────────────────────────────────────────────────────
-function ContactDetailView({
-  contact, idx, onClose, onUpdated, onDelete,
-}: {
-  contact: Contact; idx: number; onClose: () => void; onUpdated: () => void; onDelete: () => void;
-}) {
-  type Tab = 'destacada' | 'actividades' | 'documentos' | 'notas' | 'historial';
-  const [activeTab, setActiveTab] = useState<Tab>('destacada');
-  const [roles, setRoles] = useState<RolOption[]>([]);
-  const [selectedRol, setSelectedRol] = useState<string>(contact.etiqueta_rol || '');
-  const [sharedDocs, setSharedDocs] = useState<SharedDocument[]>([]);
-  const [loadingDocs, setLoadingDocs] = useState(false);
-  const [docFilter, setDocFilter] = useState<'todos' | 'firmados' | 'pendientes' | 'vencidos' | 'cancelados'>('todos');
-
-  const [notes, setNotes] = useState<ContactNote[]>([]);
-  const [loadingNotes, setLoadingNotes] = useState(false);
-  const [newNote, setNewNote] = useState('');
-  const [savingNote, setSavingNote] = useState(false);
-
-  const [customFields, setCustomFields] = useState<ContactCustomField[]>([]);
-  const [loadingFields, setLoadingFields] = useState(false);
-  const [addingField, setAddingField] = useState(false);
-  const [newFieldName, setNewFieldName] = useState('');
-  const [newFieldValue, setNewFieldValue] = useState('');
-  const [savingField, setSavingField] = useState(false);
-  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
-  const [editingFieldValue, setEditingFieldValue] = useState('');
-
-  const [editMode, setEditMode] = useState(false);
-  const [editData, setEditData] = useState<ContactFormData>({
-    nombre: contact.nombre || '',
-    apellido_paterno: contact.apellido_paterno || '',
-    apellido_materno: contact.apellido_materno || '',
-    email: contact.email || '',
-    telefono: contact.telefono || '',
-    rfc: contact.rfc || '',
-    curp: contact.curp || '',
-    tipo_persona: contact.tipo_persona || 'Persona física',
-    empresa: contact.empresa || '',
-    cargo: contact.cargo || '',
-    direccion: contact.direccion || '',
-    canal_preferido: contact.canal_preferido || 'WhatsApp',
-  });
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loadingProfile, setLoadingProfile] = useState(false);
-
-  const [tags, setTags] = useState<string[]>(contact.tags || []);
-  const [newTag, setNewTag] = useState('');
-  const [addingTag, setAddingTag] = useState(false);
-
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
-
-  const supabase = createClient();
-
-  useEffect(() => {
-    if (!contact.email) return;
-    const loadProfile = async () => {
-      setLoadingProfile(true);
-      try {
-        const { data } = await supabase
-          .from('user_profiles')
-          .select('nombre, apellido_paterno, apellido_materno, email, telefono, rfc, curp, personalidad_juridica, regimen_fiscal, codigo_postal, estado, municipio, colonia, localidad, calle, num_exterior, num_interior')
-          .eq('email', contact.email)
-          .maybeSingle();
-        if (data) setUserProfile(data);
-      } catch { /* silent */ }
-      finally { setLoadingProfile(false); }
-    };
-    loadProfile();
-  }, [contact.email]);
-
-  useEffect(() => {
-    supabase.from('rol').select('id, nombre').order('nombre').then(({ data }) => {
-      if (data) setRoles(data);
-    });
-  }, []);
-
-  useEffect(() => {
-    const load = async () => {
-      setLoadingDocs(true);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !contact.email) return;
-        const { data } = await supabase
-          .from('documentos')
-          .select('id, nombre, tipo, estado, created_at, participantes')
-          .eq('user_id', user.id)
-          .not('participantes', 'is', null);
-        if (data) {
-          const filtered = data.filter((doc) => {
-            const parts = doc.participantes as Array<{ email?: string }> | null;
-            return Array.isArray(parts) && parts.some((p) => p.email === contact.email);
-          });
-          setSharedDocs(filtered.map((d) => ({
-            id: d.id, nombre: d.nombre || 'Sin título',
-            tipo: d.tipo, estado: d.estado, created_at: d.created_at,
-          })));
-        }
-      } catch { /* silent */ }
-      finally { setLoadingDocs(false); }
-    };
-    load();
-  }, [contact.email]);
-
-  const loadNotes = useCallback(async () => {
-    setLoadingNotes(true);
-    try {
-      const { data } = await supabase
-        .from('contact_notes')
-        .select('*')
-        .eq('contact_id', contact.id)
-        .order('created_at', { ascending: false });
-      if (data) setNotes(data);
-    } catch { /* silent */ }
-    finally { setLoadingNotes(false); }
-  }, [contact.id]);
-
-  const loadCustomFields = useCallback(async () => {
-    setLoadingFields(true);
-    try {
-      const { data } = await supabase
-        .from('contact_custom_fields')
-        .select('*')
-        .eq('contact_id', contact.id)
-        .order('created_at', { ascending: true });
-      if (data) setCustomFields(data);
-    } catch { /* silent */ }
-    finally { setLoadingFields(false); }
-  }, [contact.id]);
-
-  useEffect(() => {
-    loadNotes();
-    loadCustomFields();
-  }, [loadNotes, loadCustomFields]);
-
-  const handleSaveNote = async () => {
-    if (!newNote.trim()) return;
-    setSavingNote(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { error } = await supabase.from('contact_notes').insert({
-        contact_id: contact.id, user_id: user.id, content: newNote.trim(),
-      });
-      if (!error) { setNewNote(''); await loadNotes(); }
-    } catch { /* silent */ }
-    finally { setSavingNote(false); }
-  };
-
-  const handleAddCustomField = async () => {
-    if (!newFieldName.trim()) return;
-    setSavingField(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { error } = await supabase.from('contact_custom_fields').insert({
-        contact_id: contact.id, user_id: user.id,
-        field_name: newFieldName.trim(), field_value: newFieldValue.trim() || null,
-      });
-      if (!error) {
-        setNewFieldName(''); setNewFieldValue(''); setAddingField(false);
-        await loadCustomFields();
-      }
-    } catch { /* silent */ }
-    finally { setSavingField(false); }
-  };
-
-  const handleUpdateFieldValue = async (fieldId: string) => {
-    try {
-      await supabase.from('contact_custom_fields').update({ field_value: editingFieldValue }).eq('id', fieldId);
-      setEditingFieldId(null);
-      await loadCustomFields();
-    } catch { /* silent */ }
-  };
-
-  const handleDeleteCustomField = async (fieldId: string) => {
-    try {
-      await supabase.from('contact_custom_fields').delete().eq('id', fieldId);
-      await loadCustomFields();
-    } catch { /* silent */ }
-  };
-
-  const handleSaveEdit = async () => {
-    setSavingEdit(true);
-    try {
-      await supabase.from('contacts').update({
-        nombre: editData.nombre.toUpperCase(),
-        apellido_paterno: editData.apellido_paterno ? editData.apellido_paterno.toUpperCase() : null,
-        apellido_materno: editData.apellido_materno ? editData.apellido_materno.toUpperCase() : null,
-        email: editData.email || null, telefono: editData.telefono || null,
-        rfc: editData.rfc || null, curp: editData.curp || null,
-        tipo_persona: editData.tipo_persona || 'Persona física',
-        empresa: editData.empresa || null, cargo: editData.cargo || null,
-        direccion: editData.direccion || null, canal_preferido: editData.canal_preferido || 'WhatsApp',
-      }).eq('id', contact.id);
-      setEditMode(false);
-      onUpdated();
-    } catch { /* silent */ }
-    finally { setSavingEdit(false); }
-  };
-
-  const handleAddTag = async () => {
-    if (!newTag.trim()) return;
-    const updated = [...tags, newTag.trim()];
-    await supabase.from('contacts').update({ tags: updated }).eq('id', contact.id);
-    setTags(updated); setNewTag(''); setAddingTag(false); onUpdated();
-  };
-
-  const handleRemoveTag = async (tag: string) => {
-    const updated = tags.filter((t) => t !== tag);
-    await supabase.from('contacts').update({ tags: updated }).eq('id', contact.id);
-    setTags(updated); onUpdated();
-  };
-
-  const firmadosCount = sharedDocs.filter(d => d.estado === 'completado').length;
-  const pendientesCount = sharedDocs.filter(d => ['en_progreso', 'en_espera', 'borrador'].includes(d.estado || '')).length;
-  const vencidosCount = sharedDocs.filter(d => d.estado === 'vencido').length;
-  const canceladosCount = sharedDocs.filter(d => d.estado === 'cancelado').length;
-
-  const filteredDocs = sharedDocs.filter(d => {
-    if (docFilter === 'todos') return true;
-    if (docFilter === 'firmados') return d.estado === 'completado';
-    if (docFilter === 'pendientes') return ['en_progreso', 'en_espera', 'borrador'].includes(d.estado || '');
-    if (docFilter === 'vencidos') return d.estado === 'vencido';
-    if (docFilter === 'cancelados') return d.estado === 'cancelado';
-    return true;
-  });
-
-  const estadoBadge = (estado: string | null) => {
-    const map: Record<string, { label: string; cls: string }> = {
-      borrador: { label: 'Borrador', cls: 'bg-gray-100 text-gray-600' },
-      en_progreso: { label: 'En Progreso', cls: 'bg-blue-100 text-blue-700' },
-      en_espera: { label: 'En Espera', cls: 'bg-yellow-100 text-yellow-700' },
-      completado: { label: 'Firmado', cls: 'bg-emerald-100 text-emerald-700' },
-      rechazado: { label: 'Rechazado', cls: 'bg-red-100 text-red-700' },
-      cancelado: { label: 'Cancelado', cls: 'bg-gray-100 text-gray-500' },
-      vencido: { label: 'Vencido', cls: 'bg-orange-100 text-orange-700' },
-    };
-    const key = (estado || '').toLowerCase();
-    const { label, cls } = map[key] || { label: estado || '—', cls: 'bg-gray-100 text-gray-500' };
-    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>{label}</span>;
-  };
-
-  const formatDate = (d: string) =>
-    new Date(d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const formatRelative = (d: string) => {
-    const diff = Date.now() - new Date(d).getTime();
-    const days = Math.floor(diff / 86400000);
-    if (days === 0) return 'hoy';
-    if (days === 1) return 'hace 1 día';
-    if (days < 30) return `hace ${days} días`;
-    return formatDate(d);
-  };
-
-  const tabCount: Record<Tab, number | null> = {
-    destacada: null,
-    actividades: sharedDocs.length || null,
-    documentos: sharedDocs.length || null,
-    notas: notes.length || null,
-    historial: null,
-  };
-
-  const hasVerifiedIdentity = !!(
-    (userProfile?.curp || contact.curp) &&
-    (userProfile?.rfc || contact.rfc)
-  );
-
-  return (
-    <div className="-mx-4 -mb-4 -mt-2 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] md:-mb-6 md:-mt-[9px]">
-      <div className="border-b border-slate-200/90 bg-white">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-2 sm:px-5 lg:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white shadow-sm ${avatarColors[idx % avatarColors.length]}`}>
-                {getInitials(contact)}
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-lg font-600 leading-tight text-slate-950">{getFullName(contact)}</h1>
-                  <span className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[10px] font-semibold ${hasVerifiedIdentity ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {hasVerifiedIdentity ? <Shield size={11} /> : <ShieldOff size={11} />}
-                    {hasVerifiedIdentity ? 'Identidad verificada' : 'Sin verificar'}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                  {contact.email && (
-                    <span className="flex items-center gap-1.5">
-                      <Mail size={11} />{contact.email}
-                    </span>
-                  )}
-                  {(userProfile?.telefono || contact.telefono) && (
-                    <span className="flex items-center gap-1.5">
-                      <Phone size={11} />{userProfile?.telefono || contact.telefono}
-                    </span>
-                  )}
-                  <span>Agregado {formatRelative(contact.created_at)}</span>
-                </div>
-              </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {editMode ? (
-              <>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={savingEdit || !editData.nombre.trim()}
-                  className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {savingEdit ? <Spinner /> : <Save size={13} />}
-                  Guardar
-                </button>
-                <button
-                  onClick={() => setEditMode(false)}
-                  className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
-                >
-                  <X size={13} />
-                  Cancelar
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setEditMode(true)}
-                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-              >
-                <Edit2 size={13} />
-                <span className="hidden sm:inline">Editar</span>
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
-              title="Cerrar"
-              aria-label="Cerrar ficha de contacto"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5 lg:px-6">
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-
-          {/* ── LEFT PANEL (30%) ── */}
-          <div className="space-y-3">
-            {/* Identity Verification */}
-            <IdentityVerificationWidget contact={contact} userProfile={userProfile} />
-
-            {/* Quick Actions */}
-            <QuickActionsPanel
-              contact={contact}
-              onEdit={() => setEditMode(true)}
-              onShowDocuments={() => setActiveTab('documentos')}
-              onAddNote={() => setActiveTab('notas')}
-            />
-
-            {/* Smart Alerts */}
-            <SmartAlertsWidget contact={contact} userProfile={userProfile} />
-
-            {/* Recent Documents */}
-            <RecentDocumentsWidget docs={sharedDocs} loading={loadingDocs} />
-
-            {/* Tags */}
-            <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-                <Tag size={12} className="text-gray-400" />
-                <span className="text-xs font-semibold text-slate-700">Etiquetas</span>
-              </div>
-              <div className="px-4 py-3">
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {tags.map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200 group">
-                      {tag}
-                      <button onClick={() => handleRemoveTag(tag)} className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5">
-                        <X size={9} className="text-gray-400 hover:text-red-500" />
-                      </button>
-                    </span>
-                  ))}
-                  {selectedRol && !tags.includes(selectedRol) && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                      {selectedRol}
-                    </span>
-                  )}
-                </div>
-                {addingTag ? (
-                  <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                      placeholder="Nuevo tag..."
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                      autoFocus
-                    />
-                    <button onClick={handleAddTag} className="px-2 py-1 bg-primary text-white rounded-lg text-xs"><Check size={11} /></button>
-                    <button onClick={() => setAddingTag(false)} className="px-2 py-1 border border-gray-200 rounded-lg text-xs text-gray-500"><X size={11} /></button>
-                  </div>
-                ) : (
-                  <button onClick={() => setAddingTag(true)} className="text-[11px] text-primary hover:underline flex items-center gap-0.5">
-                    <Plus size={10} /> Agregar tag
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Custom Fields */}
-            <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <Hash size={12} className="text-gray-400" />
-                  <span className="text-xs font-semibold text-slate-700">Campos personalizados</span>
-                </div>
-                <button onClick={() => setAddingField(true)} className="text-[11px] text-primary hover:underline flex items-center gap-0.5">
-                  <Plus size={10} /> Agregar
-                </button>
-              </div>
-              <div className="px-4 py-3">
-                {loadingFields ? (
-                  <div className="flex justify-center py-2"><Spinner /></div>
-                ) : (
-                  <div className="space-y-2">
-                    {customFields.map((f) => (
-                      <div key={f.id} className="flex items-center justify-between gap-2 group">
-                        <span className="text-[11px] text-gray-500 shrink-0">{f.field_name}</span>
-                        {editingFieldId === f.id ? (
-                          <div className="flex gap-1 flex-1">
-                            <input
-                              type="text"
-                              value={editingFieldValue}
-                              onChange={(e) => setEditingFieldValue(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleUpdateFieldValue(f.id)}
-                              className="flex-1 border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              autoFocus
-                            />
-                            <button onClick={() => handleUpdateFieldValue(f.id)} className="text-emerald-600"><Check size={11} /></button>
-                            <button onClick={() => setEditingFieldId(null)} className="text-gray-400"><X size={11} /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 flex-1 justify-end">
-                            <span className="text-xs font-semibold text-gray-800 text-right">{f.field_value || <span className="text-gray-300 italic">—</span>}</span>
-                            <button onClick={() => { setEditingFieldId(f.id); setEditingFieldValue(f.field_value || ''); }} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Pencil size={10} className="text-gray-400 hover:text-primary" />
-                            </button>
-                            <button onClick={() => handleDeleteCustomField(f.id)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X size={10} className="text-gray-400 hover:text-red-500" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {customFields.length === 0 && !addingField && (
-                      <p className="text-xs text-gray-300 italic">Sin campos personalizados</p>
-                    )}
-                    {addingField && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-2.5 space-y-2 mt-2">
-                        <input
-                          type="text"
-                          value={newFieldName}
-                          onChange={(e) => setNewFieldName(e.target.value)}
-                          placeholder="Nombre del campo"
-                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                          autoFocus
-                        />
-                        <input
-                          type="text"
-                          value={newFieldValue}
-                          onChange={(e) => setNewFieldValue(e.target.value)}
-                          placeholder="Valor"
-                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        />
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={handleAddCustomField}
-                            disabled={savingField || !newFieldName.trim()}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-primary text-white rounded text-xs disabled:opacity-50"
-                          >
-                            {savingField ? <Spinner /> : <Check size={11} />}
-                            Guardar
-                          </button>
-                          <button onClick={() => { setAddingField(false); setNewFieldName(''); setNewFieldValue(''); }} className="px-2.5 py-1 border border-gray-200 rounded text-xs text-gray-500">
-                            Cancelar
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── RIGHT PANEL (70%) ── */}
-          <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            {/* Tabs */}
-            <div className="flex items-center overflow-x-auto border-b border-slate-200 bg-slate-50/60 px-2">
-              {([
-                { key: 'destacada', label: 'Información destacada' },
-                { key: 'actividades', label: 'Actividades' },
-                { key: 'documentos', label: 'Documentos' },
-                { key: 'notas', label: 'Notas' },
-                { key: 'historial', label: 'Historial' },
-              ] as { key: Tab; label: string }[]).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={`flex h-11 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/20 ${
-                    activeTab === key ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {label}
-                  {tabCount[key] !== null && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${activeTab === key ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-500'}`}>
-                      {tabCount[key]}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* ── Tab: Información destacada ── */}
-            {activeTab === 'destacada' && (
-              <div className="p-4 sm:p-5">
-                {editMode ? (
-                  <div className="space-y-5">
-                    <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                      <Edit2 size={14} className="text-primary" />
-                      Editar información del contacto
-                    </h3>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {[
-                        { label: 'Nombre *', key: 'nombre' },
-                        { label: 'Apellido Paterno', key: 'apellido_paterno' },
-                        { label: 'Apellido Materno', key: 'apellido_materno' },
-                        { label: 'Correo Electrónico', key: 'email' },
-                        { label: 'Teléfono', key: 'telefono' },
-                        { label: 'RFC', key: 'rfc' },
-                      ].map(({ label, key }) => (
-                        <div key={key}>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-                          <input
-                            type="text"
-                            value={editData[key as keyof ContactFormData]}
-                            onChange={(e) => setEditData({ ...editData, [key]: e.target.value })}
-                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                          />
-                        </div>
-                      ))}
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">CURP</label>
-                        <input
-                          type="text"
-                          value={editData.curp}
-                          onChange={(e) => setEditData({ ...editData, curp: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Tipo de persona</label>
-                        <select
-                          value={editData.tipo_persona}
-                          onChange={(e) => setEditData({ ...editData, tipo_persona: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        >
-                          <option>Persona física</option>
-                          <option>Persona moral</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Empresa</label>
-                        <input
-                          type="text"
-                          value={editData.empresa}
-                          onChange={(e) => setEditData({ ...editData, empresa: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Cargo</label>
-                        <input
-                          type="text"
-                          value={editData.cargo}
-                          onChange={(e) => setEditData({ ...editData, cargo: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
-                        <input
-                          type="text"
-                          value={editData.direccion}
-                          onChange={(e) => setEditData({ ...editData, direccion: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Canal preferido</label>
-                        <select
-                          value={editData.canal_preferido}
-                          onChange={(e) => setEditData({ ...editData, canal_preferido: e.target.value })}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                        >
-                          <option>WhatsApp</option>
-                          <option>Email</option>
-                          <option>SMS</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                      {[
-                        { label: 'Documentos', value: sharedDocs.length, color: 'text-primary' },
-                        { label: 'Firmados', value: firmadosCount, color: 'text-emerald-600' },
-                        { label: 'Notas', value: notes.length, color: 'text-amber-600' },
-                      ].map((item) => (
-                        <div key={item.label} className="rounded-md bg-slate-50 px-3 py-3">
-                          <p className={`text-xl font-600 leading-none ${item.color}`}>{item.value}</p>
-                          <p className="mt-1 text-[11px] font-medium text-slate-500">{item.label}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {loadingProfile ? (
-                      <div className="flex justify-center py-8"><Spinner size="md" /></div>
-                    ) : (
-                      <>
-                        <section>
-                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                            <Users size={13} />
-                            Identidad y contacto
-                          </h4>
-                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
-                            <ProfileField label="Tipo de Persona" value={userProfile?.personalidad_juridica || contact.tipo_persona} />
-                            <ProfileField label="CURP" value={userProfile?.curp || contact.curp} mono />
-                            <ProfileField label="Nombre" value={formatDisplayName(userProfile?.nombre || contact.nombre)} />
-                            <ProfileField label="Apellido Paterno" value={formatDisplayName(userProfile?.apellido_paterno || contact.apellido_paterno)} />
-                            <ProfileField label="Apellido Materno" value={formatDisplayName(userProfile?.apellido_materno || contact.apellido_materno)} />
-                            <ProfileField
-                              label="Nombre Completo / Razón Social"
-                              value={userProfile ? formatDisplayName([userProfile.nombre, userProfile.apellido_paterno, userProfile.apellido_materno].filter(Boolean).join(' ')) : getFullName(contact)}
-                            />
-                            <ProfileField label="Correo Electrónico" value={userProfile?.email || contact.email} icon={<Mail size={11} className="text-gray-400" />} />
-                            <ProfileField label="Número de Teléfono" value={userProfile?.telefono || contact.telefono} icon={<Phone size={11} className="text-gray-400" />} />
-                          </div>
-                        </section>
-                        <section className="border-t border-slate-100 pt-5">
-                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                            <FileText size={13} />
-                            Datos Fiscales
-                          </h4>
-                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
-                            <ProfileField label="RFC" value={userProfile?.rfc || contact.rfc} mono />
-                            <ProfileField label="Régimen Fiscal" value={userProfile?.regimen_fiscal} />
-                          </div>
-                        </section>
-                        <section className="border-t border-slate-100 pt-5">
-                          <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                            <MapPin size={13} />
-                            Domicilio Fiscal
-                          </h4>
-                          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
-                            <ProfileField label="Código Postal" value={userProfile?.codigo_postal} fullWidth />
-                            <ProfileField label="Estado" value={userProfile?.estado} />
-                            <ProfileField label="Municipio o Alcaldía" value={userProfile?.municipio} />
-                            <ProfileField label="Colonia" value={userProfile?.colonia} />
-                            <ProfileField label="Localidad" value={userProfile?.localidad} />
-                            <ProfileField label="Calle" value={userProfile?.calle} fullWidth />
-                            <ProfileField label="Número Exterior" value={userProfile?.num_exterior} />
-                            <ProfileField label="Número Interior (Opcional)" value={userProfile?.num_interior} />
-                          </div>
-                        </section>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Tab: Actividades ── */}
-            {activeTab === 'actividades' && (
-              <div className="p-5 space-y-3">
-                {loadingDocs ? (
-                  <div className="flex justify-center py-12"><Spinner size="md" /></div>
-                ) : sharedDocs.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Activity size={28} className="text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">Sin actividad registrada.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {sharedDocs.map((doc) => (
-                      <div key={doc.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${doc.estado === 'completado' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-800 font-medium leading-tight">{doc.nombre}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {doc.estado === 'completado' ? 'Documento firmado' : 'Documento en progreso'} · {formatDate(doc.created_at)}
-                          </p>
-                        </div>
-                        {estadoBadge(doc.estado)}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Tab: Documentos ── */}
-            {activeTab === 'documentos' && (
-              <div className="p-5">
-                <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-                  {([
-                    { key: 'todos', label: `Todos (${sharedDocs.length})` },
-                    { key: 'firmados', label: `Firmados (${firmadosCount})` },
-                    { key: 'pendientes', label: `Pendientes (${pendientesCount})` },
-                    { key: 'vencidos', label: `Vencidos (${vencidosCount})` },
-                    { key: 'cancelados', label: `Cancelados (${canceladosCount})` },
-                  ] as { key: typeof docFilter; label: string }[]).map(({ key, label }) => (
-                    <button
-                      key={key}
-                      onClick={() => setDocFilter(key)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        docFilter === key ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {loadingDocs ? (
-                  <div className="flex justify-center py-12"><Spinner size="md" /></div>
-                ) : filteredDocs.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FileText size={28} className="text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">Sin documentos en esta categoría.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {filteredDocs.map((doc) => (
-                      <div key={doc.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
-                        <FileText size={14} className="text-primary shrink-0" />
-                        <span className="flex-1 text-sm text-primary font-medium truncate">{doc.nombre}</span>
-                        {estadoBadge(doc.estado)}
-                        <span className="text-xs text-gray-400 shrink-0">{formatDate(doc.created_at)}</span>
-                        <button className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-400 hover:text-primary flex items-center gap-0.5">
-                          Ver <ExternalLink size={10} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Tab: Notas ── */}
-            {activeTab === 'notas' && (
-              <div className="p-5 space-y-4">
-                {loadingNotes ? (
-                  <div className="flex justify-center py-8"><Spinner size="md" /></div>
-                ) : notes.length > 0 ? (
-                  <div className="space-y-3">
-                    {notes.map((n) => (
-                      <div key={n.id} className="rounded-lg border border-amber-100 bg-amber-50/70 p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold text-gray-600">Nota interna</span>
-                          <span className="text-[10px] text-gray-400">{formatRelative(n.created_at)}</span>
-                        </div>
-                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{n.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <StickyNote size={24} className="text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">Sin notas registradas para este contacto.</p>
-                  </div>
-                )}
-                <div className="overflow-hidden rounded-lg border border-slate-200">
-                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                    <span className="text-xs font-semibold text-gray-600">Agregar nota</span>
-                  </div>
-                  <div className="p-4">
-                    <textarea
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      placeholder="Escribe una nota sobre este contacto..."
-                      rows={4}
-                      className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                    />
-                    <div className="flex justify-end mt-2">
-                      <button
-                        onClick={handleSaveNote}
-                        disabled={!newNote.trim() || savingNote}
-                        className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                      >
-                        {savingNote ? <Spinner /> : <Check size={13} />}
-                        Guardar nota
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Tab: Historial ── */}
-            {activeTab === 'historial' && (
-              <HistoryTimeline contact={contact} docs={sharedDocs} notes={notes} />
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -1479,7 +265,7 @@ function ContactCard({ contact, idx, onView, onDelete, deleting }: {
           {menuOpen && (
             <div className="absolute right-0 top-9 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
               <button onClick={() => { setMenuOpen(false); onView(); }} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                <Eye size={13} /> Ver Contacto
+                <Eye size={13} /> Vista previa
               </button>
               <button onClick={() => { setMenuOpen(false); onDelete(); }} disabled={deleting} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
                 <Trash2 size={13} /> Eliminar
@@ -1510,230 +296,639 @@ function ContactCard({ contact, idx, onView, onDelete, deleting }: {
           </div>
         )}
       </div>
+      <button type="button" onClick={onView} className="mt-4 flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 text-xs text-primary hover:bg-blue-50"><Eye size={13} /> Vista previa</button>
     </div>
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
+// ─── Contacts workspace ─────────────────────────────────────────────────────
+type ContactSort = 'nombre-asc' | 'nombre-desc' | 'recientes';
+type ContactFilterKey = 'tipo' | 'favoritos' | 'pendientes' | 'etiqueta' | 'grupo';
+
+function ContactFilterMenu({
+  label, value, options, allLabel, open, disabled = false, onToggle, onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  allLabel: string;
+  open: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  onChange: (value: string) => void;
+}) {
+  const selectedLabel = options.find((option) => option.value === value)?.label || value;
+  return (
+    <div className="relative">
+      <div className={'group flex min-h-8 max-w-full items-center rounded-md border text-xs font-normal transition-colors sm:max-w-[28rem] ' + (disabled ? 'border-slate-200 bg-white text-slate-400' : value ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50')}>
+        <button type="button" onClick={onToggle} disabled={disabled} aria-expanded={open} aria-haspopup="menu" className="flex min-h-8 min-w-0 items-center gap-1 px-2.5 py-1 text-left font-normal disabled:cursor-not-allowed">
+          <span className="min-w-0 whitespace-normal break-words">{label}{value && <span className="filter-selected-value">: {selectedLabel}</span>}</span>
+          <ChevronDown size={13} className="shrink-0" aria-hidden="true" />
+        </button>
+        {value && <button type="button" onClick={() => onChange('')} aria-label={`Quitar filtro ${label}`} title={`Quitar filtro ${label}`} className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-primary/70 opacity-0 transition-opacity hover:bg-primary/10 hover:text-primary focus:opacity-100 group-hover:opacity-100"><X size={12} /></button>}
+      </div>
+      {open && <div role="menu" aria-label={`Filtrar por ${label.toLowerCase()}`} className="absolute left-0 top-full z-[200] mt-1 max-h-[60vh] min-w-44 max-w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 font-normal shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+        {[{ value: '', label: allLabel }, ...options].map(({ value: optionValue, label: optionLabel }) => (
+          <button key={optionValue} type="button" role="menuitemradio" aria-checked={value === optionValue} onClick={() => onChange(optionValue)} className={'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ' + (value === optionValue ? 'bg-primary/5 text-primary' : 'text-slate-700')}><span className="w-4 shrink-0">{value === optionValue && <Check size={14} />}</span><span className="break-words">{optionLabel}</span></button>
+        ))}
+      </div>}
+    </div>
+  );
+}
+type ContactColumn = 'datos' | 'etiquetas' | 'documentos' | 'actividad';
+type ContactDocument = SharedDocument & { participantes: Array<{ email?: string; sub_estado?: string; estado?: string; status?: string }> | null };
+
+const pendingDocumentStates = new Set(['en_progreso', 'en_espera', 'borrador']);
+const CONTACT_FAVORITES_KEY = 'contactos';
+const completeDocumentStates = new Set(['completado']);
+const terminalParticipantStates = new Set(['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado']);
+const formatContactDate = (value: string) => new Date(value).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+const contactTags = (contact: Contact) => Array.from(new Set([
+  ...(contact.etiqueta_rol ? [`Tipo: ${contact.etiqueta_rol}`] : []),
+  ...(contact.tags || []).map((tag) => {
+    if (/^(Tipo|Relación|Área):\s*/i.test(tag)) return tag;
+    if (/^(cliente|proveedor|colaborador|notar[ií]a)$/i.test(tag)) return `Tipo: ${tag}`;
+    if (/^(recurrente|prospecto|estrat[eé]gico)$/i.test(tag)) return `Relación: ${tag}`;
+    if (/^(comercial|legal|fiscal|operaciones)$/i.test(tag)) return `Área: ${tag}`;
+    return tag;
+  }),
+]));
+const contactKind = (contact: Contact) => /moral|empresa/i.test(contact.tipo_persona || '') ? 'empresas' : 'personas';
+
+function ContactPreviewPanel({ contact, index, docs, pending, documentsLoaded, notes, loadingNotes, onClose, onOpenDetail }: {
+  contact: Contact; index: number; docs: SharedDocument[]; pending: number; documentsLoaded: boolean; notes: ContactNote[]; loadingNotes: boolean;
+  onClose: () => void; onOpenDetail: () => void;
+}) {
+  const [tab, setTab] = useState<'informacion' | 'documentos' | 'actividad'>('informacion');
+  const completed = docs.filter((doc) => completeDocumentStates.has((doc.estado || '').toLowerCase())).length;
+  const latest = [...docs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  return (
+    <>
+      <button type="button" onClick={onClose} aria-label="Cerrar vista previa" className="fixed inset-0 z-40 bg-slate-950/30 lg:hidden" />
+      <aside aria-label={'Vista previa de ' + getFullName(contact)} className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100vh-6rem)] lg:w-[360px] lg:shrink-0 lg:rounded-lg lg:border lg:shadow-sm">
+        <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-5">
+          <div className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ' + avatarColors[index % avatarColors.length]}>{getInitials(contact)}</div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold text-slate-950">{getFullName(contact)}</h2>
+            <p className="truncate text-xs text-slate-500">{contact.empresa || contact.tipo_persona || 'Contacto'}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Cerrar vista previa" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X size={17} /></button>
+        </div>
+        <div role="tablist" aria-label="Información del contacto" className="grid grid-cols-3 border-b border-slate-200 px-2">
+          {(['informacion', 'documentos', 'actividad'] as const).map((item) => (
+            <button key={item} type="button" role="tab" aria-selected={tab === item} onClick={() => setTab(item)} className={'border-b-2 px-2 py-3 text-xs transition-colors ' + (tab === item ? 'border-primary font-medium text-primary' : 'border-transparent text-slate-500 hover:text-slate-800')}>
+              {item === 'informacion' ? 'Información' : item === 'documentos' ? 'Documentos' : 'Actividad'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto bg-[#f8fafc] p-4">
+          {tab === 'informacion' && (
+            <>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-950">Datos de contacto</h3>
+                <div className="space-y-2.5 text-sm text-slate-600">
+                  {contact.email && <p className="flex items-start gap-2 break-all"><Mail size={14} className="mt-0.5 shrink-0 text-slate-500" />{contact.email}</p>}
+                  {contact.telefono && <p className="flex items-center gap-2"><Phone size={14} className="shrink-0 text-slate-500" />{contact.telefono}</p>}
+                  {contact.empresa && <p className="flex items-center gap-2"><Building2 size={14} className="shrink-0 text-slate-500" />{contact.empresa}</p>}
+                  {contact.cargo && <p className="flex items-center gap-2"><Users size={14} className="shrink-0 text-slate-500" />{contact.cargo}</p>}
+                  {contact.rfc && <p className="flex items-center gap-2"><Hash size={14} className="shrink-0 text-slate-500" />RFC: {contact.rfc}</p>}
+                  {!contact.email && !contact.telefono && !contact.empresa && !contact.cargo && !contact.rfc && <p className="text-slate-400">Sin datos adicionales.</p>}
+                </div>
+              </section>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-950">Etiquetas</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {contactTags(contact).length ? contactTags(contact).map((tag) => <span key={tag} className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">{tag}</span>) : <span className="text-sm text-slate-400">Sin etiquetas.</span>}
+                </div>
+              </section>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-950">Resumen documental</h3>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div><p className="text-lg font-semibold text-primary">{documentsLoaded ? docs.length : '—'}</p><p className="text-xs text-slate-500">Documentos</p></div>
+                  <div><p className="text-lg font-semibold text-amber-600">{documentsLoaded ? pending : '—'}</p><p className="text-xs text-slate-500">Pendientes</p></div>
+                  <div><p className="text-lg font-semibold text-emerald-600">{documentsLoaded ? completed : '—'}</p><p className="text-xs text-slate-500">Completados</p></div>
+                </div>
+              </section>
+              {(contact.notas || notes.length > 0) && <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="mb-2 text-sm font-semibold text-slate-950">Notas internas</h3>
+                {contact.notas && <p className="whitespace-pre-wrap text-sm text-slate-600">{contact.notas}</p>}
+                {notes[0] && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{notes[0].content}</p>}
+              </section>}
+              {latest && <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="mb-2 text-sm font-semibold text-slate-950">Documento reciente</h3>
+                <p className="text-sm text-slate-700">{latest.nombre}</p>
+                <p className="mt-1 text-xs text-slate-500">{formatContactDate(latest.created_at)} · {latest.estado || 'Documento'}</p>
+              </section>}
+            </>
+          )}
+          {tab === 'documentos' && <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="mb-3 text-sm font-semibold text-slate-950">Documentos compartidos ({docs.length})</h3>
+            {docs.length ? <div className="divide-y divide-slate-100">{[...docs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).map((doc) => <div key={doc.id} className="flex gap-2 py-3">
+              <FileText size={15} className="mt-0.5 shrink-0 text-primary" />
+              <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{doc.nombre}</p><p className="text-xs text-slate-500">{formatContactDate(doc.created_at)} · {doc.estado || 'Sin estado'}</p></div>
+            </div>)}</div> : <p className="text-sm text-slate-500">{documentsLoaded ? 'No hay documentos compartidos con este contacto.' : 'No se pudo cargar el resumen documental.'}</p>}
+          </section>}
+          {tab === 'actividad' && <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="mb-3 text-sm font-semibold text-slate-950">Actividad reciente</h3>
+            {loadingNotes && <p className="text-sm text-slate-500">Cargando notas...</p>}
+            {!loadingNotes && !docs.length && !notes.length && <p className="text-sm text-slate-500">No hay actividad registrada.</p>}
+            {[...docs.map((doc) => ({ id: 'doc-' + doc.id, date: doc.created_at, label: 'Documento creado: ' + doc.nombre })), ...notes.map((note) => ({ id: 'note-' + note.id, date: note.created_at, label: 'Nota interna: ' + note.content }))].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 10).map((event) => <div key={event.id} className="border-l-2 border-blue-100 py-2 pl-3"><p className="text-sm text-slate-700">{event.label}</p><p className="mt-1 text-xs text-slate-500">{formatContactDate(event.date)}</p></div>)}
+          </section>}
+        </div>
+        <div className="border-t border-slate-200 bg-white p-4">
+          <button type="button" onClick={onOpenDetail} className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90"><ExternalLink size={14} /> Abrir ficha completa</button>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function ContactDataTable({
+  contacts,
+  visible,
+  columns,
+  documentsLoaded,
+  previewId,
+  getDocs,
+  getPending,
+  onPreview,
+  onOpenDetail,
+  favoriteIds,
+  favoritesReady,
+  favoritePendingId,
+  onToggleFavorite,
+}: {
+  contacts: Contact[];
+  visible: Contact[];
+  columns: Record<ContactColumn, boolean>;
+  documentsLoaded: boolean;
+  previewId: string | null;
+  getDocs: (contact: Contact) => ContactDocument[];
+  getPending: (contact: Contact) => number;
+  onPreview: (contact: Contact) => void;
+  onOpenDetail: (contact: Contact) => void;
+  favoriteIds: Set<string>;
+  favoritesReady: boolean;
+  favoritePendingId: string | null;
+  onToggleFavorite: (contact: Contact) => void;
+}) {
+  const tagTones = [
+    'border-blue-100 bg-blue-50 text-blue-700',
+    'border-emerald-100 bg-emerald-50 text-emerald-700',
+  ];
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <table className="w-full min-w-[850px] border-collapse text-left text-sm">
+        <caption className="sr-only">Contactos de tu agenda</caption>
+        <thead className="bg-slate-50/90">
+          <tr className="border-b border-slate-200 text-xs font-medium text-slate-500">
+            <th scope="col" className="min-w-[180px] px-4 py-3 font-medium">Contacto</th>
+            {columns.datos && <th scope="col" className="min-w-[190px] px-4 py-3 font-medium">Datos de contacto</th>}
+            {columns.etiquetas && <th scope="col" className="min-w-[130px] px-4 py-3 font-medium">Etiquetas</th>}
+            {columns.documentos && <th scope="col" className="min-w-[115px] px-4 py-3 font-medium">Documentos</th>}
+            {columns.actividad && <th scope="col" className="min-w-[130px] px-4 py-3 font-medium">Documento reciente</th>}
+            <th scope="col" className="w-[144px] px-4 py-3 text-right font-medium">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((contact) => {
+            const docs = getDocs(contact);
+            const pending = getPending(contact);
+            const latest = docs[0];
+            const tags = contactTags(contact);
+            const selected = previewId === contact.id;
+
+            return (
+              <tr
+                key={contact.id}
+                className={'border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 ' + (selected ? 'bg-blue-50/70' : '')}
+              >
+                <th scope="row" className={'border-l-2 px-4 py-3 text-left font-normal ' + (selected ? 'border-primary' : 'border-transparent')}>
+                  <div className="flex items-center gap-3">
+                    <div className={'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ' + avatarColors[contacts.indexOf(contact) % avatarColors.length]}>
+                      {getInitials(contact)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="max-w-[190px] truncate font-medium text-slate-950" title={getFullName(contact)}>{getFullName(contact)}</p>
+                      <p className="max-w-[190px] truncate text-xs text-slate-500" title={contact.empresa || contact.tipo_persona || undefined}>
+                        {contact.empresa || contact.tipo_persona || 'Contacto'}
+                      </p>
+                    </div>
+                  </div>
+                </th>
+                {columns.datos && (
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {contact.email && <p className="flex items-center gap-1.5"><Mail size={13} className="shrink-0 text-slate-400" /><span className="max-w-[210px] truncate" title={contact.email}>{contact.email}</span></p>}
+                    {contact.telefono && <p className={'flex items-center gap-1.5 ' + (contact.email ? 'mt-1' : '')}><Phone size={13} className="shrink-0 text-slate-400" /><span className="truncate">{contact.telefono}</span></p>}
+                    {!contact.email && !contact.telefono && <span className="text-slate-400">—</span>}
+                  </td>
+                )}
+                {columns.etiquetas && (
+                  <td className="px-4 py-3">
+                    <div className="flex max-w-[175px] flex-wrap items-center gap-1">
+                      {tags.length ? tags.slice(0, 2).map((tag, index) => (
+                        <span key={tag} className={'max-w-[135px] truncate rounded-md border px-1.5 py-0.5 text-[11px] ' + tagTones[index]} title={tag}>{tag}</span>
+                      )) : <span className="text-slate-400">—</span>}
+                      {tags.length > 2 && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600" title={tags.slice(2).join(', ')}>+{tags.length - 2}</span>}
+                    </div>
+                  </td>
+                )}
+                {columns.documentos && (
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                    {documentsLoaded ? (
+                      <>
+                        <p className="flex items-center gap-1.5 font-medium text-slate-700"><FileText size={13} className="text-slate-400" />{docs.length} {docs.length === 1 ? 'documento' : 'documentos'}</p>
+                        <p className={'mt-1 pl-[19px] ' + (pending ? 'text-red-600' : 'text-slate-400')}>{pending} {pending === 1 ? 'pendiente' : 'pendientes'}</p>
+                      </>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
+                )}
+                {columns.actividad && (
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {latest ? (
+                      <>
+                        <p className="max-w-[155px] truncate" title={latest.nombre}>{latest.nombre}</p>
+                        <p className="mt-1 text-slate-400">{formatContactDate(latest.created_at)}</p>
+                      </>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
+                )}
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onPreview(contact)}
+                      aria-label={'Vista previa de ' + getFullName(contact)}
+                      title="Vista previa"
+                      className={'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ' + (selected ? 'border-primary/30 bg-white text-primary' : 'border-slate-200 bg-white text-primary hover:border-primary/30 hover:bg-blue-50')}
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(contact)}
+                      disabled={!favoritesReady || favoritePendingId !== null}
+                      aria-label={(favoriteIds.has(contact.id) ? 'Quitar de favoritos a ' : 'Agregar a favoritos a ') + getFullName(contact)}
+                      aria-pressed={favoriteIds.has(contact.id)}
+                      title={favoriteIds.has(contact.id) ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                      className={'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-50 ' + (favoriteIds.has(contact.id) ? 'text-amber-500' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-500')}
+                    >
+                      <Star size={16} fill={favoriteIds.has(contact.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetail(contact)}
+                      aria-label={'Abrir ficha completa de ' + getFullName(contact)}
+                      title="Abrir ficha completa"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <ExternalLink size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function ContactosPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => new Set());
+  const [favoritesReady, setFavoritesReady] = useState(false);
+  const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
+  const [favoriteNotice, setFavoriteNotice] = useState('');
+  const [documents, setDocuments] = useState<ContactDocument[]>([]);
   const [loading, setLoading] = useState(true);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [pendingOnly, setPendingOnly] = useState(false);
+  const [tagFilter, setTagFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [groupMemberships, setGroupMemberships] = useState<Array<{ contact_id: string; field_value: string | null }>>([]);
+  const [sort, setSort] = useState<ContactSort>('nombre-asc');
+  const [showSort, setShowSort] = useState(false);
+  const [showColumns, setShowColumns] = useState(false);
+  const [openFilterDropdown, setOpenFilterDropdown] = useState<ContactFilterKey | 'aplicados' | null>(null);
+  const filterDropdownRef = useRef<HTMLElement>(null);
+  const [isWideView, setIsWideView] = useState(false);
+  const [columns, setColumns] = useState<Record<ContactColumn, boolean>>({ datos: true, etiquetas: true, documentos: true, actividad: true });
+  const [page, setPage] = useState(1);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [viewingContact, setViewingContact] = useState<{ contact: Contact; idx: number } | null>(null);
+  const [notes, setNotes] = useState<ContactNote[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+
+  useEffect(() => {
+    if (!openFilterDropdown) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!filterDropdownRef.current?.contains(event.target as Node)) setOpenFilterDropdown(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenFilterDropdown(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openFilterDropdown]);
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('nombre', { ascending: true });
-      if (!error && data) setContacts(data);
-    } catch { /* silent */ }
+      const { data, error } = await supabase.from('contacts').select('*').eq('user_id', user.id).order('nombre', { ascending: true });
+      if (!error && data) {
+        setContacts(data);
+        setViewingContact((current) => {
+          if (!current) return null;
+          const updated = data.find((contact) => contact.id === current.contact.id);
+          return updated ? { ...current, contact: updated } : null;
+        });
+      }
+    } catch { /* Keep the current agenda if the request fails. */ }
     finally { setLoading(false); }
   }, [user]);
 
-  useEffect(() => { loadContacts(); }, [loadContacts]);
+  const loadGroups = useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await createClient().from('contact_custom_fields')
+      .select('contact_id,field_value')
+      .eq('user_id', user.id)
+      .eq('field_name', 'contact_group');
+    if (data) setGroupMemberships(data);
+  }, [user]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || viewingContact || contacts.length === 0) return;
+    const timer = window.setTimeout(() => { void loadContacts(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadContacts]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadGroups(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadGroups]);
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    const loadFavorites = async () => {
+      try {
+        const { data, error } = await createClient().from('user_favorites')
+          .select('item_id')
+          .eq('user_id', user.id)
+          .eq('storage_key', CONTACT_FAVORITES_KEY);
+        if (!active) return;
+        if (error) throw error;
+        setFavoriteIds(new Set((data || []).map((row) => row.item_id)));
+        setFavoritesReady(true);
+      } catch {
+        if (active) setFavoriteNotice('No se pudieron cargar tus contactos favoritos.');
+      }
+    };
+    void loadFavorites();
+    return () => { active = false; };
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const loadDocuments = async () => {
+      try {
+        const { data, error } = await createClient().from('documentos')
+          .select('id, nombre, estado, created_at, participantes')
+          .eq('owner_id', user.id).not('participantes', 'is', null)
+          .order('created_at', { ascending: false });
+        if (active && !error) {
+          setDocuments((data || []).map((doc) => ({ ...doc, tipo: null })) as ContactDocument[]);
+          setDocumentsLoaded(true);
+        }
+      } catch { /* Document summary is optional when unavailable. */ }
+    };
+    loadDocuments();
+    return () => { active = false; };
+  }, [user]);
+  useEffect(() => {
+    if (!contacts.length || typeof window === 'undefined') return;
     const contactId = new URLSearchParams(window.location.search).get('contact');
-    if (!contactId) return;
-    const index = contacts.findIndex((contact) => contact.id === contactId);
-    if (index >= 0) setViewingContact({ contact: contacts[index], idx: index });
-  }, [contacts, viewingContact]);
+    if (contactId && contacts.some((contact) => contact.id === contactId)) {
+      const timer = window.setTimeout(() => setPreviewId(contactId), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [contacts]);
+  useEffect(() => {
+    if (!previewId) return;
+    let active = true;
+    createClient().from('contact_notes').select('*').eq('contact_id', previewId).order('created_at', { ascending: false }).then(({ data }) => {
+      if (active) { setNotes(data || []); setLoadingNotes(false); }
+    });
+    return () => { active = false; };
+  }, [previewId]);
 
+  const docsByEmail = new Map<string, ContactDocument[]>();
+  for (const document of documents) {
+    const emails = new Set((Array.isArray(document.participantes) ? document.participantes : []).map((part) => (part.email || '').trim().toLowerCase()).filter(Boolean));
+    for (const email of emails) {
+      const list = docsByEmail.get(email) || [];
+      list.push(document);
+      docsByEmail.set(email, list);
+    }
+  }
+  const getDocs = (contact: Contact) => docsByEmail.get((contact.email || '').trim().toLowerCase()) || [];
+  const getPending = (contact: Contact) => getDocs(contact).filter((doc) => {
+    if (!pendingDocumentStates.has((doc.estado || '').toLowerCase())) return false;
+    const participant = doc.participantes?.find((part) => part.email?.trim().toLowerCase() === contact.email?.trim().toLowerCase());
+    return participant && !terminalParticipantStates.has((participant.sub_estado || participant.status || participant.estado || '').toLowerCase());
+  }).length;
+  const tags = Array.from(new Set(contacts.flatMap(contactTags))).sort((a, b) => a.localeCompare(b, 'es'));
+  const groupNames = Array.from(new Set(groupMemberships.map((membership) => membership.field_value).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b, 'es'));
+  const favoriteCount = contacts.filter((contact) => favoriteIds.has(contact.id)).length;
+  const normalizedSearch = search.trim().toLocaleLowerCase('es-MX');
+  const filtered = contacts.filter((contact) => {
+    const haystack = [getFullName(contact), contact.email, contact.telefono, contact.rfc, contact.empresa, ...contactTags(contact)].filter(Boolean).join(' ').toLocaleLowerCase('es-MX');
+    return (!normalizedSearch || haystack.includes(normalizedSearch))
+      && (!typeFilter || contactKind(contact) === typeFilter)
+      && (!favoritesOnly || favoriteIds.has(contact.id))
+      && (!pendingOnly || getPending(contact) > 0)
+      && (!tagFilter || contactTags(contact).includes(tagFilter))
+      && (!groupFilter || groupMemberships.some((membership) => membership.contact_id === contact.id && membership.field_value === groupFilter));
+  }).sort((a, b) => sort === 'recientes' ? Date.parse(b.created_at) - Date.parse(a.created_at) : getFullName(a).localeCompare(getFullName(b), 'es') * (sort === 'nombre-desc' ? -1 : 1));
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const selectedContact = contacts.find((contact) => contact.id === previewId) || null;
+  const selectedIndex = selectedContact ? contacts.findIndex((contact) => contact.id === selectedContact.id) : -1;
+  const existingEmails = contacts.map((contact) => contact.email).filter(Boolean) as string[];
+  const activeFilterSelections: Array<{ key: ContactFilterKey; label: string }> = [
+    ...(typeFilter ? [{ key: 'tipo' as const, label: `Tipo de contacto: ${typeFilter === 'personas' ? 'Personas' : 'Empresas'}` }] : []),
+    ...(favoritesOnly ? [{ key: 'favoritos' as const, label: 'Favoritos: Solo favoritos' }] : []),
+    ...(pendingOnly ? [{ key: 'pendientes' as const, label: 'Pendientes: Con pendientes' }] : []),
+    ...(tagFilter ? [{ key: 'etiqueta' as const, label: `Etiquetas: ${tagFilter}` }] : []),
+    ...(groupFilter ? [{ key: 'grupo' as const, label: `Grupos: ${groupFilter}` }] : []),
+  ];
+  const activeFilterCount = activeFilterSelections.length;
+  const clearFilters = () => {
+    setTypeFilter('');
+    setFavoritesOnly(false);
+    setPendingOnly(false);
+    setTagFilter('');
+    setGroupFilter('');
+    setPage(1);
+    setOpenFilterDropdown(null);
+  };
+  const removeAppliedFilter = (key: ContactFilterKey) => {
+    if (key === 'tipo') setTypeFilter('');
+    if (key === 'favoritos') setFavoritesOnly(false);
+    if (key === 'pendientes') setPendingOnly(false);
+    if (key === 'etiqueta') setTagFilter('');
+    if (key === 'grupo') setGroupFilter('');
+    if (activeFilterCount === 1) setOpenFilterDropdown(null);
+    setPage(1);
+  };
+  const openPreview = (contact: Contact) => {
+    setNotes([]);
+    setLoadingNotes(true);
+    setPreviewId(contact.id);
+    window.history.replaceState(null, '', '/contactos?contact=' + encodeURIComponent(contact.id));
+  };
+  const closePreview = () => {
+    setPreviewId(null);
+    setNotes([]);
+    setLoadingNotes(false);
+    window.history.replaceState(null, '', '/contactos');
+  };
+  const openFullContact = (contact: Contact) => {
+    if (previewId) closePreview();
+    setViewingContact({ contact, idx: contacts.indexOf(contact) });
+  };
+  const toggleFavorite = async (contact: Contact) => {
+    if (!user?.id || !favoritesReady || favoritePendingId) return;
+    const wasFavorite = favoriteIds.has(contact.id);
+    setFavoritePendingId(contact.id);
+    setFavoriteNotice('');
+    setFavoriteIds((current) => {
+      const next = new Set(current);
+      if (wasFavorite) next.delete(contact.id);
+      else next.add(contact.id);
+      return next;
+    });
+    try {
+      const supabase = createClient();
+      const operation = wasFavorite
+        ? supabase.from('user_favorites').delete()
+            .eq('user_id', user.id)
+            .eq('storage_key', CONTACT_FAVORITES_KEY)
+            .eq('item_id', contact.id)
+        : supabase.from('user_favorites').upsert(
+            { user_id: user.id, storage_key: CONTACT_FAVORITES_KEY, item_id: contact.id },
+            { onConflict: 'user_id,storage_key,item_id' }
+          );
+      const { error } = await operation;
+      if (error) throw error;
+    } catch {
+      setFavoriteIds((current) => {
+        const next = new Set(current);
+        if (wasFavorite) next.add(contact.id);
+        else next.delete(contact.id);
+        return next;
+      });
+      setFavoriteNotice('No fue posible actualizar este contacto favorito.');
+    } finally {
+      setFavoritePendingId(null);
+    }
+  };
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     try {
-      const supabase = createClient();
-      await supabase.from('contacts').delete().eq('id', id);
-      setContacts((prev) => prev.filter((c) => c.id !== id));
-      if (viewingContact?.contact.id === id) setViewingContact(null);
-    } catch { /* silent */ }
-    finally { setDeletingId(null); }
+      const { error } = await createClient().from('contacts').delete().eq('id', id).eq('user_id', user?.id);
+      if (!error) {
+        setContacts((previous) => previous.filter((contact) => contact.id !== id));
+        setFavoriteIds((previous) => {
+          const next = new Set(previous);
+          next.delete(id);
+          return next;
+        });
+        if (previewId === id) closePreview();
+        if (viewingContact?.contact.id === id) setViewingContact(null);
+      }
+    } finally { setDeletingId(null); }
   };
 
-  const filtered = contacts.filter((c) => {
-    const q = search.toLowerCase();
-    const fullName = [c.nombre, c.apellido_paterno, c.apellido_materno].filter(Boolean).join(' ').toLowerCase();
-    return fullName.includes(q) || (c.email || '').toLowerCase().includes(q) || (c.telefono || '').toLowerCase().includes(q) || (c.rfc || '').toLowerCase().includes(q);
-  });
-
-  const existingEmails = contacts.map((c) => c.email).filter(Boolean) as string[];
-
-  if (viewingContact) {
-    return (
-      <AppLayout noPadding>
-        <ContactDetailView
-          contact={viewingContact.contact}
-          idx={viewingContact.idx}
-          onClose={() => {
-            setViewingContact(null);
-            window.history.replaceState(null, '', '/contactos');
-          }}
-          onUpdated={loadContacts}
-          onDelete={() => handleDelete(viewingContact.contact.id)}
-        />
-      </AppLayout>
-    );
-  }
+  if (viewingContact) return <AppLayout noPadding><ContactDetailWorkspace
+    contact={viewingContact.contact}
+    onClose={() => setViewingContact(null)} onUpdated={() => { void loadContacts(); void loadGroups(); }}
+    catalogTags={contacts.flatMap(contactTags)}
+  /></AppLayout>;
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px]">
-        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-600 leading-tight text-slate-950">Contactos</h1>
-            <p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta el historial compartido.</p>
+      <div className={(isWideView ? 'fixed inset-0 z-[100] overflow-y-auto' : '-mx-4 -my-4 min-h-[calc(100vh-4rem)] md:-my-6') + ' bg-[#f6f8fb]'}>
+        <div className={'mx-auto min-w-0 w-full px-4 py-4 sm:px-5 md:py-5 lg:px-6 ' + (isWideView ? '' : 'max-w-[1560px] min-[1920px]:max-w-[1800px]')}>
+          <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div><h1 className="text-2xl font-600 text-slate-950">Contactos</h1><p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta los documentos compartidos.</p></div>
+            <button type="button" onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"><Plus size={16} /> Agregar contacto</button>
+          </header>
+          {favoriteNotice && <p role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{favoriteNotice}</p>}
+          <div className="flex gap-4">
+            <main className="min-w-0 flex-1">
+              <section ref={filterDropdownRef} className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="Buscar y filtrar contactos">
+                <div className="flex flex-wrap items-center gap-2 p-3">
+                  <div className="relative min-w-[160px] flex-1">
+                    <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <input type="text" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Buscar contactos..." aria-label="Buscar contactos por nombre, correo, teléfono, RFC o empresa" className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-9 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10" />
+                    {search && <button type="button" onClick={() => { setSearch(''); setPage(1); }} aria-label="Borrar búsqueda" title="Borrar búsqueda" className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><X size={14} aria-hidden="true" /></button>}
+                  </div>
+                  {activeFilterCount > 0 && <div className="relative shrink-0">
+                    <div className="flex h-9 items-center rounded-md border border-primary/25 bg-white text-xs text-primary">
+                      <button type="button" onClick={() => setOpenFilterDropdown((current) => current === 'aplicados' ? null : 'aplicados')} aria-expanded={openFilterDropdown === 'aplicados'} aria-haspopup="menu" aria-label={`Filtros aplicados: ${activeFilterCount}. Ver criterios`} className="flex h-full items-center gap-1.5 px-2.5 text-left">
+                        <Filter size={13} aria-hidden="true" /><span>Filtros aplicados</span><span className="filter-selected-value">({activeFilterCount})</span><ChevronDown size={13} aria-hidden="true" />
+                      </button>
+                      <button type="button" onClick={clearFilters} aria-label="Quitar todos los filtros" title="Quitar todos los filtros" className="flex h-7 w-7 items-center justify-center border-l border-primary/25 text-primary/70 hover:bg-primary/5 hover:text-primary"><X size={13} aria-hidden="true" /></button>
+                    </div>
+                    {openFilterDropdown === 'aplicados' && <div role="group" aria-label="Criterios aplicados" className="absolute right-0 top-full z-[200] mt-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                      <p className="px-2 py-1.5 text-xs text-slate-500">Criterios aplicados</p>
+                      {activeFilterSelections.map((selection) => <div key={selection.key} className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-slate-50"><span className="min-w-0 flex-1 break-words text-sm text-slate-700">{selection.label}</span><button type="button" onClick={() => removeAppliedFilter(selection.key)} aria-label={`Quitar ${selection.label}`} title={`Quitar ${selection.label}`} className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-900"><X size={13} aria-hidden="true" /></button></div>)}
+                    </div>}
+                  </div>}
+                  <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setShowSort(false); }} onKeyDown={(event) => { if (event.key === 'Escape') setShowSort(false); }}>
+                    <button type="button" onClick={() => setShowSort((open) => !open)} aria-expanded={showSort} aria-haspopup="menu" className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"><ArrowUpDown size={14} /> Ordenar</button>
+                    {showSort && <div role="menu" aria-label="Ordenar contactos" className="absolute right-0 top-full z-30 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">{([['nombre-asc', 'Nombre A–Z'], ['nombre-desc', 'Nombre Z–A'], ['recientes', 'Más recientes']] as [ContactSort, string][]).map(([value, label]) => <button key={value} type="button" role="menuitemradio" aria-checked={sort === value} onClick={() => { setSort(value); setPage(1); setShowSort(false); }} className={'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 ' + (sort === value ? 'text-primary' : 'text-slate-700')}><span className="w-4">{sort === value && <Check size={14} />}</span>{label}</button>)}</div>}
+                  </div>
+                  <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                    <button type="button" onClick={() => setViewMode('list')} aria-label="Vista de lista" aria-pressed={viewMode === 'list'} className={'flex h-7 w-8 items-center justify-center rounded ' + (viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700')}><LayoutList size={16} /></button>
+                    <button type="button" onClick={() => setViewMode('grid')} aria-label="Vista de cuadrícula" aria-pressed={viewMode === 'grid'} className={'flex h-7 w-8 items-center justify-center rounded ' + (viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700')}><LayoutGrid size={16} /></button>
+                  </div>
+                  <div className="relative">
+                    <button type="button" onClick={() => setShowColumns((open) => !open)} aria-expanded={showColumns} aria-label="Configurar columnas" title="Configurar columnas" className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"><SlidersHorizontal size={16} /></button>
+                    {showColumns && <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">{([['datos', 'Datos de contacto'], ['etiquetas', 'Etiquetas'], ['documentos', 'Documentos'], ['actividad', 'Documento reciente']] as [ContactColumn, string][]).map(([key, label]) => <label key={key} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={columns[key]} onChange={(event) => setColumns((previous) => ({ ...previous, [key]: event.target.checked }))} className="accent-blue-600" />{label}</label>)}</div>}
+                  </div>
+                  <button type="button" onClick={() => setIsWideView((wide) => !wide)} aria-label={isWideView ? 'Salir de vista amplia' : 'Vista amplia'} title={isWideView ? 'Salir de vista amplia' : 'Vista amplia'} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950">{isWideView ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+                </div>
+                <div className="mis-documentos-filters flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                  <ContactFilterMenu label="Tipo de contacto" value={typeFilter} options={[{ value: 'personas', label: 'Personas' }, { value: 'empresas', label: 'Empresas' }]} allLabel="Todos los tipos" open={openFilterDropdown === 'tipo'} onToggle={() => setOpenFilterDropdown((current) => current === 'tipo' ? null : 'tipo')} onChange={(value) => { setTypeFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
+                  <ContactFilterMenu label="Favoritos" value={favoritesOnly ? 'favoritos' : ''} options={[{ value: 'favoritos', label: `Solo favoritos (${favoriteCount})` }]} allLabel="Todos los contactos" open={openFilterDropdown === 'favoritos'} disabled={!favoritesReady} onToggle={() => setOpenFilterDropdown((current) => current === 'favoritos' ? null : 'favoritos')} onChange={(value) => { setFavoritesOnly(Boolean(value)); setPage(1); setOpenFilterDropdown(null); }} />
+                  <ContactFilterMenu label="Pendientes" value={pendingOnly ? 'pendientes' : ''} options={[{ value: 'pendientes', label: 'Con pendientes' }]} allLabel="Todos los contactos" open={openFilterDropdown === 'pendientes'} disabled={!documentsLoaded} onToggle={() => setOpenFilterDropdown((current) => current === 'pendientes' ? null : 'pendientes')} onChange={(value) => { setPendingOnly(Boolean(value)); setPage(1); setOpenFilterDropdown(null); }} />
+                  <ContactFilterMenu label="Etiquetas" value={tagFilter} options={tags.map((tag) => ({ value: tag, label: tag }))} allLabel="Todas las etiquetas" open={openFilterDropdown === 'etiqueta'} onToggle={() => setOpenFilterDropdown((current) => current === 'etiqueta' ? null : 'etiqueta')} onChange={(value) => { setTagFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
+                  <ContactFilterMenu label="Grupos" value={groupFilter} options={groupNames.map((name) => ({ value: name, label: name }))} allLabel="Todos los grupos" open={openFilterDropdown === 'grupo'} onToggle={() => setOpenFilterDropdown((current) => current === 'grupo' ? null : 'grupo')} onChange={(value) => { setGroupFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
+                </div>
+              </section>
+              {loading ? <div className="rounded-lg border border-slate-200 bg-white py-24 text-center text-sm text-slate-500">Cargando contactos...</div> : !filtered.length ? <div className="rounded-lg border border-slate-200 bg-white px-5 py-20 text-center"><Users size={28} className="mx-auto mb-3 text-slate-400" /><p className="font-medium text-slate-900">{contacts.length ? 'Sin resultados' : 'Tu agenda de contactos está vacía'}</p><p className="mt-1 text-sm text-slate-500">{contacts.length ? 'Prueba con otra búsqueda o cambia los filtros.' : 'Agrega tu primer contacto para comenzar.'}</p></div> : viewMode === 'grid' ? <div className={'grid grid-cols-1 gap-3 sm:grid-cols-2 ' + (selectedContact ? 'xl:grid-cols-2' : 'xl:grid-cols-3 2xl:grid-cols-4')}>{visible.map((contact) => <ContactCard key={contact.id} contact={contact} idx={contacts.indexOf(contact)} onView={() => openPreview(contact)} onDelete={() => handleDelete(contact.id)} deleting={deletingId === contact.id} />)}</div> : <ContactDataTable contacts={contacts} visible={visible} columns={columns} documentsLoaded={documentsLoaded} previewId={previewId} getDocs={getDocs} getPending={getPending} onPreview={openPreview} onOpenDetail={openFullContact} favoriteIds={favoriteIds} favoritesReady={favoritesReady} favoritePendingId={favoritePendingId} onToggleFavorite={toggleFavorite} />}
+              {!loading && filtered.length > 0 && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} de {filtered.length} contactos</span><div className="flex items-center gap-1"><button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} aria-label="Página anterior" className="rounded-md border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronLeft size={14} /></button><span className="px-2">{currentPage} de {totalPages}</span><button type="button" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)} aria-label="Página siguiente" className="rounded-md border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronRight size={14} /></button></div></div>}
+            </main>
+            {selectedContact && <ContactPreviewPanel key={selectedContact.id} contact={selectedContact} index={selectedIndex} docs={getDocs(selectedContact)} pending={getPending(selectedContact)} documentsLoaded={documentsLoaded} notes={notes} loadingNotes={loadingNotes} onClose={closePreview} onOpenDetail={() => openFullContact(selectedContact)} />}
           </div>
-          <span className="inline-flex h-7 w-fit items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-600 text-slate-500">
-            {contacts.length} {contacts.length === 1 ? 'contacto' : 'contactos'}
-          </span>
-        </div>
-
-        <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5 sm:order-2">
-              <button onClick={() => setViewMode('list')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista lista">
-                <LayoutList size={16} />
-              </button>
-              <button onClick={() => setViewMode('grid')} className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:text-slate-700'}`} title="Vista cuadrícula">
-                <LayoutGrid size={16} />
-              </button>
-            </div>
-            <div className="relative min-w-[220px] flex-1 sm:order-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre, correo, teléfono o RFC..."
-                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-              />
-            </div>
-            <button
-              onClick={() => setShowSearchModal(true)}
-              className="flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 sm:order-3"
-            >
-              <Plus size={14} />
-              Agregar Contacto
-            </button>
-          </div>
-        </section>
-
-        {loading ? (
-          <div className="flex items-center justify-center rounded-lg border border-slate-200/90 bg-white py-32">
-            <svg className="animate-spin h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-slate-200/90 bg-white py-24">
-            <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
-              <Users size={28} className="text-muted-foreground" />
-            </div>
-            <div className="text-center">
-              <p className="text-base font-semibold text-foreground mb-1">{search ? 'Sin resultados' : 'Tu agenda de contactos está vacía'}</p>
-              <p className="text-sm text-muted-foreground max-w-xs">
-                {search ? 'Intenta con otro término de búsqueda.' : 'Comienza agregando tu primer contacto para agilizar tus flujos de firma.'}
-              </p>
-            </div>
-            {!search && (
-              <button onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90">
-                <Plus size={15} /> Agregar Contacto
-              </button>
-            )}
-          </div>
-        ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {filtered.map((c, idx) => (
-              <ContactCard key={c.id} contact={c} idx={idx} onView={() => setViewingContact({ contact: c, idx })} onDelete={() => handleDelete(c.id)} deleting={deletingId === c.id} />
-            ))}
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Contacto</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Etiqueta</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Correo</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Teléfono</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">RFC</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c, idx) => (
-                  <tr key={c.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/60">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white ${avatarColors[idx % avatarColors.length]}`}>
-                          {getInitials(c)}
-                        </div>
-                        <p className="font-semibold text-foreground">{getFullName(c)}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.etiqueta_rol ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                          <Tag size={10} />{c.etiqueta_rol}
-                        </span>
-                      ) : <span className="text-muted-foreground text-sm">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.email ? (
-                        <div className="flex items-center gap-1.5 text-foreground">
-                          <Mail size={13} className="text-muted-foreground shrink-0" />
-                          <span className="text-sm">{c.email}</span>
-                        </div>
-                      ) : <span className="text-muted-foreground text-sm">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.telefono ? (
-                        <div className="flex items-center gap-1.5 text-foreground">
-                          <Phone size={13} className="text-muted-foreground shrink-0" />
-                          <span className="text-sm">{c.telefono}</span>
-                        </div>
-                      ) : <span className="text-muted-foreground text-sm">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-foreground">{c.rfc || <span className="text-muted-foreground">—</span>}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => setViewingContact({ contact: c, idx })} className="w-8 h-8 flex items-center justify-center rounded-lg text-primary bg-primary/5 hover:bg-primary/10 transition-colors border border-primary/20" title="Ver contacto">
-                          <Eye size={14} />
-                        </button>
-                        <button onClick={() => handleDelete(c.id)} disabled={deletingId === c.id} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50" title="Eliminar contacto">
-                          {deletingId === c.id ? <Spinner /> : <Trash2 size={14} />}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {showSearchModal && (
-          <SearchUserModal
-            onClose={() => setShowSearchModal(false)}
-            onSave={loadContacts}
-            existingEmails={existingEmails}
-          />
-        )}
+          {showSearchModal && <SearchUserModal onClose={() => setShowSearchModal(false)} onSave={loadContacts} existingEmails={existingEmails} />}
         </div>
       </div>
     </AppLayout>

@@ -213,6 +213,24 @@ serve(async (req) => {
       .single();
     if (error || !responseRow) return new Response(JSON.stringify({ error: 'Respuesta no encontrada' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
+    const savedPdf = async (row: any) => {
+      const { data: saved, error: savedError } = await supabase.from('generated_pdfs')
+        .select('id,storage_path,unsigned_sha256_hash,qr_validation_url')
+        .eq('id', row.generated_pdf_id).eq('form_response_id', response_id)
+        .eq('workspace_id', row.workspace_id).single();
+      if (savedError || !saved || saved.unsigned_sha256_hash !== row.pdf_output_hash || saved.storage_path !== row.pdf_output_path)
+        throw new Error('FORM_PDF_RECEIPT_CONFLICT');
+      const object = await supabase.storage.from('form-artifacts').download(saved.storage_path);
+      if (object.error || !object.data || await sha256Hex(new Uint8Array(await object.data.arrayBuffer())) !== row.pdf_output_hash)
+        throw new Error('FORM_PDF_INTEGRITY_CONFLICT');
+      return new Response(JSON.stringify({ success: true, generated_pdf_id: saved.id, storage_path: saved.storage_path,
+        sha256_hash: saved.unsigned_sha256_hash, validation_url: saved.qr_validation_url }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    };
+    // A retry must retain the exact PDF that has already been attached,
+    // reviewed or sent to signature, including its original evidence hash.
+    if (responseRow.pdf_output_hash && responseRow.generated_pdf_id) return await savedPdf(responseRow);
+
     const template = responseRow.form_templates;
     const fields = template.form_schema?.fields || template.schema || [];
     const requiresSignature = requiresFormSignature(template.settings, fields);
@@ -508,14 +526,14 @@ serve(async (req) => {
 
     const bytes = await pdf.save();
     const hash = await sha256Hex(bytes);
-    const path = `${responseRow.workspace_id}/${template.id}/${response_id}/preliminary.pdf`;
+    const path = `${responseRow.workspace_id}/${template.id}/${response_id}/preliminary-${hash}.pdf`;
     await supabase.storage.createBucket('form-artifacts', { public: false }).catch(() => undefined);
-    const { error: uploadError } = await supabase.storage.from('form-artifacts').upload(path, bytes, { contentType: 'application/pdf', upsert: true });
-    if (uploadError) throw uploadError;
+    const { error: uploadError } = await supabase.storage.from('form-artifacts').upload(path, bytes, { contentType: 'application/pdf', upsert: false });
+    if (uploadError && !/already exists|duplicate/i.test(uploadError.message)) throw uploadError;
     const layoutPath = path.replace(/\.pdf$/i, '.signature-layout.json');
     const layout = new TextEncoder().encode(JSON.stringify({ pdfSha256: hash, placements: signaturePlacements }));
-    const { error: layoutError } = await supabase.storage.from('form-artifacts').upload(layoutPath, layout, { contentType: 'application/json', upsert: true });
-    if (layoutError) throw layoutError;
+    const { error: layoutError } = await supabase.storage.from('form-artifacts').upload(layoutPath, layout, { contentType: 'application/json', upsert: false });
+    if (layoutError && !/already exists|duplicate/i.test(layoutError.message)) throw layoutError;
 
     let generatedPdfId: string | null = null;
     const { data: generated, error: generatedError } = await supabase.from('generated_pdfs').insert({
@@ -529,7 +547,7 @@ serve(async (req) => {
     if (generatedError || !generated) throw generatedError || new Error('No se pudo registrar el PDF generado.');
     generatedPdfId = generated?.id || null;
 
-    const { error: responseUpdateError } = await supabase.from('form_responses').update({
+    const { data: accepted, error: responseUpdateError } = await supabase.from('form_responses').update({
       pdf_output_path: path,
       pdf_output_hash: hash,
       pdf_evidence_snapshot: {
@@ -539,11 +557,18 @@ serve(async (req) => {
       },
       generated_pdf_id: generatedPdfId,
       status: requiresSignature ? 'signing' : 'pdf_generated',
-    }).eq('id', response_id);
+    }).eq('id', response_id).is('pdf_output_hash', null).select('id').maybeSingle();
     if (responseUpdateError) throw responseUpdateError;
+    if (!accepted) {
+      const winner = await supabase.from('form_responses').select('*').eq('id',response_id).single();
+      if(winner.error || !winner.data?.generated_pdf_id) throw new Error('FORM_PDF_RECEIPT_CONFLICT');
+      return await savedPdf(winner.data);
+    }
 
     const eventHash = await sha256Hex(new TextEncoder().encode(`${response_id}:pdf_generated:${hash}`));
-    await supabase.from('form_audit_logs').insert({
+    // PostgREST builders are PromiseLike and do not implement .catch(). A
+    // best-effort audit failure must not report a committed PDF as failed.
+    try { await supabase.from('form_audit_logs').insert({
       workspace_id: responseRow.workspace_id,
       form_id: template.id,
       response_id,
@@ -558,7 +583,7 @@ serve(async (req) => {
       },
       ip_address: responseRow.ip_address,
       user_agent: responseRow.user_agent,
-    }).catch(() => undefined);
+    }); } catch { /* The generated document and receipt are already durable. */ }
 
     return new Response(JSON.stringify({ success: true, generated_pdf_id: generatedPdfId, storage_path: path, sha256_hash: hash, validation_url: validationUrl }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {

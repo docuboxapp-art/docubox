@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAnonClient } from '@/lib/supabase/server';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { isTemporaryDatabaseFailure } from '@/lib/supabase/backend-failure';
+import { emitObservedEvent } from '@/lib/observability/events';
 import { classifyTrashRetention } from '@/lib/documents/trash-retention';
 import {
   evaluateDocumentDisposition,
@@ -27,6 +30,7 @@ function isTemplateOriginColumnMissing(error: { code?: string; message?: string 
 
 export async function GET(request: NextRequest) {
   try {
+    const deadline = AbortSignal.timeout(20_000);
     // Authenticate user via Bearer token using anon client (proper JWT validation)
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -36,14 +40,19 @@ export async function GET(request: NextRequest) {
     const token = authHeader.slice(7);
 
     // Use anon client to validate the JWT properly
-    const anonClient = createAnonClient(token);
+    const anonClient = createAnonClient(token, deadline);
     const {
       data: { user },
       error: authError,
     } = await anonClient.auth.getUser(token);
     if (authError || !user) {
-      console.error('[listar-documentos] Auth error:', authError?.message);
-      return NextResponse.json({ error: 'Token inválido o expirado' }, { status: 401 });
+      const invalid = !authError || isDefinitivelyInvalidAuthToken(authError);
+      return NextResponse.json(
+        {
+          error: invalid ? 'Token inválido o expirado' : 'Verificación temporalmente no disponible',
+        },
+        { status: invalid ? 401 : 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -75,21 +84,29 @@ export async function GET(request: NextRequest) {
     };
 
     let result = await buildQuery(DOC_SELECT);
-    if (result.error && /source_form_response_id/i.test(result.error.message || '')) result = await buildQuery(WITHOUT_FORM_ORIGIN_SELECT);
+    if (result.error && /source_form_response_id/i.test(result.error.message || ''))
+      result = await buildQuery(WITHOUT_FORM_ORIGIN_SELECT);
     if (isTemplateOriginColumnMissing(result.error)) result = await buildQuery(LEGACY_DOC_SELECT);
     const data = result.data as ListedDocumentRow[] | null;
     const error = result.error;
 
     if (error) {
-      console.error(
-        '[listar-documentos] Query error:',
-        error.message,
-        '| code:',
-        error.code,
-        '| details:',
-        error.details
+      const temporary = isTemporaryDatabaseFailure(error, result.status);
+      const status = temporary ? 503 : 500;
+      emitObservedEvent({
+        service: 'next',
+        outcome: 'error',
+        route: '/api/documentos/listar',
+        status,
+        code: error.code,
+      });
+      return NextResponse.json(
+        {
+          error: 'No fue posible cargar los documentos.',
+          code: temporary ? 'DATA_API_UNAVAILABLE' : 'DOCUMENT_LIST_FAILED',
+        },
+        { status, headers: { 'Cache-Control': 'private, no-store' } }
       );
-      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     const documentIds = (data || []).map((document) => document.id);
@@ -147,7 +164,9 @@ export async function GET(request: NextRequest) {
       const description = formResponseId
         ? formDescriptions.has(String(formResponseId))
           ? formDescriptions.get(String(formResponseId))
-          : document.descripcion === 'Respuesta de formulario' ? null : document.descripcion
+          : document.descripcion === 'Respuesta de formulario'
+            ? null
+            : document.descripcion
         : document.descripcion;
       return {
         ...document,
@@ -197,10 +216,24 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ data: responseData });
   } catch (err: unknown) {
-    console.error('[listar-documentos] Unexpected error:', err);
+    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : null;
+    const temporary =
+      isTemporaryDatabaseFailure({ code }) ||
+      (err instanceof Error && ['AbortError', 'TimeoutError'].includes(err.name));
+    const status = temporary ? 503 : 500;
+    emitObservedEvent({
+      service: 'next',
+      outcome: 'error',
+      route: '/api/documentos/listar',
+      status,
+      code: code || (err instanceof Error ? err.name : null),
+    });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Error interno' },
-      { status: 500 }
+      {
+        error: 'No fue posible cargar los documentos.',
+        code: temporary ? 'DATA_API_UNAVAILABLE' : 'DOCUMENT_LIST_FAILED',
+      },
+      { status, headers: { 'Cache-Control': 'private, no-store' } }
     );
   }
 }

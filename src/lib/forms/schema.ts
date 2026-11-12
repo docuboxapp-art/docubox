@@ -321,15 +321,23 @@ export function createDefaultFormTemplate(): FormTemplate {
   };
 }
 
-export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'settings'>> & { settings?: Partial<Omit<FormSettings, 'pdfSchema' | 'appearance'>> & { pdfSchema?: Partial<PdfSchema>; appearance?: Partial<FormAppearance> } }): FormTemplate {
+export function normalizeFormTemplate(
+  input: Partial<Omit<FormTemplate, 'settings'>> & {
+    settings?: Partial<Omit<FormSettings, 'pdfSchema' | 'appearance'>> & {
+      pdfSchema?: Partial<PdfSchema>;
+      appearance?: Partial<FormAppearance>;
+    };
+  }
+): FormTemplate {
   const defaults = createDefaultFormTemplate();
-  const sections = Array.isArray(input.sections) && input.sections.length
-    ? input.sections.map((section, index) => ({
-        ...createDefaultSection(index, section.title || `Sección ${index + 1}`),
-        ...section,
-        order: index,
-      }))
-    : defaults.sections;
+  const sections =
+    Array.isArray(input.sections) && input.sections.length
+      ? input.sections.map((section, index) => ({
+          ...createDefaultSection(index, section.title || `Sección ${index + 1}`),
+          ...section,
+          order: index,
+        }))
+      : defaults.sections;
 
   return {
     ...defaults,
@@ -340,15 +348,20 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
           required: field.type === 'signature_block' ? true : field.required,
           conditionalVisible: field.type === 'signature_block' ? false : field.conditionalVisible,
           conditionalRule: field.type === 'signature_block' ? undefined : field.conditionalRule,
-          description: isLegalField(field.type) && !field.description?.trim()
-            ? defaultLegalFieldContent(field.type).description : field.description,
-          acceptanceLabel: isLegalField(field.type) && !field.acceptanceLabel?.trim()
-            ? defaultLegalFieldContent(field.type).acceptanceLabel : field.acceptanceLabel,
-          label: field.type === 'business_name' && field.label === 'Razón social'
-            ? 'Nombre o denominación social'
-            : field.type === 'fiscal_address' && field.label === 'Domicilio fiscal'
-              ? 'Domicilio'
-              : field.label,
+          description:
+            isLegalField(field.type) && !field.description?.trim()
+              ? defaultLegalFieldContent(field.type).description
+              : field.description,
+          acceptanceLabel:
+            isLegalField(field.type) && !field.acceptanceLabel?.trim()
+              ? defaultLegalFieldContent(field.type).acceptanceLabel
+              : field.acceptanceLabel,
+          label:
+            field.type === 'business_name' && field.label === 'Razón social'
+              ? 'Nombre o denominación social'
+              : field.type === 'fiscal_address' && field.label === 'Domicilio fiscal'
+                ? 'Domicilio'
+                : field.label,
           sectionId: field.sectionId || sections[0].id,
           editableBeforeSign: field.editableBeforeSign ?? true,
           pdf: {
@@ -366,7 +379,7 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
       ...defaults.settings,
       ...(input.settings || {}),
       accessMode: input.settings?.accessMode === 'public' ? 'public' : 'private',
-      requiresSignature: true,
+      requiresSignature: input.settings?.requiresSignature !== false,
       configurePdfDetails:
         typeof input.settings?.configurePdfDetails === 'boolean'
           ? input.settings.configurePdfDetails
@@ -379,15 +392,23 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
       appearance: {
         ...defaults.settings.appearance,
         ...(input.settings?.appearance || {}),
-        headerText: input.settings?.appearance?.headerText === 'Formulario firmable'
-          ? '' : input.settings?.appearance?.headerText ?? defaults.settings.appearance.headerText,
-        headerDocumentNumber: input.settings?.appearance?.headerDocumentNumber || input.settings?.documentNumber || '',
-        headerDocumentTypeName: input.settings?.appearance?.headerDocumentTypeName || input.settings?.documentTypeName || '',
+        headerText:
+          input.settings?.appearance?.headerText === 'Formulario firmable'
+            ? ''
+            : (input.settings?.appearance?.headerText ?? defaults.settings.appearance.headerText),
+        headerDocumentNumber:
+          input.settings?.appearance?.headerDocumentNumber || input.settings?.documentNumber || '',
+        headerDocumentTypeName:
+          input.settings?.appearance?.headerDocumentTypeName ||
+          input.settings?.documentTypeName ||
+          '',
         typography: isFormTypography(input.settings?.appearance?.typography)
           ? input.settings!.appearance!.typography
           : defaults.settings.appearance.typography,
         accentColor: /^#[0-9a-fA-F]{6}$/.test(input.settings?.appearance?.accentColor || '')
-          ? (input.settings!.appearance!.accentColor!.toUpperCase() === '#4F46E5' ? '#1E6BFF' : input.settings!.appearance!.accentColor!)
+          ? input.settings!.appearance!.accentColor!.toUpperCase() === '#4F46E5'
+            ? '#1E6BFF'
+            : input.settings!.appearance!.accentColor!
           : defaults.settings.appearance.accentColor,
         backgroundColor: /^#[0-9a-fA-F]{6}$/.test(input.settings?.appearance?.backgroundColor || '')
           ? input.settings!.appearance!.backgroundColor!
@@ -401,7 +422,10 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
         typography: isFormTypography(input.settings?.pdfSchema?.typography)
           ? input.settings!.pdfSchema!.typography
           : defaults.settings.pdfSchema.typography,
-        primaryColor: input.settings?.pdfSchema?.primaryColor?.toUpperCase() === '#4F46E5' ? '#1E6BFF' : input.settings?.pdfSchema?.primaryColor || defaults.settings.pdfSchema.primaryColor,
+        primaryColor:
+          input.settings?.pdfSchema?.primaryColor?.toUpperCase() === '#4F46E5'
+            ? '#1E6BFF'
+            : input.settings?.pdfSchema?.primaryColor || defaults.settings.pdfSchema.primaryColor,
       },
       allowedSignatureTypes:
         input.settings?.allowedSignatureTypes || defaults.settings.allowedSignatureTypes,
@@ -411,26 +435,54 @@ export function normalizeFormTemplate(input: Partial<Omit<FormTemplate, 'setting
 
 export function getFieldTypeLabel(type: FieldType): string {
   const labels: Record<FieldType, string> = {
-    text: 'Texto corto', textarea: 'Texto largo', email: 'Correo', phone: 'Teléfono',
-    number: 'Número', date: 'Fecha', time: 'Hora', currency: 'Moneda', checkbox: 'Checkbox',
-    checkbox_group: 'Casillas', radio: 'Opción múltiple', select: 'Lista desplegable',
-    yes_no: 'Sí / No', estado_mx: 'Estado', rfc: 'RFC', curp: 'CURP', nss: 'NSS',
-    clave_elector: 'Clave de elector', business_name: 'Nombre o denominación social',
-    fiscal_address: 'Domicilio', person_first_name: 'Nombre',
-    person_last_name: 'Apellido paterno', person_second_last_name: 'Apellido materno',
+    text: 'Texto corto',
+    textarea: 'Texto largo',
+    email: 'Correo',
+    phone: 'Teléfono',
+    number: 'Número',
+    date: 'Fecha',
+    time: 'Hora',
+    currency: 'Moneda',
+    checkbox: 'Checkbox',
+    checkbox_group: 'Casillas',
+    radio: 'Opción múltiple',
+    select: 'Lista desplegable',
+    yes_no: 'Sí / No',
+    estado_mx: 'Estado',
+    rfc: 'RFC',
+    curp: 'CURP',
+    nss: 'NSS',
+    clave_elector: 'Clave de elector',
+    business_name: 'Nombre o denominación social',
+    fiscal_address: 'Domicilio',
+    person_first_name: 'Nombre',
+    person_last_name: 'Apellido paterno',
+    person_second_last_name: 'Apellido materno',
     consentimiento: 'Consentimiento',
-    declaration: 'Declaración bajo protesta', firma_efirma: 'e.firma SAT',
-    firma_autografa: 'Firma autógrafa', firma_click: 'Click & Sign',
-    signature_block: 'Firma', iniciales: 'Iniciales', imagen: 'Carga de imagen',
-    documento: 'Carga de archivo', divider: 'Separador', texto_bloque: 'Texto informativo',
-    imagen_estatica: 'Imagen estática', columnas: 'Columnas',
+    declaration: 'Declaración bajo protesta',
+    firma_efirma: 'e.firma SAT',
+    firma_autografa: 'Firma autógrafa',
+    firma_click: 'Click & Sign',
+    signature_block: 'Firma',
+    iniciales: 'Iniciales',
+    imagen: 'Carga de imagen',
+    documento: 'Carga de archivo',
+    divider: 'Separador',
+    texto_bloque: 'Texto informativo',
+    imagen_estatica: 'Imagen estática',
+    columnas: 'Columnas',
   };
   return labels[type];
 }
 
 export function getPdfFieldLabel(field: Pick<FormField, 'type' | 'label' | 'pdf'>): string {
   const pdfLabel = field.pdf?.label?.trim();
-  if (!pdfLabel || (field.pdf?.labelExplicit !== true && pdfLabel === getFieldTypeLabel(field.type) && field.label !== pdfLabel)) {
+  if (
+    !pdfLabel ||
+    (field.pdf?.labelExplicit !== true &&
+      pdfLabel === getFieldTypeLabel(field.type) &&
+      field.label !== pdfLabel)
+  ) {
     return field.label;
   }
   return pdfLabel;
@@ -447,17 +499,41 @@ export function getSignatureTypeLabel(type: SignatureType): string {
 export function sampleValueForField(field: FormField): unknown {
   if (field.defaultValue !== undefined) return field.defaultValue;
   const samples: Partial<Record<FieldType, unknown>> = {
-    text: 'Juan Pérez López', textarea: 'Información proporcionada por el participante.',
-    email: 'participante@ejemplo.com', phone: '55 1234 5678', number: '1250',
-    date: new Date().toISOString().slice(0, 10), time: '10:30', currency: '12500',
-    rfc: 'PELJ900101XXX', curp: 'PELJ900101HDFRPN09', nss: '12345678901',
+    text: 'Juan Pérez López',
+    textarea: 'Información proporcionada por el participante.',
+    email: 'participante@ejemplo.com',
+    phone: '55 1234 5678',
+    number: '1250',
+    date: new Date().toISOString().slice(0, 10),
+    time: '10:30',
+    currency: '12500',
+    rfc: 'PELJ900101XXX',
+    curp: 'PELJ900101HDFRPN09',
+    nss: '12345678901',
     business_name: 'Empresa Ejemplo, S.A. de C.V.',
-    fiscal_address: { street: 'Av. Reforma', exteriorNumber: '100', interiorNumber: '', neighborhood: 'Centro', city: 'Ciudad de México', state: 'Ciudad de México' },
-    person_first_name: 'Juan', person_last_name: 'Pérez', person_second_last_name: 'López',
-    yes_no: 'Sí', radio: field.options?.[0]?.label, select: field.options?.[0]?.label,
-    checkbox: true, consentimiento: true, declaration: true, firma_click: true,
-    firma_efirma: 'Certificado por validar', firma_autografa: 'Firma capturada',
-    signature_block: 'Pendiente de firma', documento: 'documento-adjunto.pdf', imagen: 'imagen-adjunta.jpg',
+    fiscal_address: {
+      street: 'Av. Reforma',
+      exteriorNumber: '100',
+      interiorNumber: '',
+      neighborhood: 'Centro',
+      city: 'Ciudad de México',
+      state: 'Ciudad de México',
+    },
+    person_first_name: 'Juan',
+    person_last_name: 'Pérez',
+    person_second_last_name: 'López',
+    yes_no: 'Sí',
+    radio: field.options?.[0]?.label,
+    select: field.options?.[0]?.label,
+    checkbox: true,
+    consentimiento: true,
+    declaration: true,
+    firma_click: true,
+    firma_efirma: 'Certificado por validar',
+    firma_autografa: 'Firma capturada',
+    signature_block: 'Pendiente de firma',
+    documento: 'documento-adjunto.pdf',
+    imagen: 'imagen-adjunta.jpg',
   };
   return samples[field.type] ?? '—';
 }
@@ -466,9 +542,20 @@ export function formatFormAddress(value: unknown): string {
   if (typeof value === 'string') return value;
   if (!value || typeof value !== 'object') return '';
   const address = value as Record<string, unknown>;
-  const part = (key: string) => typeof address[key] === 'string' ? String(address[key]).trim() : '';
+  const part = (key: string) =>
+    typeof address[key] === 'string' ? String(address[key]).trim() : '';
   return [
-    [part('street'), part('exteriorNumber'), part('interiorNumber') && `Int. ${part('interiorNumber')}`].filter(Boolean).join(' '),
-    part('neighborhood'), part('city'), part('state'),
-  ].filter(Boolean).join(', ');
+    [
+      part('street'),
+      part('exteriorNumber'),
+      part('interiorNumber') && `Int. ${part('interiorNumber')}`,
+    ]
+      .filter(Boolean)
+      .join(' '),
+    part('neighborhood'),
+    part('city'),
+    part('state'),
+  ]
+    .filter(Boolean)
+    .join(', ');
 }

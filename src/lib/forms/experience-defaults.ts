@@ -19,7 +19,7 @@ export function snapshotFormExperience(settings: FormSettings): FormExperienceDe
     allowSaveProgress: settings.allowSaveProgress,
     configurePdfDetails: settings.configurePdfDetails,
     configureFormDetails: settings.configureFormDetails,
-    requiresSignature: true,
+    requiresSignature: settings.requiresSignature,
     configureLinkExpiration: settings.configureLinkExpiration,
     expirationHours: settings.expirationHours,
   };
@@ -30,8 +30,8 @@ export function hasFormExperienceChanges(
   saved: FormExperienceDefaults
 ): boolean {
   const current = snapshotFormExperience(settings);
-  return (Object.keys(current) as Array<keyof FormExperienceDefaults>).some(
-    (key) => key === 'expirationHours' && !current.configureLinkExpiration && !saved.configureLinkExpiration
+  return (Object.keys(current) as Array<keyof FormExperienceDefaults>).some((key) =>
+    key === 'expirationHours' && !current.configureLinkExpiration && !saved.configureLinkExpiration
       ? false
       : current[key] !== saved[key]
   );
@@ -51,23 +51,33 @@ export function normalizeFormExperienceDefaults(
   const defaults = createDefaultFormExperienceDefaults(legacyConfigurePdfDetails);
   if (!value || typeof value !== 'object') return defaults;
   const candidate = value as Partial<FormExperienceDefaults>;
-  const multiStep = typeof candidate.multiStep === 'boolean'
-    ? candidate.multiStep : defaults.multiStep;
+  const multiStep =
+    typeof candidate.multiStep === 'boolean' ? candidate.multiStep : defaults.multiStep;
   const expirationHours = Number(candidate.expirationHours);
   return {
     multiStep,
     mode: multiStep ? 'multistep' : 'scroll',
-    allowSaveProgress: typeof candidate.allowSaveProgress === 'boolean'
-      ? candidate.allowSaveProgress : defaults.allowSaveProgress,
-    configurePdfDetails: typeof candidate.configurePdfDetails === 'boolean'
-      ? candidate.configurePdfDetails : defaults.configurePdfDetails,
-    configureFormDetails: typeof candidate.configureFormDetails === 'boolean'
-      ? candidate.configureFormDetails : defaults.configureFormDetails,
-    requiresSignature: true,
-    configureLinkExpiration: typeof candidate.configureLinkExpiration === 'boolean'
-      ? candidate.configureLinkExpiration : false,
-    expirationHours: Number.isFinite(expirationHours) && expirationHours >= 1 / 60 && expirationHours <= 720
-      ? expirationHours : defaults.expirationHours,
+    allowSaveProgress:
+      typeof candidate.allowSaveProgress === 'boolean'
+        ? candidate.allowSaveProgress
+        : defaults.allowSaveProgress,
+    configurePdfDetails:
+      typeof candidate.configurePdfDetails === 'boolean'
+        ? candidate.configurePdfDetails
+        : defaults.configurePdfDetails,
+    configureFormDetails:
+      typeof candidate.configureFormDetails === 'boolean'
+        ? candidate.configureFormDetails
+        : defaults.configureFormDetails,
+    requiresSignature: candidate.requiresSignature !== false,
+    configureLinkExpiration:
+      typeof candidate.configureLinkExpiration === 'boolean'
+        ? candidate.configureLinkExpiration
+        : false,
+    expirationHours:
+      Number.isFinite(expirationHours) && expirationHours >= 1 / 60 && expirationHours <= 720
+        ? expirationHours
+        : defaults.expirationHours,
   };
 }
 
@@ -88,7 +98,8 @@ export function readFormExperienceDefaults(
   workspaceId?: string | null,
   legacyConfigurePdfDetails = false
 ): FormExperienceDefaults {
-  if (typeof window === 'undefined') return createDefaultFormExperienceDefaults(legacyConfigurePdfDetails);
+  if (typeof window === 'undefined')
+    return createDefaultFormExperienceDefaults(legacyConfigurePdfDetails);
   try {
     const stored = window.localStorage.getItem(getFormExperienceDefaultsStorageKey(workspaceId));
     return normalizeFormExperienceDefaults(

@@ -35,6 +35,7 @@ test('los predeterminados se persisten por usuario y espacio bajo RLS', {
       $$;
   `);
   await db.exec(readFileSync('supabase/migrations/20261009064426_form_default_settings.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261027221814_form_legal_defaults.sql', 'utf8'));
   await db.exec('GRANT USAGE ON SCHEMA public,auth TO authenticated');
   const asUser = async (id) => {
     await db.exec('RESET ROLE');
@@ -58,4 +59,8 @@ test('los predeterminados se persisten por usuario y espacio bajo RLS', {
   await asUser(A);
   const persisted = await db.query('SELECT value FROM public.form_default_settings WHERE kind=$1', ['appearance']);
   assert.deepEqual(persisted.rows.map((row) => row.value.headerText), ['Encabezado A']);
+  await db.query('INSERT INTO public.form_default_settings(user_id,workspace_id,kind,value) VALUES($1,$2,$3,$4)',
+    [A, W, 'legal', JSON.stringify({ consentimiento: { description: 'Texto', acceptanceLabel: 'Acepto' } })]);
+  const legal = await db.query('SELECT value FROM public.form_default_settings WHERE kind=$1', ['legal']);
+  assert.equal(legal.rows[0].value.consentimiento.acceptanceLabel, 'Acepto');
 });

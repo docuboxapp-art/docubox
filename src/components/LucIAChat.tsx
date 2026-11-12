@@ -734,7 +734,7 @@ export default function LucIAChat({
                   ¿Cómo puedo ayudarte?
                 </p>
                 <p className="mt-1 text-sm text-[#64748B] dark:text-slate-400">
-                  Consulta información, documentos y tareas de tu espacio.
+                  Consulta información sobre tus documentos y solicitudes.
                 </p>
                 <span className="mt-3 inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#52525B] ring-1 ring-[#EBEBF0] dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
                   Contexto: {contextLabel}
@@ -864,7 +864,7 @@ export default function LucIAChat({
                   workspaceUnavailable
                     ? 'Selecciona un espacio de trabajo para usar LucIA'
                     : currentWorkspace?.id
-                      ? 'Pregunta sobre tus documentos, tareas o firmas'
+                      ? 'Pregunta sobre tus documentos, solicitudes o firmas'
                       : 'Escribe tu consulta para LucIA'
                 }
                 rows={1}

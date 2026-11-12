@@ -10,6 +10,8 @@ test('the site root renders login without redirecting to a subpage', async () =>
   ]);
 
   assert.match(rootPage, /export\s*\{\s*default\s*\}\s*from\s*['"]\.\/login\/page['"]/);
-  assert.match(middleware, /const PUBLIC_ROUTES = \[\s*'\/'/);
+  const routes = middleware.match(/const PUBLIC_ROUTES = \[([\s\S]*?)\];/)?.[1];
+  assert.ok(routes);
+  assert.match(routes, /^\s*'\/',?\s*$/m);
   assert.doesNotMatch(config, /destination:\s*['"]\/sign-up-login-screen['"]/);
 });

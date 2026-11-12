@@ -5,7 +5,7 @@ import { emitDomainEvent } from '@/lib/notifications/service';
 import { categoryForLegacyType, severityForLegacyPriority } from '@/lib/notifications/policy';
 import { createAnonClient } from '@/lib/supabase/server';
 
-const TYPES = new Set(['document', 'task', 'request', 'alert', 'info']);
+const TYPES = new Set(['document', 'request', 'alert', 'info']);
 const PRIORITIES = new Set(['alta', 'media', 'baja']);
 
 async function getAuthenticatedUser(request: NextRequest) {

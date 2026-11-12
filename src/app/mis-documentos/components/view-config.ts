@@ -63,6 +63,7 @@ export const DEFAULT_FILTERS: FilterVisibilityConfig[] = [
   { id: 'fechaCompletado', label: 'Fecha de completado', visible: false },
   { id: 'fechaCreacion', label: 'Fecha de creación', visible: false },
   { id: 'participantes', label: 'Participantes', visible: false },
+  { id: 'estadoParticipantes', label: 'Participaciones en mis documentos', visible: true },
   { id: 'prioridad', label: 'Prioridad', visible: false },
 ];
 

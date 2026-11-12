@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { canAccessParticipantDocument } from '@/lib/documents/participant-visibility';
 import { authSessionId } from '@/lib/security/document-view-access';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 import {
   assertKioskDocumentScope,
   kioskParticipantMatchesUser,
@@ -31,10 +32,37 @@ export function bearerToken(request: NextRequest) {
   return authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
 }
 
+export async function requireDocumentIdentity(request: NextRequest) {
+  const token = bearerToken(request);
+  if (!token) throw new DocumentAccessError('AUTH_REQUIRED', 'Debes iniciar sesion.', 401);
+
+  let user: User | null = null;
+  let authError: unknown = null;
+  try {
+    const result = await createAnonClient().auth.getUser(token);
+    user = result.data.user;
+    authError = result.error;
+  } catch (error) {
+    authError = error;
+  }
+  if (authError && !isDefinitivelyInvalidAuthToken(authError)) {
+    throw new DocumentAccessError(
+      'AUTH_UNAVAILABLE',
+      'No fue posible verificar la sesión en este momento.',
+      503
+    );
+  }
+  if (authError || !user?.email) {
+    throw new DocumentAccessError('AUTH_INVALID', 'La sesion no es valida.', 401);
+  }
+  return { token, user: user as User & { email: string } };
+}
+
 export async function requireDocumentAccess(
   request: NextRequest,
   documentId: string,
-  options: DocumentAccessOptions = {}
+  options: DocumentAccessOptions = {},
+  verifiedIdentity?: Awaited<ReturnType<typeof requireDocumentIdentity>>
 ) {
   let kioskSession = null;
   try {
@@ -46,16 +74,11 @@ export async function requireDocumentAccess(
       403
     );
   }
-  const token = bearerToken(request);
-  if (!token) throw new DocumentAccessError('AUTH_REQUIRED', 'Debes iniciar sesion.', 401);
-
-  const {
-    data: { user },
-    error: authError,
-  } = await createAnonClient().auth.getUser(token);
-  if (authError || !user?.email) {
+  const identity = verifiedIdentity ?? (await requireDocumentIdentity(request));
+  if (identity.token !== bearerToken(request)) {
     throw new DocumentAccessError('AUTH_INVALID', 'La sesion no es valida.', 401);
   }
+  const { token, user } = identity;
 
   const service = createServiceClient();
   if (kioskSession) {

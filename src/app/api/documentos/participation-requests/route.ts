@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { resolveParticipantMode } from '@/lib/documents/participant-invitations';
 
 // Terminal sub_estados stored in documentos.participantes JSONB
 const TERMINAL_SUB_ESTADOS = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
@@ -70,6 +71,8 @@ export async function GET() {
         en_espera_motivo,
         en_espera_descripcion,
         participantes,
+        participant_mode,
+        participation_order,
         tipo_documento_id,
         etiquetas_ids,
         tipo_documento:tipo_documento_id ( nombre )
@@ -143,6 +146,7 @@ export async function GET() {
       return {
         id: doc.documento_id ?? doc.id,
         supabaseId: doc.id,
+        ownerEmail: user.email ?? '',
         recipientName: firstPart.nombre ?? firstPart.name ?? firstPart.email ?? 'Destinatario',
         recipientEmail: firstPart.email ?? '',
         recipientRfc: firstPart.rfc ?? '',
@@ -150,6 +154,8 @@ export async function GET() {
         documentType: doc.tipo_documento?.nombre ?? 'Documento',
         description: doc.descripcion ?? undefined,
         status,
+        participantMode: resolveParticipantMode(doc.participant_mode, allParts, doc.owner_id, user.email),
+        participationOrder: doc.participation_order || 'paralelo',
         priority: doc.es_urgente ? 'Urgente' : 'Normal',
         sentAt: doc.created_at,
         expiresAt: doc.fecha_vencimiento ?? null,
@@ -181,9 +187,26 @@ export async function GET() {
             currentAccess: p.current_access !== false,
             historicalParticipation: p.historical_participation === true,
             relationshipStatus: p.participant_relationship_status ?? undefined,
-            isCurrentUser: p.isCurrentUser === true,
+            isCurrentUser: p.isCurrentUser === true || p.user_id === user.id ||
+              (!!user.email && String(p.email || '').trim().toLowerCase() === user.email.trim().toLowerCase()),
           };
         }),
+        uninviteEvents: allParts
+          .filter((p: any) =>
+            p.participant_relationship_status === 'REVOKED' &&
+            p.access_revoked_at &&
+            !Number.isNaN(Date.parse(p.access_revoked_at))
+          )
+          .map((p: any) => ({
+            date: p.access_revoked_at,
+            label: `Se desinvitó a ${p.nombre ?? p.name ?? 'un participante'}`,
+          })),
+        inviteEvents: allParts
+          .filter((p: any) => p.invited_at && !Number.isNaN(Date.parse(p.invited_at)))
+          .map((p: any) => ({
+            date: p.invited_at,
+            label: `Se invitó a ${p.nombre ?? p.name ?? 'un participante'}`,
+          })),
         signaturesTotal: totalSigs,
         signaturesDone: doneSigs,
       };

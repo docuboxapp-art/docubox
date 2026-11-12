@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  ChevronDown,
   ClipboardList,
   Eye,
   FileCheck2,
@@ -138,6 +139,7 @@ function ResponsesContent() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [tab, setTab] = useState<DetailTab>('form');
+  const [capturedDataOpen, setCapturedDataOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [detail, setDetail] = useState<ResponseDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
@@ -297,7 +299,7 @@ function ResponsesContent() {
     return (
       <AppLayout noPadding>
         <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-          <div className="mx-auto w-full max-w-[1560px] min-[1920px]:max-w-[1800px]">
+          <div className="mx-auto w-full max-w-[1600px]">
             <Link
               href="/formularios"
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
@@ -316,7 +318,7 @@ function ResponsesContent() {
   return (
     <AppLayout noPadding>
       <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <header className="mx-auto flex w-full max-w-[1560px] items-center justify-between gap-4 border-b border-slate-200 pb-5 dark:border-border min-[1920px]:max-w-[1800px]">
+        <header className="mx-auto mb-4 flex w-full max-w-[1600px] items-center justify-between gap-4 border-b border-slate-200 pb-4 dark:border-border">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950 dark:text-foreground">
               Respuestas
@@ -332,7 +334,7 @@ function ResponsesContent() {
             <X size={16} /> Cerrar
           </Link>
         </header>
-        <div className="mx-auto grid w-full max-w-[1560px] gap-4 py-5 min-[1920px]:max-w-[1800px] xl:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="mx-auto grid w-full max-w-[1600px] gap-4 pb-5 xl:grid-cols-[minmax(0,1fr)_460px]">
           <section
             aria-label="Lista de respuestas"
             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
@@ -417,6 +419,7 @@ function ResponsesContent() {
                     onClick={() => {
                       setSelectedId(response.id);
                       setTab('form');
+                      setCapturedDataOpen(true);
                     }}
                     className={`flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/30 ${selected?.id === response.id ? 'bg-blue-50/70 dark:bg-blue-950/20' : ''}`}
                   >
@@ -533,27 +536,45 @@ function ResponsesContent() {
                     >
                       <Eye size={16} /> Ver formulario contestado
                     </button>
-                    <p className="mb-3 mt-5 text-sm text-slate-500">
-                      Datos capturados en el formulario
-                    </p>
-                    <dl className="space-y-3">
-                      {answers.map((answer) => (
-                        <div
-                          key={answer.key}
-                          className="rounded-lg border border-slate-200 p-4 dark:border-border"
-                        >
-                          <dt className="text-xs font-medium uppercase text-slate-500">
-                            {answer.label}
-                          </dt>
-                          <dd className="mt-1 break-words text-sm leading-5">
-                            {answerText(answer, selected)}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                    {answers.length === 0 && (
-                      <p className="text-sm text-slate-500">No hay campos capturados.</p>
-                    )}
+                    <button
+                      id="captured-form-data-toggle"
+                      type="button"
+                      aria-expanded={capturedDataOpen}
+                      aria-controls="captured-form-data"
+                      onClick={() => setCapturedDataOpen((open) => !open)}
+                      className="mt-4 flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-medium text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-border dark:bg-muted/40 dark:text-foreground"
+                    >
+                      <span>Datos capturados en el formulario</span>
+                      <ChevronDown
+                        size={17}
+                        className={`shrink-0 text-slate-500 transition-transform ${capturedDataOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    <div
+                      id="captured-form-data"
+                      role="region"
+                      aria-labelledby="captured-form-data-toggle"
+                      className={capturedDataOpen ? 'mt-3' : 'hidden'}
+                    >
+                      <dl className="space-y-3">
+                        {answers.map((answer) => (
+                          <div
+                            key={answer.key}
+                            className="rounded-lg border border-slate-200 p-4 dark:border-border"
+                          >
+                            <dt className="text-xs font-medium uppercase text-slate-500">
+                              {answer.label}
+                            </dt>
+                            <dd className="mt-1 break-words text-sm leading-5">
+                              {answerText(answer, selected)}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                      {answers.length === 0 && (
+                        <p className="text-sm text-slate-500">No hay campos capturados.</p>
+                      )}
+                    </div>
                   </div>
                 )}
                 {tab === 'document' && (

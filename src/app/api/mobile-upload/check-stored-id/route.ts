@@ -38,9 +38,11 @@ export async function POST(req: NextRequest) {
     }
 
     const stored = await findStoredIdentity(supabase, userId, key);
-    if (session.metadata?.mode === 'public_form_liveness') {
-      return NextResponse.json({ hasStoredId: Boolean(stored?.front) },
-        { headers: { 'Cache-Control': 'no-store, private' } });
+    if (['public_form_liveness', 'case_portal_liveness'].includes(session.metadata?.mode)) {
+      return NextResponse.json(
+        { hasStoredId: Boolean(stored?.front) },
+        { headers: { 'Cache-Control': 'no-store, private' } }
+      );
     }
     return NextResponse.json(
       stored

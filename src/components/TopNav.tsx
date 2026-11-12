@@ -65,13 +65,13 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { useLuciaAssistant } from '@/contexts/LuciaAssistantContext';
 import UserAvatar from '@/components/ui/UserAvatar';
+import { isRetiredNotification, notificationAreaLabel, notificationDestination } from '@/lib/notifications/presentation';
 
 const BASE_NAV_TABS = [
   { href: '/inicio', label: 'Inicio', icon: Home },
-  { href: '/mis-documentos', label: 'Mis Documentos', icon: FileText },
+  { href: '/mis-documentos', label: 'Mi Espacio', icon: FileText },
   { href: '/mis-solicitudes', label: 'Solicitudes Enviadas', icon: Send },
   { href: '/mis-participaciones', label: 'Mis Participaciones', icon: FileSignature },
-  { href: '/mis-tareas', label: 'Mis Tareas', icon: CheckSquare },
   { href: '/contactos', label: 'Mis Contactos', icon: Users },
   // plantillas and formularios injected conditionally
   { href: '/reportes', label: 'Reportes', icon: BarChart3 },
@@ -90,8 +90,7 @@ const BASE_SIDEBAR_NAV_SECTIONS = [
     label: 'Principal',
     items: [
       { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/mis-documentos', icon: FolderOpen, label: 'Mis Documentos' },
-      { href: '/mis-tareas', icon: CheckSquare, label: 'Mis Tareas' },
+      { href: '/mis-documentos', icon: FolderOpen, label: 'Mi Espacio' },
     ],
   },
   {
@@ -135,7 +134,7 @@ function formatRelativeTime(dateStr: string): string {
 
 type GlobalSearchResult = {
   id: string;
-  type: 'document' | 'folder' | 'contact' | 'task';
+  type: 'document' | 'folder' | 'contact';
   title: string;
   subtitle: string;
   href: string;
@@ -184,7 +183,6 @@ export default function TopNav() {
     pathname === '/mis-documentos' ||
     pathname === '/mis-solicitudes' ||
     pathname === '/mis-participaciones' ||
-    pathname === '/mis-tareas' ||
     pathname === '/plantillas' ||
     pathname.startsWith('/formularios') ||
     pathname.startsWith('/expedientes') ||
@@ -209,6 +207,10 @@ export default function TopNav() {
       time: string;
       read: boolean;
       type?: string;
+      category?: string | null;
+      event_type?: string | null;
+      entity_type?: string | null;
+      metadata?: Record<string, unknown> | null;
       action_url?: string | null;
       action_label?: string | null;
     }>
@@ -224,6 +226,9 @@ export default function TopNav() {
     time: string;
     read: boolean;
     type?: string;
+    category?: string | null;
+    event_type?: string | null;
+    entity_type?: string | null;
     created_at?: string;
     priority?: string;
     metadata?: Record<string, unknown> | null;
@@ -239,13 +244,6 @@ export default function TopNav() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
-  const [prioritySnapshot, setPrioritySnapshot] = useState<{
-    workspaceId: string;
-    userId: string;
-    tasks: Array<{ id: string; title: string; prioridad: string; is_critical: boolean; due_date: string | null }>;
-    count: number;
-  }>({ workspaceId: '', userId: '', tasks: [], count: 0 });
 
   // Sidebar state from shared context
   const { sidebarOpen, setSidebarOpen } = useSidebar();
@@ -261,7 +259,6 @@ export default function TopNav() {
   const bellRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
-  const quickActionsRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchPanelInputRef = useRef<HTMLInputElement>(null);
   const recentSearchesRef = useRef<string[]>([]);
@@ -275,41 +272,6 @@ export default function TopNav() {
   } = useWorkspace();
   const { user, userProfile, signOut } = useAuth();
   const userId = user?.id ?? '';
-  const priorityScopeMatches = prioritySnapshot.workspaceId === activeWorkspace?.id && prioritySnapshot.userId === userId;
-  const priorityTasks = priorityScopeMatches ? prioritySnapshot.tasks : [];
-  const priorityTaskCount = priorityScopeMatches ? prioritySnapshot.count : 0;
-  useEffect(() => {
-    if (!userId || !activeWorkspace?.id) return;
-    let active = true;
-    const refresh = async () => {
-      const { data, count, error } = await createClient().from('tareas')
-        .select('id,title,prioridad,is_critical,due_date', { count: 'exact' })
-        .eq('workspace_id', activeWorkspace.id)
-        .eq('assigned_to', userId)
-        .not('source_id', 'is', null)
-        .or('prioridad.in.(critica,alta),is_critical.eq.true')
-        .not('estado', 'in', '(completada,cancelada,rechazada)')
-        .order('due_date', { ascending: true, nullsFirst: false }).limit(8);
-      if (active) {
-        setPrioritySnapshot({ workspaceId: activeWorkspace.id, userId, tasks: error ? [] : data || [], count: error ? 0 : count || 0 });
-        if (error || !count) setQuickActionsOpen(false);
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 60_000);
-    const onFocus = () => { void refresh(); };
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('docubox:tasks-changed', onFocus);
-    const onVisibility = () => { if (!document.hidden) void refresh(); };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('docubox:tasks-changed', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [activeWorkspace?.id, userId]);
   const { isDark, toggleTheme } = useTheme();
   const { isModuleActive, loading: modulesLoading } = useAppModules();
   const router = useRouter();
@@ -463,9 +425,6 @@ export default function TopNav() {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setSearchOpen(false);
       }
-      if (quickActionsRef.current && !quickActionsRef.current.contains(e.target as Node)) {
-        setQuickActionsOpen(false);
-      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -476,7 +435,6 @@ export default function TopNav() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setSearchOpen(false);
-        setQuickActionsOpen(false);
         setSidebarOpen(false);
       }
     }
@@ -620,20 +578,11 @@ export default function TopNav() {
           .order('created_at', { ascending: false })
           .limit(5);
 
-        const tasksRequest = activeWorkspace?.id
-          ? supabase
-              .from('tareas')
-              .select('id, title, description, estado, due_date')
-              .eq('workspace_id', activeWorkspace.id)
-              .or(
-                `title.ilike.${textPattern},description.ilike.${textPattern},estado.ilike.${statusPattern}`
-              )
-              .order('created_at', { ascending: false })
-              .limit(4)
-          : Promise.resolve({ data: [], error: null });
-
-        const [documentsResponse, foldersResponse, contactsResponse, tasksResponse] =
-          await Promise.all([documentsRequest, foldersRequest, contactsRequest, tasksRequest]);
+        const [documentsResponse, foldersResponse, contactsResponse] = await Promise.all([
+          documentsRequest,
+          foldersRequest,
+          contactsRequest,
+        ]);
         if (cancelled) return;
 
         const documentResults: GlobalSearchResult[] = (documentsResponse.data || []).map(
@@ -673,15 +622,7 @@ export default function TopNav() {
             href: `/contactos?contact=${item.id}`,
           })
         );
-        const taskResults: GlobalSearchResult[] = (tasksResponse.data || []).map((item: any) => ({
-          id: item.id,
-          type: 'task',
-          title: item.title || 'Tarea sin nombre',
-          subtitle: `Tarea · ${(item.estado || 'pendiente').replace(/_/g, ' ')}`,
-          href: `/mis-tareas?task=${item.id}`,
-        }));
-
-        setSearchResults([...documentResults, ...folderResults, ...contactResults, ...taskResults]);
+        setSearchResults([...documentResults, ...folderResults, ...contactResults]);
       } catch {
         if (!cancelled) setSearchResults([]);
       } finally {
@@ -693,7 +634,7 @@ export default function TopNav() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [activeWorkspace?.id, searchOpen, searchQuery, userId]);
+  }, [searchOpen, searchQuery, userId]);
 
   // Open join modal
   const handleOpenJoinModal = () => {
@@ -770,7 +711,7 @@ export default function TopNav() {
       const { data } = await supabase
         .from('notifications')
         .select(
-          'id, title, description, created_at, read, type, priority, metadata, action_url, action_label'
+          'id, title, description, created_at, read, type, priority, metadata, category, event_type, entity_type, action_url, action_label'
         )
         .eq('user_id', userId)
         .is('archived_at', null)
@@ -778,13 +719,16 @@ export default function TopNav() {
         .limit(20);
       if (data) {
         setNotifications(
-          data.map((n: any) => ({
+          data.filter((n: any) => !isRetiredNotification(n)).map((n: any) => ({
             id: n.id,
             title: n.title,
             description: n.description,
             time: formatRelativeTime(n.created_at),
             read: n.read,
             type: n.type,
+            category: n.category,
+            event_type: n.event_type,
+            entity_type: n.entity_type,
             created_at: n.created_at,
             priority: n.priority,
             metadata: n.metadata,
@@ -820,7 +764,7 @@ export default function TopNav() {
 
   // Build dynamic nav tabs based on active modules
   const navTabs = [
-    ...BASE_NAV_TABS.slice(0, 6), // up to Mis Contactos
+    ...BASE_NAV_TABS.slice(0, 5), // up to Mis Contactos
     ...(isModuleActive('plantillas')
       ? [{ href: '/plantillas', label: 'Plantillas', icon: LayoutTemplate }]
       : []),
@@ -851,7 +795,7 @@ export default function TopNav() {
     ...(isBusinessWorkspace && (canManageOrganization || activeWorkspace?.collaborationEnabled)
       ? [{ href: '/colabora', label: 'Colaboración', icon: Workflow }]
       : []),
-    ...BASE_NAV_TABS.slice(6), // Reportes and beyond
+    ...BASE_NAV_TABS.slice(5), // Reportes and beyond
   ];
 
   const accountMenuItems = canManageOrganization
@@ -1186,7 +1130,7 @@ export default function TopNav() {
                           else rememberSearch(searchQuery);
                         }
                       }}
-                      placeholder="Buscar documentos, contactos o tareas..."
+                      placeholder="Buscar documentos, carpetas o contactos..."
                       className="min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
                     />
                     {searchQuery && (
@@ -1257,7 +1201,7 @@ export default function TopNav() {
                                 ? FolderOpen
                                 : result.type === 'contact'
                                   ? Users
-                                  : CheckSquare;
+                                  : FileText;
                           const iconStyle =
                             result.type === 'document'
                               ? getDocumentSearchStyle(result.status)
@@ -1265,7 +1209,7 @@ export default function TopNav() {
                                 ? 'bg-amber-50 text-amber-600'
                                 : result.type === 'contact'
                                   ? 'bg-emerald-50 text-emerald-600'
-                                  : 'bg-amber-50 text-amber-600';
+                                  : 'bg-slate-100 text-slate-500';
                           return (
                             <button
                               key={`${result.type}-${result.id}`}
@@ -1300,7 +1244,7 @@ export default function TopNav() {
                           No encontramos coincidencias
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
-                          Prueba con el nombre de un documento, carpeta, contacto o tarea.
+                          Prueba con el nombre de un documento, carpeta o contacto.
                         </p>
                       </div>
                     )}
@@ -1309,57 +1253,7 @@ export default function TopNav() {
               )}
             </div>
 
-            {/* 2. Tareas prioritarias */}
-            {priorityTaskCount > 0 && <div ref={quickActionsRef} className="relative hidden flex-shrink-0 md:block">
-              <button title="Tareas prioritarias" aria-label="Tareas prioritarias" aria-expanded={quickActionsOpen}
-                onClick={() => { setQuickActionsOpen(open => !open); setBellOpen(false); setAvatarOpen(false); }}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${quickActionsOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}>
-                <CheckSquare className="h-5 w-5" />
-                <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-0.5">
-                  <span className="topnav-notification-count text-[9px] font-600 leading-none text-white">
-                    {priorityTaskCount > 99 ? '99+' : priorityTaskCount}
-                  </span>
-                </span>
-              </button>
-              {quickActionsOpen && (
-                <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900">
-                  <div className="border-b border-border px-4 py-3">
-                    <p className="text-base font-600 text-foreground">Tareas prioritarias</p>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {priorityTasks.map((task) => {
-                      const critical = task.prioridad === 'critica' || task.is_critical;
-                      return (
-                        <button
-                          key={task.id}
-                          onClick={() => { setQuickActionsOpen(false); router.push(`/mis-tareas?task=${task.id}`); }}
-                          className="group flex w-full items-start gap-2 border-b border-border/50 px-3 py-3 text-left transition-colors duration-150 last:border-0 hover:bg-primary/[0.06]"
-                        >
-                          <span className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${critical ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>
-                            <CheckSquare size={14} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="line-clamp-2 text-sm font-500 leading-5 text-foreground [overflow-wrap:anywhere]">{task.title}</span>
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              {critical ? 'Crítica' : 'Alta'}{task.due_date ? ` · ${new Date(task.due_date).toLocaleDateString('es-MX')}` : ''}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="border-t border-border">
-                    <button
-                      onClick={() => { setQuickActionsOpen(false); router.push('/mis-tareas'); }}
-                      className="flex w-full items-center justify-center py-3 text-sm font-600 text-primary transition-colors duration-150 hover:bg-primary/5 hover:text-primary/80"
-                    >
-                      Ver todas las tareas
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>}
-            {/* 3. Centro de ayuda */}
+            {/* 2. Centro de ayuda */}
             <button
               title="Centro de ayuda"
               aria-label="Centro de ayuda"
@@ -1369,7 +1263,7 @@ export default function TopNav() {
               <HelpCircle className="h-5 w-5" />
             </button>
 
-            {/* 4. Expandir pantalla */}
+            {/* 3. Expandir pantalla */}
             <button
               title={isExpanded ? 'Restaurar pantalla' : 'Expandir pantalla'}
               onClick={() => setIsExpanded(!isExpanded)}
@@ -1378,7 +1272,7 @@ export default function TopNav() {
               {isExpanded ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
             </button>
 
-            {/* 5. Vista claro/oscuro */}
+            {/* 4. Vista claro/oscuro */}
             <button
               title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
               onClick={toggleTheme}
@@ -1387,7 +1281,7 @@ export default function TopNav() {
               {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
 
-            {/* 6. Notificaciones */}
+            {/* 5. Notificaciones */}
             <div ref={bellRef} className="relative flex-shrink-0">
               <button
                 title="Notificaciones"
@@ -1730,17 +1624,9 @@ export default function TopNav() {
           const n = detailNotif;
           const typeIcons: Record<string, React.ReactNode> = {
             document: <FileText size={16} className="text-blue-500" />,
-            task: <CheckSquare size={16} className="text-green-500" />,
             request: <Send size={16} className="text-purple-500" />,
             alert: <AlertTriangle size={16} className="text-red-500" />,
             info: <Info size={16} className="text-gray-400" />,
-          };
-          const typeLabels: Record<string, string> = {
-            document: 'Documento',
-            task: 'Tarea',
-            request: 'Solicitud',
-            alert: 'Alerta',
-            info: 'Información',
           };
           const priorityConfig: Record<string, { label: string; cls: string }> = {
             alta: { label: 'Alta', cls: 'bg-red-50 text-red-600 border border-red-200' },
@@ -1749,7 +1635,6 @@ export default function TopNav() {
           };
           const typeColorCls: Record<string, string> = {
             document: 'bg-blue-50 text-blue-600',
-            task: 'bg-green-50 text-green-600',
             request: 'bg-purple-50 text-purple-600',
             alert: 'bg-red-50 text-red-600',
             info: 'bg-muted text-muted-foreground',
@@ -1759,26 +1644,13 @@ export default function TopNav() {
           const handleContextualAction = async () => {
             if (!n.read) await markOneRead(n.id);
             const meta = (n as any).metadata as Record<string, unknown> | null | undefined;
-            if (n.action_url?.startsWith('/')) {
-              router.push(n.action_url);
-            } else if (nType === 'document') {
-              const docId = (meta?.document_id ?? meta?.documentoId) as string | undefined;
-              router.push(docId ? `/visor-documento/${docId}` : '/mis-documentos');
-            } else if (nType === 'task') {
-              router.push('/mis-tareas');
-            } else if (nType === 'request') {
-              router.push('/mis-solicitudes');
-            } else {
-              router.push('/inicio');
-            }
+            router.push(notificationDestination({ ...n, metadata: meta }));
             setDetailNotif(null);
             setBellOpen(false);
           };
           const contextualActionLabel = () => {
             if (nType === 'document') return 'Ver documento';
-            if (nType === 'task') return 'Ver tarea';
-            if (nType === 'request') return 'Ver solicitud';
-            return 'Ver en dashboard';
+            return `Ver ${notificationAreaLabel(n).toLowerCase()}`;
           };
           return (
             <div
@@ -1823,8 +1695,8 @@ export default function TopNav() {
                       <span
                         className={`inline-flex items-center gap-1 text-xs font-600 px-1.5 py-0.5 rounded-full ${typeColorCls[nType] ?? typeColorCls.info}`}
                       >
-                        {typeIcons[nType]}
-                        {typeLabels[nType] ?? 'Info'}
+                        {typeIcons[nType] ?? typeIcons.info}
+                        {notificationAreaLabel(n)}
                       </span>
                     </div>
                     <div className="bg-muted/40 rounded-lg p-2.5">

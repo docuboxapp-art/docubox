@@ -25,6 +25,8 @@ pnpm-debug.log*
 *.tgz
 tmp/
 .tmp/
+docs/observability/monitor-state.json
+docs/observability/monitor-state.json.tmp
 output/
 tmp-browser-state*.png
 NUL

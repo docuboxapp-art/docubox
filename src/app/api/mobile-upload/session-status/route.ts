@@ -35,6 +35,10 @@ export async function GET(request: NextRequest) {
       status: session.status,
       expiresAt: session.expires_at,
       mode: session.metadata?.mode || 'document_upload',
+      failureReason:
+        session.status === 'identity_failed'
+          ? session.metadata?.verification_failure_reason || null
+          : null,
       profile,
     },
     { headers: { 'Cache-Control': 'no-store, private' } }

@@ -43,13 +43,46 @@ test('leaves unrelated Supabase requests unchanged', async () => {
   };
 
   const result = await fetchWithPasswordSignInTimeout(
-    'https://example.supabase.co/auth/v1/user',
+    'https://example.supabase.co/rest/v1/documentos',
     { method: 'GET' },
     fetchImpl,
     10
   );
   assert.equal(result, response);
   assert.deepEqual(receivedInit, { method: 'GET' });
+});
+
+test('bounds a stalled refresh request without changing the password deadline', async () => {
+  let cancelled = false;
+  const pending = fetchWithPasswordSignInTimeout(
+    'https://example.supabase.co/auth/v1/token?grant_type=refresh_token',
+    undefined,
+    (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          cancelled = true;
+          reject(init.signal.reason);
+        });
+      }),
+    10
+  );
+  await assert.rejects(pending, { name: 'TimeoutError' });
+  assert.equal(cancelled, true);
+});
+
+test('bounds a stalled user verification request', async () => {
+  await assert.rejects(
+    fetchWithPasswordSignInTimeout(
+      'https://example.supabase.co/auth/v1/user',
+      undefined,
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason));
+        }),
+      10
+    ),
+    { name: 'TimeoutError' }
+  );
 });
 
 test('passes through an existing cancellation signal', async () => {

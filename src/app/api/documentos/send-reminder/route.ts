@@ -95,15 +95,16 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    const isCreatorOnlyParticipant =
-      authorizedDocument.owner_id === user.id &&
-      activeParticipants.length === 1 &&
-      (String(participantForReminder.id || participantForReminder.user_id || '') === user.id ||
-        String(participantForReminder.email || '').trim().toLowerCase() ===
-          String(user.email || '').trim().toLowerCase());
-    if (isCreatorOnlyParticipant) {
+    const terminalParticipantStatuses = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
+    const hasCompletedParticipation = [
+      participantForReminder.sub_estado,
+      participantForReminder.estado,
+      participantForReminder.status,
+      participantForReminder.participation_status,
+    ].some((status) => terminalParticipantStatuses.includes(String(status || '').toLowerCase()));
+    if (hasCompletedParticipation) {
       return NextResponse.json(
-        { error: 'No se envían recordatorios cuando el creador es el único participante.' },
+        { error: 'El participante ya completó su participación.' },
         { status: 409 }
       );
     }

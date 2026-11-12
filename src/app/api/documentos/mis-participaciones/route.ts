@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
-import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
+import {
+  createAnonClient,
+  createServiceClient,
+  fetchWithRequestDeadline,
+} from '@/lib/supabase/server';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { isTemporaryDatabaseFailure } from '@/lib/supabase/backend-failure';
+import { emitObservedEvent } from '@/lib/observability/events';
 
 // Terminal sub_estados stored in documentos.participantes JSONB
 const TERMINAL_SUB_ESTADOS = [
@@ -128,6 +135,7 @@ function mapSubEstadoToDisplay(sub: string): string {
 
 export async function GET(request: NextRequest) {
   const startedAt = performance.now();
+  const deadline = AbortSignal.timeout(20_000);
   try {
     // Step 1: Validate the user session — try Bearer token first, then cookies
     let user: any = null;
@@ -138,7 +146,7 @@ export async function GET(request: NextRequest) {
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (bearerToken) {
-      const anonClient = createAnonClient(bearerToken);
+      const anonClient = createAnonClient(bearerToken, deadline);
       const {
         data: { user: tokenUser },
         error: tokenError,
@@ -146,6 +154,11 @@ export async function GET(request: NextRequest) {
       if (!tokenError && tokenUser) {
         user = tokenUser;
         userClient = anonClient;
+      } else if (tokenError && !isDefinitivelyInvalidAuthToken(tokenError)) {
+        return NextResponse.json(
+          { error: 'Verificación temporalmente no disponible' },
+          { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+        );
       }
     }
 
@@ -156,6 +169,7 @@ export async function GET(request: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
+          global: { fetch: fetchWithRequestDeadline(deadline) },
           cookies: {
             getAll() {
               return cookieStore.getAll();
@@ -177,7 +191,11 @@ export async function GET(request: NextRequest) {
         error: authError,
       } = await anonClient.auth.getUser();
       if (authError || !cookieUser) {
-        return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+        const invalid = !authError || isDefinitivelyInvalidAuthToken(authError);
+        return NextResponse.json(
+          { error: invalid ? 'No autenticado' : 'Verificación temporalmente no disponible' },
+          { status: invalid ? 401 : 503, headers: { 'Cache-Control': 'private, no-store' } }
+        );
       }
       user = cookieUser;
       userClient = anonClient;
@@ -227,8 +245,23 @@ export async function GET(request: NextRequest) {
     const documentsDbMs = performance.now() - queryStartedAt;
 
     if (error) {
-      console.error('[mis-participaciones] DB error:', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      const temporary = isTemporaryDatabaseFailure(error, result.status);
+      const status = temporary ? 503 : 500;
+      emitObservedEvent({
+        service: 'next',
+        outcome: 'error',
+        route: '/api/documentos/mis-participaciones',
+        status,
+        durationMs: performance.now() - startedAt,
+        code: error.code,
+      });
+      return NextResponse.json(
+        {
+          error: 'No fue posible cargar las participaciones.',
+          code: temporary ? 'DATA_API_UNAVAILABLE' : 'PARTICIPATION_LIST_FAILED',
+        },
+        { status, headers: { 'Cache-Control': 'private, no-store' } }
+      );
     }
 
     // Fetch owner profiles separately to avoid join issues
@@ -237,7 +270,7 @@ export async function GET(request: NextRequest) {
       : [...new Set((docs ?? []).map((d: any) => d.owner_id).filter(Boolean))];
     let ownerMap: Record<string, { full_name: string; email: string }> = {};
     if (ownerIds.length > 0) {
-      const { data: profiles } = await createServiceClient()
+      const { data: profiles } = await createServiceClient(deadline)
         .from('user_profiles')
         .select('id, full_name, email')
         .in('id', ownerIds);
@@ -362,6 +395,7 @@ export async function GET(request: NextRequest) {
         documentName: doc.nombre ?? 'Sin nombre',
         documentType: (doc.tipo_documento as any)?.nombre ?? 'Documento',
         description: doc.descripcion ?? undefined,
+        senderId: doc.owner_id,
         senderName: ownerProfile?.full_name || 'Remitente',
         senderEmail: ownerProfile?.email || '',
         status,
@@ -421,8 +455,26 @@ export async function GET(request: NextRequest) {
         `participations_total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
     return response;
-  } catch (err: any) {
-    console.error('[mis-participaciones] Unexpected error:', err?.message ?? err);
-    return NextResponse.json({ error: err.message ?? 'Error interno' }, { status: 500 });
+  } catch (err: unknown) {
+    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : null;
+    const temporary =
+      isTemporaryDatabaseFailure({ code }) ||
+      (err instanceof Error && ['AbortError', 'TimeoutError'].includes(err.name));
+    const status = temporary ? 503 : 500;
+    emitObservedEvent({
+      service: 'next',
+      outcome: 'error',
+      route: '/api/documentos/mis-participaciones',
+      status,
+      durationMs: performance.now() - startedAt,
+      code: code || (err instanceof Error ? err.name : null),
+    });
+    return NextResponse.json(
+      {
+        error: 'No fue posible cargar las participaciones.',
+        code: temporary ? 'DATA_API_UNAVAILABLE' : 'PARTICIPATION_LIST_FAILED',
+      },
+      { status, headers: { 'Cache-Control': 'private, no-store' } }
+    );
   }
 }

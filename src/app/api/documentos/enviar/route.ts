@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createHash, randomUUID } from 'node:crypto';
+import { assertCaseDocumentSigningReady, CaseRuntimeError, runtimeFailure } from '@/lib/case-files/runtime.server';
 import {
   isEmailNotificationEnabled,
   sendParticipantInvitationEmails,
@@ -369,6 +370,7 @@ export async function POST(req: NextRequest) {
       ruta,
       etiquetasIds,
       participantes,
+      participantMode,
       camposSolicitados,
       workspaceId,
       otroTipoDocumento,
@@ -747,6 +749,9 @@ export async function POST(req: NextRequest) {
           visible: participant.isCurrentUser === true,
         }))
       : participantesConVisibilidad;
+    const boundSource = await supabaseAdmin.from('documentos').select('id').eq('documento_id',documentoId).eq('workspace_id',resolvedWorkspaceId).maybeSingle();
+    if (boundSource.error) throw boundSource.error;
+    if (boundSource.data) await assertCaseDocumentSigningReady(boundSource.data.id,{hash:effectiveFileHash,participants:participantsForPersistence});
     const documentRecord: Record<string, unknown> = {
       documento_id: documentoId,
       owner_id: user.id,
@@ -779,6 +784,9 @@ export async function POST(req: NextRequest) {
       impedir_extraccion: impedirExtraccion === true,
       evitar_montaje: evitarMontaje === true,
       participantes: participantsForPersistence,
+      participant_mode: ['solo_yo', 'yo_y_otros', 'solo_otros'].includes(participantMode)
+        ? participantMode
+        : null,
       campos_solicitados: camposSolicitados || [],
       participation_order: effectiveOrder,
       grupos_firma: effectiveGrupos.length > 0 ? effectiveGrupos : null,
@@ -1751,6 +1759,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: unknown) {
+    if (err instanceof CaseRuntimeError) { const failure=runtimeFailure(err); return NextResponse.json(failure.body,{status:failure.status}); }
     if (err instanceof ServerRateLimitUnavailableError) {
       return NextResponse.json(
         { error: 'La protección de solicitudes no está disponible temporalmente.' },

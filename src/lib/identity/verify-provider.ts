@@ -18,7 +18,7 @@ type ProviderResult = {
   document_validation: { valid: boolean };
   document_fields: { curp: string | null; nombre_completo: string | null; nombre?: string | null };
   face_validation: { match: boolean; score: number };
-  liveness: { passed: boolean; method: string; score?: number };
+  liveness: { passed: boolean; method: string; score?: number; code?: number };
   face_template_base64?: string | null;
 };
 
@@ -34,11 +34,15 @@ async function postProvider(url: string, auth: string, payload: Record<string, s
       signal: AbortSignal.timeout(60_000),
     });
   } catch {
-    throw new IdentityProviderUnavailableError('No fue posible conectar con el proveedor biométrico.');
+    throw new IdentityProviderUnavailableError(
+      'No fue posible conectar con el proveedor biométrico.'
+    );
   }
   const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok || !data) {
-    throw new IdentityProviderUnavailableError('El proveedor biométrico no pudo procesar la captura.');
+    throw new IdentityProviderUnavailableError(
+      'El proveedor biométrico no pudo procesar la captura.'
+    );
   }
   return data;
 }
@@ -69,7 +73,9 @@ export async function verifyIdentityAndLiveness(input: VerificationInput): Promi
   const user = process.env.NUBARIUM_USER;
   const pass = process.env.NUBARIUM_PASS;
   if (!user || !pass) {
-    throw new IdentityProviderUnavailableError('El proveedor de identidad y prueba de vida no está configurado.');
+    throw new IdentityProviderUnavailableError(
+      'El proveedor de identidad y prueba de vida no está configurado.'
+    );
   }
   const auth = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
   const [document, face, liveness] = await Promise.all([
@@ -92,15 +98,38 @@ export async function verifyIdentityAndLiveness(input: VerificationInput): Promi
 
   const documentValid = input.approvedDocument
     ? true
-    : Boolean(document?.tipo && (document?.nombres || document?.nombre) && validDocumentExpiry(document?.vigencia));
+    : Boolean(
+        document?.tipo &&
+        (document?.nombres || document?.nombre) &&
+        validDocumentExpiry(document?.vigencia)
+      );
   const score = Number(face.similitud || 0);
   const faceMatch = face.estatus === 'OK' && Number.isFinite(score) && score >= 99.5;
-  const livenessScore = Number(liveness.score || 0);
-  const live = liveness.status === 'OK' && Number(liveness.messageCode) === 0;
+  // Nubarium documents 0=verified, 1=spoof, 2=no face, 3=multiple faces.
+  // Codes 4/50/100 are input/service errors, not a biometric rejection.
+  // Missing/null codes must never coerce to the successful code 0.
+  const livenessCode = typeof liveness.messageCode === 'number' ? liveness.messageCode : NaN;
+  if (
+    ![0, 1, 2, 3].includes(livenessCode) ||
+    (livenessCode === 0 ? liveness.status !== 'OK' : liveness.status !== 'ERROR')
+  ) {
+    throw new IdentityProviderUnavailableError(
+      'El servicio no pudo evaluar la prueba de vida. La sesión sigue disponible; vuelve a grabar la captura e inténtalo nuevamente.'
+    );
+  }
+  const livenessScore =
+    typeof liveness.score === 'number' && Number.isFinite(liveness.score)
+      ? liveness.score
+      : undefined;
+  const live = livenessCode === 0;
   const curp = input.approvedDocument?.curp || String(document?.curp || '').trim() || null;
-  const nombre = input.approvedDocument?.nombre ||
+  const nombre =
+    input.approvedDocument?.nombre ||
     [document?.nombres || document?.nombre, document?.primerApellido, document?.segundoApellido]
-      .filter(Boolean).join(' ').trim() || null;
+      .filter(Boolean)
+      .join(' ')
+      .trim() ||
+    null;
   return {
     provider: 'NUBARIUM',
     verification_id: String(liveness.validationCode || face.codigoValidacion || randomUUID()),
@@ -109,6 +138,11 @@ export async function verifyIdentityAndLiveness(input: VerificationInput): Promi
     document_validation: { valid: documentValid },
     document_fields: { curp, nombre_completo: nombre },
     face_validation: { match: faceMatch, score },
-    liveness: { passed: live, method: 'NUBARIUM_PASSIVE_IMAGE', score: livenessScore },
+    liveness: {
+      passed: live,
+      method: 'NUBARIUM_PASSIVE_IMAGE',
+      score: livenessScore,
+      code: livenessCode,
+    },
   };
 }

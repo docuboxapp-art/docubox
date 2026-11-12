@@ -20,8 +20,15 @@ import {
 } from '@/lib/forms/schema';
 import type { FormPdfDefaults } from '@/lib/forms/pdf-defaults';
 import { reusableFormAppearance } from '@/lib/forms/appearance-defaults';
-import { snapshotFormExperience, type FormExperienceDefaults } from '@/lib/forms/experience-defaults';
-import { defaultLegalFieldContent, isLegalField } from '@/lib/forms/legal-field-content';
+import {
+  snapshotFormExperience,
+  type FormExperienceDefaults,
+} from '@/lib/forms/experience-defaults';
+import {
+  createDefaultFormLegalDefaults,
+  isLegalField,
+  type FormLegalDefaults,
+} from '@/lib/forms/legal-field-content';
 
 export type {
   FieldOption,
@@ -41,6 +48,7 @@ interface FormBuilderState {
   savedAppearance: FormAppearance;
   savedPdfSchema: PdfSchema;
   savedPdfSections: ReturnType<typeof snapshotPdfSectionLayout>;
+  legalDefaults: FormLegalDefaults;
   selectedFieldId: string | null;
   selectedSectionId: string | null;
   canvasMode: 'list' | 'preview' | 'pdf';
@@ -54,6 +62,7 @@ type FormBuilderAction =
   | { type: 'APPLY_PDF_DEFAULTS'; payload: FormPdfDefaults }
   | { type: 'APPLY_APPEARANCE_DEFAULTS'; payload: FormAppearance }
   | { type: 'APPLY_EXPERIENCE_DEFAULTS'; payload: FormExperienceDefaults }
+  | { type: 'APPLY_LEGAL_DEFAULTS'; payload: FormLegalDefaults }
   | { type: 'SAVE_EXPERIENCE_DEFAULTS'; payload: FormExperienceDefaults }
   | { type: 'SAVE_APPEARANCE_DESIGN'; payload: FormAppearance }
   | { type: 'SAVE_PDF_DESIGN'; payload: { pdfSchema: PdfSchema; sections: FormSection[] } }
@@ -89,6 +98,7 @@ const initialState: FormBuilderState = {
   savedAppearance: defaultTemplate.settings.appearance,
   savedPdfSchema: defaultTemplate.settings.pdfSchema,
   savedPdfSections: snapshotPdfSectionLayout(defaultTemplate.sections),
+  legalDefaults: createDefaultFormLegalDefaults(),
   selectedFieldId: null,
   selectedSectionId: defaultTemplate.sections[0].id,
   canvasMode: 'list',
@@ -97,7 +107,10 @@ const initialState: FormBuilderState = {
   lastSaved: null,
 };
 
-export function formBuilderReducer(state: FormBuilderState, action: FormBuilderAction): FormBuilderState {
+export function formBuilderReducer(
+  state: FormBuilderState,
+  action: FormBuilderAction
+): FormBuilderState {
   switch (action.type) {
     case 'SET_TEMPLATE': {
       const template = normalizeFormTemplate(action.payload);
@@ -153,7 +166,7 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
         savedExperience: { ...action.payload },
         template: {
           ...state.template,
-          settings: { ...state.template.settings, ...action.payload, requiresSignature: true },
+          settings: { ...state.template.settings, ...action.payload },
         },
       };
     }
@@ -163,6 +176,9 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
         ...state,
         savedExperience: { ...action.payload },
       };
+
+    case 'APPLY_LEGAL_DEFAULTS':
+      return { ...state, legalDefaults: action.payload };
 
     case 'SAVE_APPEARANCE_DESIGN':
       return { ...state, savedAppearance: { ...action.payload } };
@@ -178,7 +194,7 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
       return { ...state, template: { ...state.template, ...action.payload }, isDirty: true };
 
     case 'SET_SETTINGS': {
-      const settings = { ...state.template.settings, ...action.payload, requiresSignature: true };
+      const settings = { ...state.template.settings, ...action.payload };
       if ('documentNumber' in action.payload || 'documentTypeName' in action.payload) {
         settings.appearance = {
           ...settings.appearance,
@@ -223,15 +239,26 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
       };
 
     case 'ADD_FIELD': {
-      if (action.payload.field.type === 'signature_block' &&
-          (!state.template.settings.requiresSignature || state.template.schema.some((field) => field.type === 'signature_block'))) return state;
+      if (
+        action.payload.field.type === 'signature_block' &&
+        (!state.template.settings.requiresSignature ||
+          state.template.schema.some((field) => field.type === 'signature_block'))
+      )
+        return state;
       const sectionId =
         state.selectedSectionId || state.template.sections.at(-1)?.id || DEFAULT_SECTION_ID;
       const field = {
         ...action.payload.field,
-        required: action.payload.field.type === 'signature_block' ? true : action.payload.field.required,
-        conditionalVisible: action.payload.field.type === 'signature_block' ? false : action.payload.field.conditionalVisible,
-        conditionalRule: action.payload.field.type === 'signature_block' ? undefined : action.payload.field.conditionalRule,
+        required:
+          action.payload.field.type === 'signature_block' ? true : action.payload.field.required,
+        conditionalVisible:
+          action.payload.field.type === 'signature_block'
+            ? false
+            : action.payload.field.conditionalVisible,
+        conditionalRule:
+          action.payload.field.type === 'signature_block'
+            ? undefined
+            : action.payload.field.conditionalRule,
         sectionId,
         pdf: {
           ...action.payload.field.pdf,
@@ -268,9 +295,18 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
           ? {
               ...field,
               ...action.payload.updates,
-              required: field.type === 'signature_block' ? true : (action.payload.updates.required ?? field.required),
-              conditionalVisible: field.type === 'signature_block' ? false : (action.payload.updates.conditionalVisible ?? field.conditionalVisible),
-              conditionalRule: field.type === 'signature_block' ? undefined : (action.payload.updates.conditionalRule ?? field.conditionalRule),
+              required:
+                field.type === 'signature_block'
+                  ? true
+                  : (action.payload.updates.required ?? field.required),
+              conditionalVisible:
+                field.type === 'signature_block'
+                  ? false
+                  : (action.payload.updates.conditionalVisible ?? field.conditionalVisible),
+              conditionalRule:
+                field.type === 'signature_block'
+                  ? undefined
+                  : (action.payload.updates.conditionalRule ?? field.conditionalRule),
             }
           : field
       );
@@ -377,17 +413,25 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
 
     case 'ACK_SAVE': {
       const { saved, snapshot } = action.payload;
-      if (state.template.id && state.template.id !== snapshot.id && state.template.id !== saved.id) return state;
+      if (state.template.id && state.template.id !== snapshot.id && state.template.id !== saved.id)
+        return state;
       const unchanged = state.template === snapshot;
       return {
         ...state,
-        template: unchanged ? saved : {
-          ...state.template, id: saved.id, workspaceId: saved.workspaceId,
-          updatedAt: saved.updatedAt, versionNumber: saved.versionNumber,
-          revisionNumber: saved.revisionNumber, sourceTemplateId: saved.sourceTemplateId,
-          rootTemplateId: saved.rootTemplateId,
-          publishedAt: saved.publishedAt, status: saved.status,
-        },
+        template: unchanged
+          ? saved
+          : {
+              ...state.template,
+              id: saved.id,
+              workspaceId: saved.workspaceId,
+              updatedAt: saved.updatedAt,
+              versionNumber: saved.versionNumber,
+              revisionNumber: saved.revisionNumber,
+              sourceTemplateId: saved.sourceTemplateId,
+              rootTemplateId: saved.rootTemplateId,
+              publishedAt: saved.publishedAt,
+              status: saved.status,
+            },
         lastSaved: new Date(),
         savedExperience: snapshotFormExperience(saved.settings),
         isDirty: !unchanged,
@@ -419,20 +463,26 @@ export function formBuilderReducer(state: FormBuilderState, action: FormBuilderA
       if (state.template.sections.length === 1) return state;
       const remaining = state.template.sections.filter((section) => section.id !== action.payload);
       const targetId = remaining[0].id;
-      const movedIds = state.template.sections.find((section) => section.id === action.payload)?.fieldIds || [];
+      const movedIds =
+        state.template.sections.find((section) => section.id === action.payload)?.fieldIds || [];
       return {
         ...state,
         template: {
           ...state.template,
           schema: state.template.schema.map((field) =>
             field.sectionId === action.payload
-              ? { ...field, sectionId: targetId, pdf: { ...field.pdf, show: field.pdf?.show ?? true, sectionId: targetId } }
+              ? {
+                  ...field,
+                  sectionId: targetId,
+                  pdf: { ...field.pdf, show: field.pdf?.show ?? true, sectionId: targetId },
+                }
               : field
           ),
           sections: remaining.map((section, index) => ({
             ...section,
             order: index,
-            fieldIds: section.id === targetId ? [...section.fieldIds, ...movedIds] : section.fieldIds,
+            fieldIds:
+              section.id === targetId ? [...section.fieldIds, ...movedIds] : section.fieldIds,
           })),
         },
         selectedSectionId: targetId,
@@ -467,14 +517,20 @@ export function useFormBuilder() {
   return context;
 }
 
-function createDefaultField(type: FieldType): FormField {
+function createDefaultField(type: FieldType, legalDefaults: FormLegalDefaults): FormField {
   const id = crypto.randomUUID();
   const label = getFieldTypeLabel(type);
   const optionTypes: FieldType[] = ['select', 'radio', 'checkbox_group', 'yes_no'];
   const options: FieldOption[] =
     type === 'yes_no'
-      ? [{ label: 'Sí', value: 'si' }, { label: 'No', value: 'no' }]
-      : [{ label: 'Opción 1', value: 'opcion_1' }, { label: 'Opción 2', value: 'opcion_2' }];
+      ? [
+          { label: 'Sí', value: 'si' },
+          { label: 'No', value: 'no' },
+        ]
+      : [
+          { label: 'Opción 1', value: 'opcion_1' },
+          { label: 'Opción 2', value: 'opcion_2' },
+        ];
   const signatureTypes: Partial<Record<FieldType, SignatureType[]>> = {
     firma_efirma: ['efirma_sat'],
     firma_autografa: ['autografa_digital'],
@@ -485,10 +541,14 @@ function createDefaultField(type: FieldType): FormField {
     id,
     type,
     label,
-    slug: `${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}_${id.slice(0, 4)}`,
+    slug: `${label
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')}_${id.slice(0, 4)}`,
     placeholder: '',
-    description: isLegalField(type) ? defaultLegalFieldContent(type).description : '',
-    acceptanceLabel: isLegalField(type) ? defaultLegalFieldContent(type).acceptanceLabel : undefined,
+    description: isLegalField(type) ? legalDefaults[type].description : '',
+    acceptanceLabel: isLegalField(type) ? legalDefaults[type].acceptanceLabel : undefined,
     required: ['consentimiento', 'declaration', 'signature_block'].includes(type),
     readOnly: false,
     editableBeforeSign: true,
@@ -497,7 +557,12 @@ function createDefaultField(type: FieldType): FormField {
     options: optionTypes.includes(type) ? options : undefined,
     pdf: { show: true, label, order: 0 },
     signature: signatureTypes[type]
-      ? { signerRole: 'Participante', allowedTypes: signatureTypes[type]!, requireOtp: true, requireEvidence: true }
+      ? {
+          signerRole: 'Participante',
+          allowedTypes: signatureTypes[type]!,
+          requireOtp: true,
+          requireEvidence: true,
+        }
       : undefined,
     width: 300,
     height: ['firma_autografa', 'signature_block'].includes(type) ? 120 : 40,
@@ -507,25 +572,59 @@ function createDefaultField(type: FieldType): FormField {
 export function FormBuilderProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(formBuilderReducer, initialState);
 
-  const addField = useCallback((type: FieldType, afterId?: string) => {
-    dispatch({ type: 'ADD_FIELD', payload: { field: createDefaultField(type), afterId } });
-  }, []);
+  const addField = useCallback(
+    (type: FieldType, afterId?: string) => {
+      dispatch({
+        type: 'ADD_FIELD',
+        payload: { field: createDefaultField(type, state.legalDefaults), afterId },
+      });
+    },
+    [state.legalDefaults]
+  );
   const updateField = useCallback((id: string, updates: Partial<FormField>) => {
     dispatch({ type: 'UPDATE_FIELD', payload: { id, updates } });
   }, []);
-  const deleteField = useCallback((id: string) => dispatch({ type: 'DELETE_FIELD', payload: id }), []);
-  const duplicateField = useCallback((id: string) => dispatch({ type: 'DUPLICATE_FIELD', payload: id }), []);
-  const selectField = useCallback((id: string | null) => dispatch({ type: 'SELECT_FIELD', payload: id }), []);
+  const deleteField = useCallback(
+    (id: string) => dispatch({ type: 'DELETE_FIELD', payload: id }),
+    []
+  );
+  const duplicateField = useCallback(
+    (id: string) => dispatch({ type: 'DUPLICATE_FIELD', payload: id }),
+    []
+  );
+  const selectField = useCallback(
+    (id: string | null) => dispatch({ type: 'SELECT_FIELD', payload: id }),
+    []
+  );
   const addSection = useCallback(() => {
-    dispatch({ type: 'ADD_SECTION', payload: createDefaultSection(state.template.sections.length, `Sección ${state.template.sections.length + 1}`) });
+    dispatch({
+      type: 'ADD_SECTION',
+      payload: createDefaultSection(
+        state.template.sections.length,
+        `Sección ${state.template.sections.length + 1}`
+      ),
+    });
   }, [state.template.sections.length]);
 
-  const selectedField = state.template.schema.find((field) => field.id === state.selectedFieldId) || null;
-  const selectedSection = state.template.sections.find((section) => section.id === state.selectedSectionId) || null;
+  const selectedField =
+    state.template.schema.find((field) => field.id === state.selectedFieldId) || null;
+  const selectedSection =
+    state.template.sections.find((section) => section.id === state.selectedSectionId) || null;
 
   return (
     <FormBuilderContext.Provider
-      value={{ state, dispatch, addField, updateField, deleteField, duplicateField, selectField, addSection, selectedField, selectedSection }}
+      value={{
+        state,
+        dispatch,
+        addField,
+        updateField,
+        deleteField,
+        duplicateField,
+        selectField,
+        addSection,
+        selectedField,
+        selectedSection,
+      }}
     >
       {children}
     </FormBuilderContext.Provider>

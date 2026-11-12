@@ -75,8 +75,9 @@ async function generateFixture({ pageSize = 'a4', orientation = 'portrait', cove
     },
   };
   const chain = {
-    select() { return this; }, eq() { return this; }, order() { return this; }, insert() { return this; }, update() { return this; },
+    select() { return this; }, eq() { return this; }, is() { return this; }, order() { return this; }, insert() { return this; }, update() { return this; },
     single: async () => ({ data: row }),
+    maybeSingle: async () => ({ data: row }),
     catch: async () => ({}),
     then(resolve) { return Promise.resolve({ data: [] }).then(resolve); },
   };

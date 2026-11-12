@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 import {
   assertKioskDocumentScope,
   kioskParticipantMatchesUser,
@@ -51,15 +52,16 @@ export async function GET(request: NextRequest) {
     // Authenticate via Authorization header (Bearer token sent by client)
     const authHeader = request.headers.get('authorization');
     let user: any = null;
+    let authUnavailable = false;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
-      const {
-        data: { user: tokenUser },
-        error: tokenError,
-      } = await supabaseAdmin.auth.getUser(token);
-      if (!tokenError && tokenUser) {
-        user = tokenUser;
+      try {
+        const { data, error } = await supabaseAdmin.auth.getUser(token);
+        if (error && !isDefinitivelyInvalidAuthToken(error)) authUnavailable = true;
+        if (!error && data.user) user = data.user;
+      } catch {
+        authUnavailable = true;
       }
     }
 
@@ -74,24 +76,31 @@ export async function GET(request: NextRequest) {
       // Parse Supabase auth token from cookies
       const tokenMatch = cookieHeader.match(/sb-[^-]+-auth-token=([^;]+)/);
       if (tokenMatch) {
+        let accessToken: string | undefined;
         try {
           const decoded = decodeURIComponent(tokenMatch[1]);
           const parsed = JSON.parse(decoded);
-          const accessToken = parsed?.access_token || parsed?.[0]?.access_token;
-          if (accessToken) {
-            const {
-              data: { user: cookieUser },
-            } = await supabaseAdmin.auth.getUser(accessToken);
-            if (cookieUser) user = cookieUser;
+          accessToken = parsed?.access_token || parsed?.[0]?.access_token;
+        } catch {
+          // Malformed legacy cookies remain unauthenticated.
+        }
+        if (accessToken) {
+          try {
+            const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
+            if (error && !isDefinitivelyInvalidAuthToken(error)) authUnavailable = true;
+            if (!error && data.user) user = data.user;
+          } catch {
+            authUnavailable = true;
           }
-        } catch (_) {
-          // Ignore malformed legacy auth cookies and keep the request unauthenticated.
         }
       }
     }
 
     if (!user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+      return NextResponse.json(
+        { error: authUnavailable ? 'No fue posible verificar la sesión.' : 'No autenticado' },
+        { status: authUnavailable ? 503 : 401, headers: { 'Cache-Control': 'private, no-store' } }
+      );
     }
 
     if (kioskSession) {

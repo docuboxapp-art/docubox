@@ -1,36 +1,65 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Eye, FileSearch, FileText, Search, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
-import { BottomNotice } from '@/components/ui/BottomNotice';
-import { createDemoCaseFile, type CaseRequirement } from '@/lib/case-files/schema';
-import { CaseWorkspace, SectionHeader, TrafficBadge } from '../components/CaseUI';
+import { createClient } from '@/lib/supabase/client';
+import { CaseWorkspace, SectionHeader } from '../components/CaseUI';
+
+type ReviewItem = { id: string; case_file_id: string; title: string; status: string };
 
 export default function RevisionDocumentalPage() {
-  const caseFile = createDemoCaseFile();
-  const reviewable = caseFile.requirements.filter((item) => ['in_review', 'observed', 'uploaded'].includes(item.status));
-  const [selected, setSelected] = useState<CaseRequirement | null>(reviewable[0] || null);
-  const [query, setQuery] = useState('');
-  const [decision, setDecision] = useState<Record<string, string>>({});
-  const filtered = useMemo(() => reviewable.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())), [query, reviewable]);
-
-  return <AppLayout noPadding><CaseWorkspace><SectionHeader title="Revisión documental" description="Resuelve los documentos pendientes con decisiones claras, evidencia visible y correcciones accionables." />
-    <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/30 dark:border-border dark:bg-card xl:grid-cols-[420px_minmax(0,1fr)]">
-      <section className="border-r border-slate-200 dark:border-border">
-        <header className="border-b border-slate-200 p-4 dark:border-border"><div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">Cola pendiente</h2><p className="mt-0.5 text-xs text-slate-500">{reviewable.length} documentos requieren atención</p></div><TrafficBadge tone="amber">Por revisar</TrafficBadge></div><div className="relative mt-3"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar documento" className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background" /></div></header>
-        <div className="divide-y divide-slate-200 dark:divide-border">{filtered.map((item) => <button key={item.id} onClick={() => setSelected(item)} className={`flex w-full gap-3 p-4 text-left transition ${selected?.id === item.id ? 'bg-blue-50' : 'hover:bg-slate-50 dark:hover:bg-muted/30'}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${item.status === 'observed' ? 'border-red-100 bg-red-50 text-red-600' : 'border-amber-100 bg-amber-50 text-amber-600'}`}><FileText size={18} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{item.name}</span><span className="mt-0.5 block text-xs text-slate-500">{caseFile.folio} · {caseFile.participant}</span><span className={`mt-2 inline-block text-[11px] font-semibold ${item.status === 'observed' ? 'text-red-600' : 'text-amber-600'}`}>{item.status === 'observed' ? 'Observado' : 'En revisión'}</span></span></button>)}</div>
-      </section>
-      <section className="min-w-0 bg-slate-50 dark:bg-background">{selected ? <>
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-border dark:bg-card"><div><h2 className="text-sm font-semibold">{selected.name}</h2><p className="mt-0.5 text-xs text-slate-500">{caseFile.title} · cargado por {caseFile.participant}</p></div><button className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border"><Eye size={14} /> Pantalla completa</button></header>
-        <div className="grid gap-5 p-5 2xl:grid-cols-[minmax(0,1fr)_350px]"><div className="flex min-h-[510px] items-center justify-center rounded-lg border border-slate-200 bg-slate-100 p-8"><div className="flex aspect-[8.5/11] w-full max-w-md flex-col items-center justify-center bg-white shadow-sm"><FileSearch size={44} className="text-primary" /><p className="mt-4 text-sm font-semibold">Vista previa segura</p><p className="mt-1 text-xs text-slate-500">PDF · 4 páginas · 1.8 MB</p></div></div><aside className="space-y-4"><ReviewCard title="Validaciones"><CheckRow label="Formato permitido" done /><CheckRow label="Archivo legible" done /><CheckRow label="Vigencia" done={selected.status !== 'observed'} /><CheckRow label="Coincidencia de titular" done /></ReviewCard><ReviewCard title="Datos extraídos"><Data label="RFC" value="CNO140410CH3" /><Data label="Razón social" value="Constructora del Norte" /><Data label="Fecha de emisión" value="01 ago 2026" /></ReviewCard>{selected.rejectionReason && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs leading-5 text-red-700"><strong>Observación actual:</strong><br />{selected.rejectionReason}<br /><strong>Corrección solicitada:</strong><br />{selected.correctionAction}</div>}</aside></div>
-        <footer className="sticky bottom-0 flex flex-col gap-3 border-t border-slate-200 bg-white p-4 dark:border-border dark:bg-card sm:flex-row sm:justify-end"><button onClick={() => setDecision({ ...decision, [selected.id]: 'observed' })} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 px-4 text-sm font-semibold text-red-700 hover:bg-red-50"><X size={15} /> Solicitar corrección</button><button className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-border">Pedir documento adicional</button><button onClick={() => setDecision({ ...decision, [selected.id]: 'approved' })} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"><Check size={15} /> Aprobar documento</button></footer>
-        {decision[selected.id] && <BottomNotice message={`Decisión preparada: ${decision[selected.id] === 'approved' ? 'aprobar documento' : 'solicitar corrección'}`} tone="followup" onClose={() => setDecision((current) => ({ ...current, [selected.id]: '' }))} />}
-      </> : <div className="flex h-full items-center justify-center text-sm text-slate-500">Selecciona un documento para revisarlo.</div>}</section>
-    </div>
-  </CaseWorkspace></AppLayout>;
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    createClient()
+      .from('case_file_requirements')
+      .select('id,case_file_id,title,status')
+      .in('status', ['uploaded', 'in_review', 'observed'])
+      .order('updated_at', { ascending: false })
+      .then(({ data, error: loadError }) => {
+        if (!cancelled) {
+          setItems(data || []);
+          setError(Boolean(loadError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <AppLayout noPadding>
+      <CaseWorkspace>
+        <SectionHeader
+          title="Revisión documental"
+          description="Documentos de expedientes que requieren atención."
+        />
+        <section className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+          {error ? (
+            <p role="alert" className="p-8 text-center text-sm text-amber-700">
+              No se pudo cargar la revisión documental.
+            </p>
+          ) : items.length ? (
+            items.map((item) => (
+              <Link
+                key={item.id}
+                href={`/expedientes/${item.case_file_id}?tab=documentos`}
+                className="flex items-center justify-between gap-4 p-4 hover:bg-slate-50 dark:hover:bg-muted/30"
+              >
+                <span className="text-sm font-medium">{item.title}</span>
+                <span className="text-xs text-slate-500">
+                  {item.status === 'observed' ? 'Observado' : 'En revisión'}
+                </span>
+              </Link>
+            ))
+          ) : (
+            <p className="p-8 text-center text-sm text-slate-500">
+              No hay documentos pendientes de revisión.
+            </p>
+          )}
+        </section>
+      </CaseWorkspace>
+    </AppLayout>
+  );
 }
-
-function ReviewCard({ title, children }: { title: string; children: React.ReactNode }) { return <div className="rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card"><h3 className="border-b border-slate-200 px-4 py-3 text-xs font-semibold dark:border-border">{title}</h3><div className="p-4">{children}</div></div>; }
-function CheckRow({ label, done }: { label: string; done: boolean }) { return <div className="flex items-center gap-2 py-1.5 text-xs"><span className={`flex h-5 w-5 items-center justify-center rounded-full ${done ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{done ? <Check size={12} /> : <AlertCircle size={12} />}</span>{label}</div>; }
-function Data({ label, value }: { label: string; value: string }) { return <div className="flex justify-between gap-3 border-b border-slate-200 py-2 text-xs last:border-0 dark:border-border"><span className="text-slate-500">{label}</span><span className="text-right font-medium">{value}</span></div>; }

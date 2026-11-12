@@ -9,7 +9,14 @@ import {
   validImageBase64,
 } from '@/lib/identity/capture-crypto';
 import { findStoredIdentity } from '@/lib/identity/stored-identity';
-import { IdentityProviderUnavailableError, verifyIdentityAndLiveness } from '@/lib/identity/verify-provider';
+import {
+  verificationFailureMessage,
+  type VerificationFailureReason,
+} from '@/lib/identity/verification-feedback';
+import {
+  IdentityProviderUnavailableError,
+  verifyIdentityAndLiveness,
+} from '@/lib/identity/verify-provider';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,12 +52,54 @@ export async function POST(request: NextRequest) {
       typeof session.metadata.form_id === 'string'
         ? session.metadata.form_id
         : null;
-    if (!session?.user_id || (!documentId && !formId)) {
+    const caseInvite =
+      session?.metadata?.mode === 'case_portal_liveness'
+        ? session.metadata.case_invitation_id
+        : null;
+    if (!session?.user_id || (!documentId && !formId && !caseInvite)) {
       return NextResponse.json({ error: 'Sesion invalida o expirada.' }, { status: 404 });
+    }
+    if (caseInvite) {
+      const invite = await supabase
+        .from('case_participant_invitations')
+        .select('id,case_file_id')
+        .eq('id', caseInvite)
+        .is('revoked_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .lte('not_before', new Date().toISOString())
+        .maybeSingle();
+      if (invite.error || !invite.data)
+        return NextResponse.json(
+          { error: 'La invitación ya no está disponible.' },
+          { status: 403 }
+        );
+      const parent = await supabase
+        .from('case_files')
+        .select('status')
+        .eq('id', invite.data.case_file_id)
+        .maybeSingle();
+      if (parent.error || !parent.data || parent.data.status === 'cancelled')
+        return NextResponse.json(
+          { error: 'El expediente ya no admite la captura.' },
+          { status: 403 }
+        );
+      const grant = await supabase
+        .from('case_invitation_access_grants')
+        .select('invitation_id')
+        .eq('invitation_id', caseInvite)
+        .eq('user_id', session.user_id)
+        .eq('code_verified', true)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      if (grant.error || !grant.data)
+        return NextResponse.json(
+          { error: 'Comprueba primero el acceso al expediente.' },
+          { status: 403 }
+        );
     }
 
     const storedIdentity = await findStoredIdentity(supabase, session.user_id, key);
-    if (formId && storedIdentity?.front) {
+    if ((formId || caseInvite) && storedIdentity?.front) {
       // Public-form access must compare the selfie with the user's approved ID,
       // regardless of what the mobile client sends in the document fields.
       front = storedIdentity.front;
@@ -71,10 +120,13 @@ export async function POST(request: NextRequest) {
       back,
       selfie,
       video: validImageBase64(video) ? video : null,
-      approvedDocument: storedIdentity?.front === front ? {
-        curp: storedIdentity.curp,
-        nombre: storedIdentity.nombre,
-      } : null,
+      approvedDocument:
+        storedIdentity?.front === front
+          ? {
+              curp: storedIdentity.curp,
+              nombre: storedIdentity.nombre,
+            }
+          : null,
     });
 
     const documentValidation = provider.document_validation || {};
@@ -104,7 +156,25 @@ export async function POST(request: NextRequest) {
       faceScore >= threshold &&
       liveness.passed === true &&
       curpMatch !== false;
+    const failureReason: VerificationFailureReason | null = identityMatch
+      ? null
+      : documentValidation.valid !== true
+        ? 'DOCUMENT_NOT_VALID'
+        : curpMatch === false
+          ? 'IDENTITY_MISMATCH'
+          : faceValidation.match !== true || faceScore < threshold
+            ? 'FACE_NOT_MATCHED'
+            : liveness.passed !== true
+              ? liveness.code === 1
+                ? 'LIVENESS_SPOOF_DETECTED'
+                : liveness.code === 2
+                  ? 'LIVENESS_NO_FACE'
+                  : liveness.code === 3
+                    ? 'LIVENESS_MULTIPLE_FACES'
+                    : 'LIVENESS_NOT_VERIFIED'
+              : 'VERIFICATION_NOT_APPROVED';
     const providerAudit = {
+      ...(caseInvite ? { case_invitation_id: caseInvite, mode: 'case_portal_liveness' } : {}),
       provider: provider.provider || 'CONFIGURED_GATEWAY',
       provider_reference: provider.verification_id || null,
       verified_at: provider.verified_at || new Date().toISOString(),
@@ -113,6 +183,7 @@ export async function POST(request: NextRequest) {
       face_score: faceScore,
       liveness_passed: liveness.passed === true,
       liveness_method: liveness.method || null,
+      liveness_code: Number.isInteger(liveness.code) ? liveness.code : null,
     };
 
     const ipAddress =
@@ -129,7 +200,7 @@ export async function POST(request: NextRequest) {
         nubarium_similitud: faceScore,
         nubarium_aprobado: identityMatch,
         identity_match: identityMatch,
-        identity_mismatch_reason: identityMatch ? null : 'IDENTITY_OR_LIVENESS_VALIDATION_FAILED',
+        identity_mismatch_reason: failureReason,
         raw_nubarium_response: providerAudit,
         ip_address: ipAddress,
         user_agent: request.headers.get('user-agent') || null,
@@ -156,12 +227,13 @@ export async function POST(request: NextRequest) {
     const nextStatus = identityMatch ? 'completed' : 'identity_failed';
     const resultMetadata = {
       ...(session.metadata || {}),
-      mode: formId ? 'public_form_liveness' : 'id_capture',
+      mode: caseInvite ? 'case_portal_liveness' : formId ? 'public_form_liveness' : 'id_capture',
       captured_at: new Date().toISOString(),
       provider: providerAudit,
       nubarium_similitud: faceScore,
       nubarium_aprobado: identityMatch,
       identity_match: identityMatch,
+      verification_failure_reason: failureReason,
       curp_match: curpMatch,
       curp_extracted: providerCurp,
       capture_log_id: captureLog.id,
@@ -210,6 +282,13 @@ export async function POST(request: NextRequest) {
         curp_match: curpMatch,
         curp_extracted: providerCurp,
         capture_log_id: captureLog.id,
+        ...(!identityMatch
+          ? {
+              verification_failed: true,
+              failure_reason: failureReason,
+              error: verificationFailureMessage(failureReason),
+            }
+          : {}),
       },
       { status: identityMatch ? 200 : 422 }
     );

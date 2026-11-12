@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  CheckSquare,
   Send,
   AlertTriangle,
   Info,
@@ -25,6 +24,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { updateNotifications } from '@/lib/notifications/client';
+import { isRetiredNotification, notificationArea, notificationAreaLabel, notificationDestination, NOTIFICATION_AREAS } from '@/lib/notifications/presentation';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Notification {
@@ -36,6 +36,7 @@ interface Notification {
   read: boolean;
   priority: 'alta' | 'media' | 'baja';
   category?: string;
+  entity_type?: string | null;
   severity?: 'info' | 'success' | 'warning' | 'critical';
   event_type?: string;
   entity_id?: string | null;
@@ -46,18 +47,9 @@ interface Notification {
 
 const typeIcons: Record<string, React.ReactNode> = {
   document: <FileText size={16} className="text-[#1E6BFF]" />,
-  task: <CheckSquare size={16} className="text-emerald-600" />,
   request: <Send size={16} className="text-violet-600" />,
   alert: <AlertTriangle size={16} className="text-rose-600" />,
   info: <Info size={16} className="text-slate-500" />,
-};
-
-const typeLabels: Record<string, string> = {
-  document: 'Documento',
-  task: 'Tarea',
-  request: 'Solicitud',
-  alert: 'Alerta',
-  info: 'Información',
 };
 
 function formatRelativeTime(dateStr: string): string {
@@ -131,7 +123,6 @@ function NotificationDetailModal({
 
   const typeColorCls: Record<string, string> = {
     document: 'bg-[#1E6BFF]/10 text-[#1E6BFF]',
-    task: 'bg-emerald-50 text-emerald-700',
     request: 'bg-violet-50 text-violet-700',
     alert: 'bg-rose-50 text-rose-700',
     info: 'bg-slate-100 text-slate-600',
@@ -140,35 +131,13 @@ function NotificationDetailModal({
   const handleContextualAction = async () => {
     // Mark as read when taking action
     if (!n.read) await onMarkRead(n.id);
-    const documentId = [
-      n.entity_id,
-      n.metadata?.document_id,
-      n.metadata?.documentoId,
-      n.metadata?.documentId,
-    ].find((value): value is string => typeof value === 'string' && value.length > 0);
-
-    if (n.type === 'document' && documentId) {
-      router.push(`/visor-documento/${documentId}`);
-    } else if (n.action_url?.startsWith('/')) {
-      router.push(n.action_url);
-    } else if (n.type === 'document') {
-      router.push('/mis-documentos');
-    } else if (n.type === 'task') {
-      router.push('/mis-tareas');
-    } else if (n.type === 'request') {
-      router.push('/mis-solicitudes');
-    } else {
-      router.push('/inicio');
-    }
+    router.push(notificationDestination(n));
     onClose();
   };
 
   const contextualActionLabel = () => {
     if (n.action_label) return n.action_label;
-    if (n.type === 'document') return 'Ver documento';
-    if (n.type === 'task') return 'Ver tarea';
-    if (n.type === 'request') return 'Ver solicitud';
-    return 'Ver en dashboard';
+    return `Ver ${notificationAreaLabel(n).toLowerCase()}`;
   };
 
   return (
@@ -224,8 +193,8 @@ function NotificationDetailModal({
               <span
                 className={`inline-flex items-center gap-1.5 text-xs font-600 px-2 py-0.5 rounded-full ${typeColorCls[n.type] ?? typeColorCls.info}`}
               >
-                {typeIcons[n.type]}
-                {typeLabels[n.type] ?? 'Info'}
+                {typeIcons[n.type] ?? typeIcons.info}
+                {notificationAreaLabel(n)}
               </span>
             </div>
             <div className="p-3.5">
@@ -337,7 +306,7 @@ function NotificationsContent() {
     try {
       const supabase = createClient();
       const fields =
-        'id, type, title, description, created_at, read, priority, metadata, entity_id, action_url, action_label';
+        'id, type, title, description, created_at, read, priority, metadata, entity_type, entity_id, category, event_type, action_url, action_label';
       let { data, error } = await supabase
         .from('notifications')
         .select(fields)
@@ -362,7 +331,7 @@ function NotificationsContent() {
       if (error) throw error;
 
       if (!error && data) {
-        setNotifications(data as Notification[]);
+        setNotifications((data as Notification[]).filter((item) => !isRetiredNotification(item)));
         setTimeFilterAnchor(Date.now());
       }
     } catch (caught) {
@@ -432,7 +401,7 @@ function NotificationsContent() {
       const since = timeFilterAnchor - days * 24 * 60 * 60 * 1000;
       if (new Date(n.created_at).getTime() < since) return false;
     }
-    if (typeFilter !== 'todos' && n.type !== typeFilter) return false;
+    if (typeFilter !== 'todos' && notificationArea(n) !== typeFilter) return false;
     if (priorityFilter !== 'todas' && n.priority !== priorityFilter) return false;
     if (
       search &&
@@ -570,18 +539,14 @@ function NotificationsContent() {
                   }}
                   className="flex h-10 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 sm:w-auto"
                 >
-                  {typeFilter === 'todos' ? 'Todos los tipos' : typeLabels[typeFilter]}
+                  {typeFilter === 'todos' ? 'Todos los tipos' : NOTIFICATION_AREAS.find((item) => item.value === typeFilter)?.label}
                   <ChevronDown size={14} className="text-muted-foreground" />
                 </button>
                 {typeOpen && (
                   <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)] dark:border-slate-700 dark:bg-slate-900">
                     {[
                       { value: 'todos', label: 'Todos los tipos' },
-                      { value: 'document', label: 'Documento' },
-                      { value: 'task', label: 'Tarea' },
-                      { value: 'request', label: 'Solicitud' },
-                      { value: 'alert', label: 'Alerta' },
-                      { value: 'info', label: 'Información' },
+                      ...NOTIFICATION_AREAS,
                     ].map((opt) => (
                       <button
                         key={opt.value}
@@ -854,7 +819,7 @@ function NotificationsContent() {
                         </p>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 md:hidden">
                           <span className="text-[11px] font-600 text-slate-500">
-                            {typeLabels[n.type] ?? 'Info'}
+                            {notificationAreaLabel(n)}
                           </span>
                           <span className="text-[11px] text-slate-400">·</span>
                           <span className="text-[11px] text-slate-500">
@@ -865,18 +830,16 @@ function NotificationsContent() {
                     </div>
                     <span
                       className={`hidden whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-500 md:inline-flex ${
-                        n.type === 'document'
+                        notificationArea(n) === 'documentos'
                           ? 'bg-[#1E6BFF]/10 text-[#1E6BFF]'
-                          : n.type === 'task'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : n.type === 'request'
+                          : notificationArea(n) === 'solicitudes'
                               ? 'bg-violet-50 text-violet-700'
                               : n.type === 'alert'
                                 ? 'bg-rose-50 text-rose-700'
                                 : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {typeLabels[n.type] ?? 'Info'}
+                      {notificationAreaLabel(n)}
                     </span>
                     <span
                       className={`hidden whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-600 md:inline-flex ${

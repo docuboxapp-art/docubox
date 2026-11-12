@@ -6,6 +6,8 @@ import { ChevronRight, ChevronLeft, Camera, CheckCircle2, AlertCircle, Loader2, 
 import AppImage from '@/components/ui/AppImage';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
 import { createMobileCapturePayload, MAX_MOBILE_CAPTURE_PAYLOAD_CHARS } from '@/lib/identity/mobile-capture-payload';
+import { captureSelfieFrame } from '@/lib/identity/selfie-frame';
+import { verificationFailureMessage } from '@/lib/identity/verification-feedback';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -537,27 +539,7 @@ function SelfieCaptureScreen({ onCapture, onBack }: { onCapture: (img: string, v
 
   const capturePhotoFromVideo = useCallback((): string | null => {
     const video = videoRef.current;
-    const ovalEl = ovalRef.current;
-    if (!video || !ovalEl) return null;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const videoRect = video.getBoundingClientRect();
-    const ovalRect = ovalEl.getBoundingClientRect();
-    const scaleX = vw / videoRect.width;
-    const scaleY = vh / videoRect.height;
-    const cropX = (ovalRect.left - videoRect.left) * scaleX;
-    const cropY = (ovalRect.top - videoRect.top) * scaleY;
-    const cropW = ovalRect.width * scaleX;
-    const cropH = ovalRect.height * scaleY;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(cropW);
-    canvas.height = Math.round(cropH);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.92);
+    return video ? captureSelfieFrame(video, document.createElement('canvas')) : null;
   }, [videoRef]);
 
   const startRecording = useCallback(() => {
@@ -1112,12 +1094,13 @@ function FaceValidationScreen({
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             {aprobado ? <CheckCircle2 size={20} color={BRAND.green} /> : <AlertCircle size={20} color={BRAND.red} />}
             <p style={{ color: aprobado ? '#166534' : '#991b1b', fontWeight: 600, fontSize: 14, margin: 0 }}>
-              {aprobado ? 'Identidad verificada' : 'No se pudo verificar la identidad'}
+              {aprobado ? 'Coincidencia facial confirmada' : 'No se pudo confirmar la coincidencia facial'}
             </p>
           </div>
           <p style={{ color: aprobado ? '#166534' : '#991b1b', fontSize: 13, margin: 0 }}>
             Similitud: {similitud.toFixed(2)}%
           </p>
+          {aprobado && <p style={{ color: BRAND.textMuted, fontSize: 12, marginTop: 8 }}>Falta comprobar la prueba de vida al continuar.</p>}
         </Card>
       )}
 
@@ -1430,9 +1413,9 @@ export default function CapturaIdMovilPage() {
       });
       const data = await res.json().catch(() => ({}));
 
-      if (res.status === 422 && data.identity_mismatch) {
+      if (res.status === 422) {
         setNubariumSimilitud(typeof data.nubarium_similitud === 'number' ? data.nubarium_similitud : null);
-        setMismatchReason(data.mismatch_reason || 'La persona capturada no coincide con el usuario registrado.');
+        setMismatchReason(verificationFailureMessage(data.failure_reason));
         setSubmitting(false);
         setScreen('identity_mismatch');
         return;
@@ -1442,6 +1425,11 @@ export default function CapturaIdMovilPage() {
         setSubmitError(res.status === 413
           ? 'La captura es demasiado grande para enviarse. Regresa y vuelve a grabar el video.'
           : data.error || 'No se pudieron guardar las capturas. Intenta nuevamente.');
+        setSubmitting(false);
+        return;
+      }
+      if (data.success !== true || data.identity_match !== true || data.nubarium_aprobado !== true) {
+        setSubmitError('El servicio no confirmó la verificación. Regresa a la pantalla del QR para comprobar el estado de la captura.');
         setSubmitting(false);
         return;
       }
@@ -1482,19 +1470,6 @@ export default function CapturaIdMovilPage() {
     }
     setScreen('selfie_instructions');
   }, [selfieAttempts, handleCancelSession]);
-
-  const handleRetryFromMismatch = () => {
-    const newCount = idAttempts + 1;
-    setIdAttempts(newCount);
-    if (newCount >= MAX_ID_ATTEMPTS) {
-      handleCancelSession();
-      return;
-    }
-    setCaptureData(d => ({ ...d, anverso: null, reverso: null, selfiePhoto: null, selfieVideo: null, tipoId: null }));
-    setMismatchReason(null);
-    setNubariumSimilitud(null);
-    setScreen('id_type');
-  };
 
   // ── Fullscreen camera screens ─────────────────────────────────────────────
   if (screen === 'anverso') {
@@ -1623,16 +1598,15 @@ export default function CapturaIdMovilPage() {
 
   // ── Identity Mismatch ─────────────────────────────────────────────────────
   if (screen === 'identity_mismatch') {
-    const attemptsLeft = MAX_ID_ATTEMPTS - idAttempts - 1;
     return (
       <div style={{ minHeight: '100dvh', background: BRAND.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <div style={{ background: BRAND.card, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 20, padding: 32, maxWidth: 380, width: '100%', textAlign: 'center' }}>
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: BRAND.redLight, border: `2px solid ${BRAND.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <UserX size={34} color={BRAND.red} />
           </div>
-          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 600, marginBottom: 10 }}>Identidad no coincidente</h2>
+          <h2 style={{ color: '#991b1b', fontSize: 20, fontWeight: 600, marginBottom: 10 }}>Verificación no aprobada</h2>
           <p style={{ color: '#b91c1c', fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
-            La persona capturada no coincide con el usuario registrado en el sistema.
+            El intento terminó sin autorizar el acceso. Regresa a la pantalla donde abriste el QR para generar uno nuevo.
           </p>
           <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 12, padding: '12px 16px', marginBottom: 20, textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -1648,24 +1622,6 @@ export default function CapturaIdMovilPage() {
               </div>
             </div>
           </div>
-          {attemptsLeft > 0 ? (
-            <>
-              <div style={{ background: BRAND.amberLight, border: `1.5px solid ${BRAND.amberBorder}`, borderRadius: 12, padding: '10px 14px', marginBottom: 20, textAlign: 'left' }}>
-                <p style={{ color: '#92400e', fontSize: 12, lineHeight: 1.5, margin: 0 }}>
-                  Por seguridad, este intento ha sido registrado. Te queda <strong>{attemptsLeft} intento{attemptsLeft !== 1 ? 's' : ''}</strong> antes de que el enrolamiento sea cancelado.
-                </p>
-              </div>
-              <button onClick={handleRetryFromMismatch} style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: BRAND.blueGradient, color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
-                <RefreshCw size={16} /> Intentar nuevamente
-              </button>
-            </>
-          ) : (
-            <div style={{ background: BRAND.redLight, border: `1.5px solid ${BRAND.redBorder}`, borderRadius: 12, padding: '10px 14px', marginBottom: 20, textAlign: 'left' }}>
-              <p style={{ color: '#991b1b', fontSize: 12, lineHeight: 1.5, margin: 0 }}>
-                Se ha alcanzado el límite de intentos. El enrolamiento será cancelado.
-              </p>
-            </div>
-          )}
           <button onClick={handleClose} style={{ width: '100%', padding: '13px 0', borderRadius: 14, background: 'transparent', color: BRAND.textMuted, border: `1.5px solid ${BRAND.cardBorder}`, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
             Cerrar ventana
           </button>

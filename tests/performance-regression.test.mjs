@@ -71,7 +71,7 @@ test('middleware exposes phase timing without changing fail-closed session valid
 
 test('participant listing applies authenticated RLS before transferring documents', () => {
   assert.match(participationsRoute, /const supabase = userClient/);
-  assert.match(participationsRoute, /createAnonClient\(bearerToken\)/);
+  assert.match(participationsRoute, /createAnonClient\(bearerToken, deadline\)/);
   assert.doesNotMatch(
     participationsRoute,
     /createServiceClient\(\)[\s\S]{0,160}\.from\('documentos'\)/
@@ -80,7 +80,7 @@ test('participant listing applies authenticated RLS before transferring document
 });
 
 test('owner listing uses the authenticated RLS client instead of service role', () => {
-  assert.match(ownerRoute, /createAnonClient\(token\)/);
+  assert.match(ownerRoute, /createAnonClient\(token, deadline\)/);
   assert.match(ownerRoute, /anonClient\.from\('documentos'\)/);
   assert.doesNotMatch(ownerRoute, /createServiceClient/);
   assert.doesNotMatch(ownerRoute, /user=\$\{user\.id\}/);

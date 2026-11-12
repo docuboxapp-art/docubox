@@ -68,14 +68,18 @@ test('legacy rows normalize to version 1 without losing signature/PDF settings',
   const template = formTemplateFromRow(
     row({
       version_number: undefined,
-      settings: { pdfSchema: { header: 'Custom header' }, requireOtp: false, requiresSignature: true },
+      settings: {
+        pdfSchema: { header: 'Custom header' },
+        requireOtp: false,
+        requiresSignature: true,
+      },
     })
   );
   assert.equal(template.versionNumber, 1);
   assert.equal(template.settings.pdfSchema.header, 'Custom header');
   assert.equal(template.settings.requireOtp, false);
   assert.equal(template.settings.requiresSignature, true);
-  assert.equal(formTemplateFromRow(row()).settings.requiresSignature, true);
+  assert.equal(formTemplateFromRow(row()).settings.requiresSignature, false);
 });
 
 test('form classification remains in settings when saving a draft', async () => {
@@ -108,8 +112,20 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
     ...original,
     settings: {
       ...original.settings,
-      appearance: { ...original.settings.appearance, headerText: 'Mi encabezado', headerDescription: 'Descripción visible', backgroundColor: '#EAF4FF', showDocumentNumber: false, showFooter: true },
-      pdfSchema: { ...original.settings.pdfSchema, header: 'PDF personalizado', showIp: false, consentPage: true },
+      appearance: {
+        ...original.settings.appearance,
+        headerText: 'Mi encabezado',
+        headerDescription: 'Descripción visible',
+        backgroundColor: '#EAF4FF',
+        showDocumentNumber: false,
+        showFooter: true,
+      },
+      pdfSchema: {
+        ...original.settings.pdfSchema,
+        header: 'PDF personalizado',
+        showIp: false,
+        consentPage: true,
+      },
     },
   };
   const { db, calls } = client({ data: row(), error: null });
@@ -121,10 +137,12 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
   assert.equal(payload.settings.appearance.showDocumentNumber, false);
   assert.equal(payload.settings.pdfSchema.showIp, false);
   assert.equal(payload.settings.pdfSchema.consentPage, true);
-  const loaded = formTemplateFromRow(row({
-    settings: payload.settings,
-    pdf_schema: payload.settings.pdfSchema,
-  }));
+  const loaded = formTemplateFromRow(
+    row({
+      settings: payload.settings,
+      pdf_schema: payload.settings.pdfSchema,
+    })
+  );
   assert.equal(loaded.settings.appearance.headerText, 'Mi encabezado');
   assert.equal(loaded.settings.appearance.headerDescription, 'Descripción visible');
   assert.equal(loaded.settings.appearance.backgroundColor, '#EAF4FF');
@@ -136,12 +154,28 @@ test('el diseño web y PDF se guardan y vuelven a cargar con el formulario', asy
 
 test('publication comment saves on a new form and can be cleared from an existing draft', async () => {
   const template = formTemplateFromRow(row());
-  const created = client({ data: row({ publication_comment: 'Primera publicación' }), error: null });
-  await persistFormDraft(created.db, { ...template, id: undefined, publicationComment: 'Primera publicación' }, 'workspace-a', 'owner-a');
-  assert.equal(created.calls.find(([method]) => method === 'insert')[1].publication_comment, 'Primera publicación');
+  const created = client({
+    data: row({ publication_comment: 'Primera publicación' }),
+    error: null,
+  });
+  await persistFormDraft(
+    created.db,
+    { ...template, id: undefined, publicationComment: 'Primera publicación' },
+    'workspace-a',
+    'owner-a'
+  );
+  assert.equal(
+    created.calls.find(([method]) => method === 'insert')[1].publication_comment,
+    'Primera publicación'
+  );
 
   const updated = client({ data: row({ publication_comment: null }), error: null });
-  await persistFormDraft(updated.db, { ...template, publicationComment: '' }, 'workspace-a', 'owner-a');
+  await persistFormDraft(
+    updated.db,
+    { ...template, publicationComment: '' },
+    'workspace-a',
+    'owner-a'
+  );
   assert.equal(updated.calls.find(([method]) => method === 'update')[1].publication_comment, null);
 });
 
@@ -162,46 +196,79 @@ test('canonical schema takes precedence and preserves version family', () => {
 
 test('publication validates title, fields, field identities and expiration without choosing a signature method', () => {
   const draft = formTemplateFromRow(row());
+  assert.equal(publicationError(draft), null);
+  draft.settings.requiresSignature = true;
   assert.match(publicationError(draft), /Agrega el campo Firma/);
   const template = {
     ...draft,
-    schema: [...draft.schema, { id: 'signature-a', type: 'signature_block', label: 'Firma', slug: 'firma', required: true }],
+    schema: [
+      ...draft.schema,
+      { id: 'signature-a', type: 'signature_block', label: 'Firma', slug: 'firma', required: true },
+    ],
   };
   assert.equal(publicationError(template), null);
   for (const invalid of [
     { ...template, name: '  ' },
     { ...template, schema: [] },
     { ...template, schema: [template.schema[0], { ...template.schema[0], id: 'field-b' }] },
-    { ...template, settings: { ...template.settings, configureLinkExpiration: true, expirationHours: -1 } },
+    {
+      ...template,
+      settings: { ...template.settings, configureLinkExpiration: true, expirationHours: -1 },
+    },
   ])
     assert.ok(publicationError(invalid));
-  assert.equal(publicationError({
-    ...template,
-    settings: { ...template.settings, allowedSignatureTypes: [] },
-  }), null);
-  assert.equal(publicationError({
-    ...template,
-    settings: { ...template.settings, configureLinkExpiration: false, expirationHours: -1 },
-  }), null);
+  assert.equal(
+    publicationError({
+      ...template,
+      settings: { ...template.settings, allowedSignatureTypes: [] },
+    }),
+    null
+  );
+  assert.equal(
+    publicationError({
+      ...template,
+      settings: { ...template.settings, configureLinkExpiration: false, expirationHours: -1 },
+    }),
+    null
+  );
   const signed = { ...template, settings: { ...template.settings, requiresSignature: true } };
   assert.equal(publicationError(signed), null);
   assert.match(publicationError({ ...signed, schema: [] }), /Agrega el campo Firma/);
 });
 
 test('legacy legal fields receive editable text and cannot publish with an empty acceptance', () => {
-  const legacy = formTemplateFromRow(row({
-    schema: [
-      { id: 'consent', type: 'consentimiento', label: 'Consentimiento', slug: 'consentimiento', required: true, description: '' },
-      { id: 'declaration', type: 'declaration', label: 'Declaración', slug: 'declaracion', required: true, description: '' },
-      { id: 'signature', type: 'signature_block', label: 'Firma', slug: 'firma', required: true },
-    ],
-  }));
+  const legacy = formTemplateFromRow(
+    row({
+      schema: [
+        {
+          id: 'consent',
+          type: 'consentimiento',
+          label: 'Consentimiento',
+          slug: 'consentimiento',
+          required: true,
+          description: '',
+        },
+        {
+          id: 'declaration',
+          type: 'declaration',
+          label: 'Declaración',
+          slug: 'declaracion',
+          required: true,
+          description: '',
+        },
+        { id: 'signature', type: 'signature_block', label: 'Firma', slug: 'firma', required: true },
+      ],
+    })
+  );
   assert.match(legacy.schema[0].description, /autorizo el tratamiento/);
   assert.equal(legacy.schema[0].acceptanceLabel, 'Otorgo mi consentimiento.');
   assert.match(legacy.schema[1].description, /Declaro bajo protesta/);
   assert.equal(legacy.schema[1].acceptanceLabel, 'Confirmo esta declaración.');
   assert.equal(publicationError(legacy), null);
-  const cleared = { ...legacy, schema: [{ ...legacy.schema[0], acceptanceLabel: '' }, ...legacy.schema.slice(1)] };
+  const cleared = {
+    ...legacy,
+    schema: [{ ...legacy.schema[0], acceptanceLabel: '' }, ...legacy.schema.slice(1)],
+  };
   assert.match(publicationError(cleared), /casilla de aceptación/);
 });
 
@@ -265,16 +332,19 @@ test('permission errors and empty updates propagate instead of claiming success'
 test('publication updates status only and detects conflicts', async () => {
   const { db, calls } = client({ data: row({ status: 'published' }), error: null });
   const draft = formTemplateFromRow(row());
-  const signed = { ...draft, schema: [...draft.schema, { id: 'signature-a', type: 'signature_block', label: 'Firma', slug: 'firma', required: true }] };
+  const signed = {
+    ...draft,
+    schema: [
+      ...draft.schema,
+      { id: 'signature-a', type: 'signature_block', label: 'Firma', slug: 'firma', required: true },
+    ],
+  };
   const result = await publishFormDraft(db, signed);
   assert.equal(result.status, 'published');
   assert.deepEqual(calls.find(([method]) => method === 'update')[1], { status: 'published' });
   assert.ok(calls.some((call) => call[1] === 'updated_at'));
   await assert.rejects(
-    publishFormDraft(
-      client({ data: null, error: { code: 'PGRST116' } }).db,
-      signed
-    )
+    publishFormDraft(client({ data: null, error: { code: 'PGRST116' } }).db, signed)
   );
 });
 
@@ -296,8 +366,13 @@ test('new versions use the authorized RPC and preserve database-assigned version
 
 test('same-version revisions use a separate RPC and keep their revision number', async () => {
   const { db, calls } = client({
-    data: row({ id: 'form-v1-r2', version_number: 1, revision_number: 2,
-      root_template_id: 'form-a', source_template_id: 'form-a' }),
+    data: row({
+      id: 'form-v1-r2',
+      version_number: 1,
+      revision_number: 2,
+      root_template_id: 'form-a',
+      source_template_id: 'form-a',
+    }),
     error: null,
   });
   const result = await createFormRevision(db, 'form-a');
@@ -310,10 +385,16 @@ test('same-version revisions use a separate RPC and keep their revision number',
 
 test('changing an edited revision to a new version preserves content before removing the old draft', async () => {
   const calls = [];
-  const original = formTemplateFromRow(row({
-    id: 'revision-draft', root_template_id: 'form-a', source_template_id: 'form-a',
-    revision_number: 2, name: 'Edited name', publication_comment: 'Updated fields',
-  }));
+  const original = formTemplateFromRow(
+    row({
+      id: 'revision-draft',
+      root_template_id: 'form-a',
+      source_template_id: 'form-a',
+      revision_number: 2,
+      name: 'Edited name',
+      publication_comment: 'Updated fields',
+    })
+  );
   const created = row({ id: 'version-draft', root_template_id: 'form-a', version_number: 2 });
   const db = {
     rpc: async (name, args) => {
@@ -323,23 +404,38 @@ test('changing an edited revision to a new version preserves content before remo
     from: () => ({
       update: (payload) => {
         calls.push(['update', payload]);
-        const query = { eq: () => query, select: () => query,
-          single: async () => ({ data: { ...created, ...payload }, error: null }) };
+        const query = {
+          eq: () => query,
+          select: () => query,
+          single: async () => ({ data: { ...created, ...payload }, error: null }),
+        };
         return query;
       },
       delete: () => {
         calls.push(['delete']);
-        const query = { eq: () => query, select: async () => ({ data: [{ id: 'revision-draft' }], error: null }) };
+        const query = {
+          eq: () => query,
+          select: async () => ({ data: [{ id: 'revision-draft' }], error: null }),
+        };
         return query;
       },
     }),
   };
-  const result = await switchFormDraftVersionMode(db, original, 'version', 'workspace-a', 'owner-a');
+  const result = await switchFormDraftVersionMode(
+    db,
+    original,
+    'version',
+    'workspace-a',
+    'owner-a'
+  );
   assert.equal(result.template.id, 'version-draft');
   assert.equal(result.template.name, 'Edited name');
   assert.equal(result.template.publicationComment, 'Updated fields');
   assert.equal(result.previousDraftRetained, false);
-  assert.deepEqual(calls.map(([operation]) => operation), ['rpc', 'update', 'delete']);
+  assert.deepEqual(
+    calls.map(([operation]) => operation),
+    ['rpc', 'update', 'delete']
+  );
   assert.equal(calls[0][1], 'create_form_template_version');
   assert.equal(calls[0][2].source_id, 'form-a');
   assert.equal(calls[1][1].name, 'Edited name');
@@ -347,16 +443,29 @@ test('changing an edited revision to a new version preserves content before remo
 
 test('changing an edited new version to a revision starts from the latest published revision', async () => {
   const calls = [];
-  const original = formTemplateFromRow(row({
-    id: 'version-draft', root_template_id: 'form-a', version_number: 2,
-  }));
+  const original = formTemplateFromRow(
+    row({
+      id: 'version-draft',
+      root_template_id: 'form-a',
+      version_number: 2,
+    })
+  );
   const created = row({
-    id: 'revision-draft', root_template_id: 'form-a', source_template_id: 'published-revision',
+    id: 'revision-draft',
+    root_template_id: 'form-a',
+    source_template_id: 'published-revision',
     revision_number: 3,
   });
-  const lookup = { eq: () => lookup, or: () => lookup, not: () => lookup,
-    neq: () => lookup, lt: () => lookup, order: () => lookup, limit: () => lookup,
-    maybeSingle: async () => ({ data: { id: 'published-revision' }, error: null }) };
+  const lookup = {
+    eq: () => lookup,
+    or: () => lookup,
+    not: () => lookup,
+    neq: () => lookup,
+    lt: () => lookup,
+    order: () => lookup,
+    limit: () => lookup,
+    maybeSingle: async () => ({ data: { id: 'published-revision' }, error: null }),
+  };
   const db = {
     rpc: async (name, args) => {
       calls.push(['rpc', name, args]);
@@ -365,17 +474,29 @@ test('changing an edited new version to a revision starts from the latest publis
     from: () => ({
       select: () => lookup,
       update: (payload) => {
-        const query = { eq: () => query, select: () => query,
-          single: async () => ({ data: { ...created, ...payload }, error: null }) };
+        const query = {
+          eq: () => query,
+          select: () => query,
+          single: async () => ({ data: { ...created, ...payload }, error: null }),
+        };
         return query;
       },
       delete: () => {
-        const query = { eq: () => query, select: async () => ({ data: [{ id: 'version-draft' }], error: null }) };
+        const query = {
+          eq: () => query,
+          select: async () => ({ data: [{ id: 'version-draft' }], error: null }),
+        };
         return query;
       },
     }),
   };
-  const result = await switchFormDraftVersionMode(db, original, 'revision', 'workspace-a', 'owner-a');
+  const result = await switchFormDraftVersionMode(
+    db,
+    original,
+    'revision',
+    'workspace-a',
+    'owner-a'
+  );
   assert.equal(result.template.revisionNumber, 3);
   assert.equal(result.template.sourceTemplateId, 'published-revision');
   assert.equal(calls[0][1], 'create_form_template_revision');
@@ -392,7 +513,9 @@ test('approval submission uses the workflow RPC and reloads the reviewed row', a
     from: (table) => {
       calls.push(['from', table]);
       return {
-        select: () => ({ eq: () => ({ single: async () => ({ data: row({ status: 'in_review' }), error: null }) }) }),
+        select: () => ({
+          eq: () => ({ single: async () => ({ data: row({ status: 'in_review' }), error: null }) }),
+        }),
       };
     },
   };

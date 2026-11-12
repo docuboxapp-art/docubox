@@ -35,7 +35,7 @@ function restoreEnv() {
   }
 }
 
-async function verify({ faceScore = 99.9, live = true, documentValid = true, approvedDocument = null } = {}) {
+async function verify({ faceScore = 99.9, live = true, documentValid = true, approvedDocument = null, livenessResponse } = {}) {
   delete process.env.IDENTITY_VERIFICATION_GATEWAY_URL;
   delete process.env.IDENTITY_VERIFICATION_GATEWAY_TOKEN;
   process.env.NUBARIUM_USER = 'test';
@@ -48,7 +48,7 @@ async function verify({ faceScore = 99.9, live = true, documentValid = true, app
       ? { tipo: documentValid ? 'INE' : null, nombres: 'ANA', curp: 'AAAA000000MDFXXX00', vigencia: '2030' }
       : url.includes('reconocimiento_facial')
         ? { estatus: 'OK', similitud: faceScore, codigoValidacion: 'face-1' }
-        : { status: live ? 'OK' : 'ERROR', messageCode: live ? 0 : 1, score: 98, validationCode: 'live-1' };
+        : livenessResponse ?? { status: live ? 'OK' : 'ERROR', messageCode: live ? 0 : 1, score: 98, validationCode: 'live-1' };
     return { ok: true, json: async () => body };
   };
   try {
@@ -78,6 +78,30 @@ test('a previously approved document is reused while face and liveness are check
   assert.equal(current.result.status, 'VALID');
   assert.equal(current.requests.length, 2);
   assert.equal(current.result.document_fields.curp, 'AAAA000000MDFXXX00');
+});
+
+// Response contracts from Nubarium's published Face Liveness Detection examples:
+// https://documenter.nubarium.com/#c185ab95-bb0f-4142-ac03-c6fdebd3fcbb
+test('documented liveness rejection codes never authorize a matching face', async () => {
+  for (const messageCode of [1, 2, 3]) {
+    const { result, requests } = await verify({
+      livenessResponse: { status: 'ERROR', messageCode, validationCode: 'live-1' },
+    });
+    assert.equal(result.face_validation.match, true);
+    assert.equal(result.liveness.passed, false);
+    assert.equal(result.liveness.code, messageCode);
+    assert.equal(result.status, 'INVALID');
+    assert.deepEqual(requests.at(-1).body, { face: 'selfie' });
+  }
+});
+
+test('invalid input, service errors and malformed replies are unavailable, not biometric decisions', async () => {
+  for (const messageCode of [4, 50, 100, null, undefined, '', '0', 999]) {
+    await assert.rejects(verify({ livenessResponse: { status: 'OK', messageCode } }),
+      provider.IdentityProviderUnavailableError);
+  }
+  await assert.rejects(verify({ livenessResponse: { status: 'ERROR', messageCode: 0 } }),
+    provider.IdentityProviderUnavailableError);
 });
 
 test('an explicitly configured identity gateway keeps precedence over Nubarium', async () => {

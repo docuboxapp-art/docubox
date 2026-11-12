@@ -45,7 +45,7 @@ export async function GET(
     const { documentId } = await context.params;
     const { document, service, additionalAccessLevel } = await requireDocumentContentAccess(request, documentId, 'evidence');
 
-    const [securityResult, auditResult, activityResult, ownerResult] = await Promise.all([
+    const [securityResult, auditResult, activityResult, uninviteResult, ownerResult] = await Promise.all([
       service
         .from('security_audit_log')
         .select('id,action,details,created_at,user_id')
@@ -61,6 +61,13 @@ export async function GET(
         .select('id,action,category,details,created_at,actor_id,actor_nombre,actor_email')
         .eq('documento_id', documentId)
         .order('created_at', { ascending: true }),
+      service
+        .from('document_lifecycle_audit_events')
+        .select('id,action,previous_state,created_at,actor_email')
+        .eq('document_id', documentId)
+        .eq('action', 'PARTICIPANT_UNINVITED')
+        .eq('result', 'success')
+        .order('created_at', { ascending: true }),
       document.owner_id
         ? service
             .from('user_profiles')
@@ -70,8 +77,8 @@ export async function GET(
         : Promise.resolve({ data: null, error: null }),
     ]);
 
-    if (securityResult.error || auditResult.error || activityResult.error) {
-      throw securityResult.error || auditResult.error || activityResult.error;
+    if (securityResult.error || auditResult.error || activityResult.error || uninviteResult.error) {
+      throw securityResult.error || auditResult.error || activityResult.error || uninviteResult.error;
     }
 
     const events: ActivityEvent[] = [];
@@ -126,6 +133,23 @@ export async function GET(
         actor_email: text(row.actor_email),
         category: text(row.category) || undefined,
         source: 'security_log',
+      });
+    }
+
+    for (const row of uninviteResult.data || []) {
+      const createdAt = validDate(row.created_at);
+      if (!createdAt) continue;
+      const previous = record(row.previous_state);
+      events.push({
+        id: `uninvite_${row.id}`,
+        action: 'PARTICIPANT_UNINVITED',
+        details: { description: `Se desinvitó a ${text(previous.participant_name) || 'un participante'}` },
+        created_at: createdAt,
+        actor_name: text(row.actor_email) || 'Usuario autorizado',
+        actor_email: text(row.actor_email),
+        category: 'participantes',
+        source: 'audit_trail',
+        participant_name: text(previous.participant_name) || undefined,
       });
     }
 
@@ -201,6 +225,26 @@ export async function GET(
       const participant = record(rawParticipant);
       const name = text(participant.nombre || participant.name) || `Participante ${index + 1}`;
       const email = text(participant.email);
+      const assignedAt = validDate(participant.invited_at) || createdAt;
+      const revokedAt = validDate(participant.access_revoked_at);
+      if (
+        participant.participant_relationship_status === 'REVOKED' &&
+        revokedAt &&
+        !events.some((event) => event.action === 'PARTICIPANT_UNINVITED' &&
+          Math.abs(Date.parse(event.created_at) - Date.parse(revokedAt)) < 2000)
+      ) {
+        events.push({
+          id: `synth_uninvite_${index}_${documentId}`,
+          action: 'PARTICIPANT_UNINVITED',
+          details: { description: `Se desinvitó a ${name}` },
+          created_at: revokedAt,
+          actor_name: 'Usuario autorizado',
+          actor_email: '',
+          category: 'participantes',
+          source: 'synthesized',
+          participant_name: name,
+        });
+      }
       events.push({
         id: `synth_part_assigned_${index}_${documentId}`,
         action: 'participante_asignado',
@@ -208,7 +252,7 @@ export async function GET(
           participant_email: email,
           metodo_firma: participant.metodo_firma,
         },
-        created_at: createdAt,
+        created_at: assignedAt,
         actor_name: 'Sistema',
         actor_email: '',
         category: 'participantes',

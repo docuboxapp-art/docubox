@@ -1245,6 +1245,7 @@ export async function getEvidenceV2ForDocument(service: SupabaseClient, document
     )
     .eq('document_id', documentId)
     .in('evidence_version', ['2.0', '2.1'])
+    .not('closed_at', 'is', null)
     .order('generated_at', { ascending: false })
     .limit(1)
     .maybeSingle();

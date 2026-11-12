@@ -4,41 +4,11 @@ import { getEvidenceV2ForDocument } from '@/lib/evidence-v2/service';
 import { enqueueEvidenceFinalization, processEvidenceFinalization } from '@/lib/evidence-v2/orchestrator';
 import { issueNom151ForVerifiedPadesBt } from '@/lib/nom151/service';
 import { synchronizeEvidenceSupplementsForDocument } from '@/lib/evidence-v2/supplements';
+import { evidenceUiState } from '@/lib/evidence-v2/finalization-status';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
-
-type EvidenceStatusRow = {
-  verification_summary?: { overall?: string } | null;
-};
-
-function uiState(finalization: string | null, packageRow: EvidenceStatusRow | null) {
-  if (packageRow) {
-    const overall = packageRow.verification_summary?.overall;
-    return overall === 'valid' ? 'verified' : 'generated';
-  }
-  if (finalization === 'FINALIZATION_ERROR') return 'error';
-  if (
-    [
-      'WAITING_FOR_PADES',
-      'WAITING_FOR_TIMESTAMP',
-      'WAITING_FOR_NOM151',
-      'WAITING_FOR_OTS_STAMP',
-    ].includes(finalization || '')
-  )
-    return 'waiting_certifications';
-  if (
-    [
-      'GENERATING_EVIDENCE',
-      'SIGNING_EVIDENCE',
-      'STORING_EVIDENCE',
-      'READY_FOR_EVIDENCE_XML',
-    ].includes(finalization || '')
-  )
-    return 'generating';
-  return 'preparing';
-}
 
 export async function GET(
   request: NextRequest,
@@ -53,7 +23,7 @@ export async function GET(
         {
           evidenceVersion: 2,
           schemaVersion: packageRow.schema_version,
-          state: uiState(null, packageRow),
+          state: evidenceUiState(null, packageRow.verification_summary?.overall || ''),
           generatedAt: packageRow.generated_at,
           xmlSha256: packageRow.xml_sha256,
           evidenceRoot: packageRow.evidence_root_sha256,
@@ -71,7 +41,7 @@ export async function GET(
     }
     const finalization = await service
       .from('evidence_finalizations')
-      .select('state,readiness,last_error_code,updated_at')
+      .select('state,readiness,last_error_code,attempt_count,next_attempt_at,updated_at')
       .eq('document_id', documentId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -82,9 +52,19 @@ export async function GET(
         {
           evidenceVersion: 2,
           schemaVersion: '2.1',
-          state: uiState(finalization.data.state, null),
+          state: evidenceUiState(finalization.data.state, null),
           readiness: finalization.data.readiness,
-          errorCode: finalization.data.last_error_code,
+          errorCode:
+            finalization.data.last_error_code ||
+            (finalization.data.state === 'EVIDENCE_READY' ||
+            finalization.data.state === 'EVIDENCE_READY_WITH_PENDING_SUPPLEMENTS'
+              ? 'EVIDENCE_PACKAGE_MISSING'
+              : null),
+          finalization: {
+            state: finalization.data.state,
+            attemptCount: finalization.data.attempt_count,
+            nextAttemptAt: finalization.data.next_attempt_at,
+          },
           generatedAt: null,
           xmlAvailable: false,
           packageAvailable: false,

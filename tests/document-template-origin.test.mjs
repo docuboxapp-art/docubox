@@ -67,7 +67,8 @@ test('My documents can filter direct documents and template-origin documents', (
   assert.match(documentsPage, /activeFilters\['origen'\] === 'plantilla'/);
   assert.match(documentsPage, /activeFilters\['origen'\] === 'documento'/);
   assert.match(documentsPage, /Boolean\(doc\.sourceTemplateId\)/);
-  assert.match(documentsPage, /hasDocumentOriginFilter = Boolean\(activeFilters\['origen'\]\)/);
+  assert.match(documentsPage, /if \(activeFilters\['origen'\] && activeFilters\['origen'\] !== ''\)/);
+  assert.match(documentsPage, /activeFilters\['origen'\] === 'formulario'/);
   assert.match(documentsPage, /label: 'Plantilla'/);
   assert.match(documentsPage, /label: 'Documento'/);
 });

@@ -17,7 +17,9 @@ await build({
   outfile: join(cache, 'context.cjs'),
   logLevel: 'silent',
 });
-const { formBuilderReducer, snapshotPdfSectionLayout } = createRequire(import.meta.url)(join(cache, 'context.cjs'));
+const { formBuilderReducer, snapshotPdfSectionLayout } = createRequire(import.meta.url)(
+  join(cache, 'context.cjs')
+);
 const experience = (settings) => ({
   multiStep: settings.multiStep,
   mode: settings.mode,
@@ -46,18 +48,28 @@ test('new forms start with empty name and description without clearing saved con
   const template = createDefaultFormTemplate();
   assert.equal(template.name, '');
   assert.equal(template.description, '');
-  const existing = normalizeFormTemplate({ id: 'saved', name: 'Mi formulario', description: 'Mi descripcion' });
+  const existing = normalizeFormTemplate({
+    id: 'saved',
+    name: 'Mi formulario',
+    description: 'Mi descripcion',
+  });
   assert.equal(existing.name, 'Mi formulario');
   assert.equal(existing.description, 'Mi descripcion');
 });
 
 test('signature conditions from older drafts are removed and cannot be reintroduced', () => {
   const legacy = normalizeFormTemplate({
-    schema: [{
-      id: 'signature', type: 'signature_block', label: 'Firma', slug: 'firma',
-      required: false, conditionalVisible: true,
-      conditionalRule: { fieldId: 'choice', operator: 'eq', value: 'yes', action: 'show' },
-    }],
+    schema: [
+      {
+        id: 'signature',
+        type: 'signature_block',
+        label: 'Firma',
+        slug: 'firma',
+        required: false,
+        conditionalVisible: true,
+        conditionalRule: { fieldId: 'choice', operator: 'eq', value: 'yes', action: 'show' },
+      },
+    ],
   });
   assert.equal(legacy.schema[0].required, true);
   assert.equal(legacy.schema[0].conditionalVisible, false);
@@ -65,10 +77,13 @@ test('signature conditions from older drafts are removed and cannot be reintrodu
 
   const next = formBuilderReducer(state(legacy), {
     type: 'UPDATE_FIELD',
-    payload: { id: 'signature', updates: {
-      conditionalVisible: true,
-      conditionalRule: { fieldId: 'choice', operator: 'eq', value: 'yes', action: 'hide' },
-    } },
+    payload: {
+      id: 'signature',
+      updates: {
+        conditionalVisible: true,
+        conditionalRule: { fieldId: 'choice', operator: 'eq', value: 'yes', action: 'hide' },
+      },
+    },
   });
   assert.equal(next.template.schema[0].conditionalVisible, false);
   assert.equal(next.template.schema[0].conditionalRule, undefined);
@@ -88,7 +103,12 @@ test('save acknowledgement clears only the exact saved snapshot', () => {
 test('edits during save remain dirty and keep the newly persisted ID', () => {
   const template = createDefaultFormTemplate();
   const edited = { ...template, name: 'Newer edit', publicationComment: 'Newer comment' };
-  const saved = { ...template, id: 'persisted', updatedAt: 'now', publicationComment: 'Earlier comment' };
+  const saved = {
+    ...template,
+    id: 'persisted',
+    updatedAt: 'now',
+    publicationComment: 'Earlier comment',
+  };
   const next = formBuilderReducer(state(edited), {
     type: 'ACK_SAVE',
     payload: { snapshot: template, saved },
@@ -103,18 +123,23 @@ test('edits during save remain dirty and keep the newly persisted ID', () => {
 test('experience changes stay pending independently of other edits until the saved snapshot is acknowledged', () => {
   const template = createDefaultFormTemplate();
   const initial = { ...state(template), isDirty: false };
-  const renamed = formBuilderReducer(initial, { type: 'SET_TEMPLATE_META', payload: { name: 'Otro nombre' } });
+  const renamed = formBuilderReducer(initial, {
+    type: 'SET_TEMPLATE_META',
+    payload: { name: 'Otro nombre' },
+  });
   assert.deepEqual(renamed.savedExperience, experience(renamed.template.settings));
 
   const selected = formBuilderReducer(renamed, {
-    type: 'SET_SETTINGS', payload: { allowSaveProgress: false },
+    type: 'SET_SETTINGS',
+    payload: { allowSaveProgress: false },
   });
   assert.equal(selected.savedExperience.allowSaveProgress, true);
   assert.equal(selected.template.settings.allowSaveProgress, false);
 
   const saved = { ...selected.template, id: 'persisted' };
   const acknowledged = formBuilderReducer(selected, {
-    type: 'ACK_SAVE', payload: { snapshot: selected.template, saved },
+    type: 'ACK_SAVE',
+    payload: { snapshot: selected.template, saved },
   });
   assert.equal(acknowledged.savedExperience.allowSaveProgress, false);
   assert.equal(acknowledged.isDirty, false);
@@ -122,11 +147,16 @@ test('experience changes stay pending independently of other edits until the sav
 
 test('saving experience defaults does not save or create the form draft', () => {
   const template = createDefaultFormTemplate();
-  const selected = formBuilderReducer({ ...state(template), isDirty: false }, {
-    type: 'SET_SETTINGS', payload: { allowSaveProgress: false },
-  });
+  const selected = formBuilderReducer(
+    { ...state(template), isDirty: false },
+    {
+      type: 'SET_SETTINGS',
+      payload: { allowSaveProgress: false },
+    }
+  );
   const savedDefaults = formBuilderReducer(selected, {
-    type: 'SAVE_EXPERIENCE_DEFAULTS', payload: experience(selected.template.settings),
+    type: 'SAVE_EXPERIENCE_DEFAULTS',
+    payload: experience(selected.template.settings),
   });
   assert.equal(savedDefaults.template, selected.template);
   assert.equal(savedDefaults.template.id, undefined);
@@ -172,26 +202,39 @@ test('PDF defaults initialize only untouched new forms', () => {
   assert.equal(initialized.template.settings.pdfSchema.header, 'Encabezado predeterminado');
   assert.equal(initialized.savedPdfSchema.header, 'Encabezado predeterminado');
   assert.equal(initialized.isDirty, false);
-  assert.equal(formBuilderReducer(state(template), { type: 'APPLY_PDF_DEFAULTS', payload: defaults }).template, template);
-  assert.equal(formBuilderReducer({ ...clean, template: { ...template, id: 'saved' } }, { type: 'APPLY_PDF_DEFAULTS', payload: defaults }).template.id, 'saved');
+  assert.equal(
+    formBuilderReducer(state(template), { type: 'APPLY_PDF_DEFAULTS', payload: defaults }).template,
+    template
+  );
+  assert.equal(
+    formBuilderReducer(
+      { ...clean, template: { ...template, id: 'saved' } },
+      { type: 'APPLY_PDF_DEFAULTS', payload: defaults }
+    ).template.id,
+    'saved'
+  );
 });
 
 test('el diseño web solo queda aplicado tras guardar formulario y predeterminado', () => {
   const template = createDefaultFormTemplate();
   const loaded = formBuilderReducer(state(template), {
-    type: 'SET_TEMPLATE', payload: { ...template, id: 'draft' },
+    type: 'SET_TEMPLATE',
+    payload: { ...template, id: 'draft' },
   });
   assert.deepEqual(loaded.savedAppearance, loaded.template.settings.appearance);
   const edited = formBuilderReducer(loaded, {
-    type: 'SET_APPEARANCE', payload: { headerText: 'Nuevo encabezado' },
+    type: 'SET_APPEARANCE',
+    payload: { headerText: 'Nuevo encabezado' },
   });
   assert.notDeepEqual(edited.savedAppearance, edited.template.settings.appearance);
   const persisted = formBuilderReducer(edited, {
-    type: 'ACK_SAVE', payload: { snapshot: edited.template, saved: { ...edited.template, updatedAt: 'now' } },
+    type: 'ACK_SAVE',
+    payload: { snapshot: edited.template, saved: { ...edited.template, updatedAt: 'now' } },
   });
   assert.notDeepEqual(persisted.savedAppearance, persisted.template.settings.appearance);
   const applied = formBuilderReducer(persisted, {
-    type: 'SAVE_APPEARANCE_DESIGN', payload: persisted.template.settings.appearance,
+    type: 'SAVE_APPEARANCE_DESIGN',
+    payload: persisted.template.settings.appearance,
   });
   assert.deepEqual(applied.savedAppearance, applied.template.settings.appearance);
 });
@@ -214,7 +257,11 @@ test('General code and catalog type are copied into the public appearance', () =
   const template = createDefaultFormTemplate();
   const edited = formBuilderReducer(state(template), {
     type: 'SET_SETTINGS',
-    payload: { documentNumber: 'FORM-001', documentTypeId: 'catalog-1', documentTypeName: 'Solicitud' },
+    payload: {
+      documentNumber: 'FORM-001',
+      documentTypeId: 'catalog-1',
+      documentTypeName: 'Solicitud',
+    },
   });
   assert.equal(edited.template.settings.appearance.headerDocumentNumber, 'FORM-001');
   assert.equal(edited.template.settings.appearance.headerDocumentTypeName, 'Solicitud');
@@ -224,18 +271,22 @@ test('General code and catalog type are copied into the public appearance', () =
 test('el diseño PDF sigue pendiente entre pasos hasta guardar sus predeterminados', () => {
   const template = createDefaultFormTemplate();
   const loaded = formBuilderReducer(state(template), {
-    type: 'SET_TEMPLATE', payload: { ...template, id: 'draft' },
+    type: 'SET_TEMPLATE',
+    payload: { ...template, id: 'draft' },
   });
   assert.deepEqual(loaded.savedPdfSchema, loaded.template.settings.pdfSchema);
   const edited = formBuilderReducer(loaded, {
-    type: 'SET_PDF_SCHEMA', payload: { header: 'Otro encabezado PDF' },
+    type: 'SET_PDF_SCHEMA',
+    payload: { header: 'Otro encabezado PDF' },
   });
   const persisted = formBuilderReducer(edited, {
-    type: 'ACK_SAVE', payload: { snapshot: edited.template, saved: { ...edited.template, updatedAt: 'now' } },
+    type: 'ACK_SAVE',
+    payload: { snapshot: edited.template, saved: { ...edited.template, updatedAt: 'now' } },
   });
   assert.notDeepEqual(persisted.savedPdfSchema, persisted.template.settings.pdfSchema);
   const applied = formBuilderReducer(persisted, {
-    type: 'SAVE_PDF_DESIGN', payload: {
+    type: 'SAVE_PDF_DESIGN',
+    payload: {
       pdfSchema: persisted.template.settings.pdfSchema,
       sections: persisted.template.sections,
     },
@@ -243,9 +294,13 @@ test('el diseño PDF sigue pendiente entre pasos hasta guardar sus predeterminad
   assert.deepEqual(applied.savedPdfSchema, applied.template.settings.pdfSchema);
   assert.deepEqual(applied.savedPdfSections, snapshotPdfSectionLayout(applied.template.sections));
   const sectionEdited = formBuilderReducer(applied, {
-    type: 'UPDATE_SECTION', payload: { id: applied.template.sections[0].id, updates: { pageBreakBefore: true } },
+    type: 'UPDATE_SECTION',
+    payload: { id: applied.template.sections[0].id, updates: { pageBreakBefore: true } },
   });
-  assert.notDeepEqual(sectionEdited.savedPdfSections, snapshotPdfSectionLayout(sectionEdited.template.sections));
+  assert.notDeepEqual(
+    sectionEdited.savedPdfSections,
+    snapshotPdfSectionLayout(sectionEdited.template.sections)
+  );
 });
 
 test('experience defaults initialize only untouched new forms without inserting a signature field', () => {
@@ -262,7 +317,8 @@ test('experience defaults initialize only untouched new forms without inserting 
     expirationHours: 0.5,
   };
   const initialized = formBuilderReducer(clean, {
-    type: 'APPLY_EXPERIENCE_DEFAULTS', payload: defaults,
+    type: 'APPLY_EXPERIENCE_DEFAULTS',
+    payload: defaults,
   });
   assert.equal(initialized.isDirty, false);
   assert.equal(initialized.template.settings.mode, 'scroll');
@@ -270,12 +326,23 @@ test('experience defaults initialize only untouched new forms without inserting 
   assert.equal(initialized.template.settings.expirationHours, 0.5);
   assert.equal(initialized.template.settings.configureLinkExpiration, true);
   assert.equal(initialized.template.schema.length, 0);
-  assert.equal(formBuilderReducer(state(template), {
-    type: 'APPLY_EXPERIENCE_DEFAULTS', payload: defaults,
-  }).template, template);
-  assert.equal(formBuilderReducer({ ...clean, template: { ...template, id: 'saved' } }, {
-    type: 'APPLY_EXPERIENCE_DEFAULTS', payload: defaults,
-  }).template.id, 'saved');
+  assert.equal(
+    formBuilderReducer(state(template), {
+      type: 'APPLY_EXPERIENCE_DEFAULTS',
+      payload: defaults,
+    }).template,
+    template
+  );
+  assert.equal(
+    formBuilderReducer(
+      { ...clean, template: { ...template, id: 'saved' } },
+      {
+        type: 'APPLY_EXPERIENCE_DEFAULTS',
+        payload: defaults,
+      }
+    ).template.id,
+    'saved'
+  );
 });
 
 test('requiring a signature waits for a manually inserted mandatory field', () => {
@@ -284,37 +351,59 @@ test('requiring a signature waits for a manually inserted mandatory field', () =
   assert.equal(initial.template.schema.length, 0);
 
   const enabled = formBuilderReducer(initial, {
-    type: 'SET_SETTINGS', payload: { requiresSignature: true },
+    type: 'SET_SETTINGS',
+    payload: { requiresSignature: true },
   });
   assert.equal(enabled.template.schema.length, 0);
   const signature = {
-    id: 'signature-a', type: 'signature_block', label: 'Firma', slug: 'firma',
-    required: true, pdf: { show: true, label: 'Firma', order: 0 },
+    id: 'signature-a',
+    type: 'signature_block',
+    label: 'Firma',
+    slug: 'firma',
+    required: true,
+    pdf: { show: true, label: 'Firma', order: 0 },
   };
   const inserted = formBuilderReducer(enabled, {
-    type: 'ADD_FIELD', payload: { field: signature },
+    type: 'ADD_FIELD',
+    payload: { field: signature },
   });
   assert.equal(inserted.template.schema[0].type, 'signature_block');
   assert.equal(inserted.template.schema[0].required, true);
-  assert.deepEqual(inserted.template.settings.allowedSignatureTypes, ['click_sign', 'autografa_digital', 'efirma_sat']);
+  assert.deepEqual(inserted.template.settings.allowedSignatureTypes, [
+    'click_sign',
+    'autografa_digital',
+    'efirma_sat',
+  ]);
   assert.deepEqual(inserted.template.sections[0].fieldIds, [signature.id]);
-  assert.equal(formBuilderReducer(inserted, {
-    type: 'ADD_FIELD', payload: { field: { ...signature, id: 'signature-b' } },
-  }), inserted);
+  assert.equal(
+    formBuilderReducer(inserted, {
+      type: 'ADD_FIELD',
+      payload: { field: { ...signature, id: 'signature-b' } },
+    }),
+    inserted
+  );
 
   const optional = formBuilderReducer(inserted, {
-    type: 'UPDATE_FIELD', payload: { id: signature.id, updates: { required: false } },
+    type: 'UPDATE_FIELD',
+    payload: { id: signature.id, updates: { required: false } },
   });
   const unchanged = formBuilderReducer(optional, {
-    type: 'SET_SETTINGS', payload: { requiresSignature: true },
+    type: 'SET_SETTINGS',
+    payload: { requiresSignature: true },
   });
   assert.equal(unchanged.template.schema.length, 1);
   assert.equal(unchanged.template.schema[0].required, true);
 
   const disabled = formBuilderReducer(unchanged, {
-    type: 'SET_SETTINGS', payload: { requiresSignature: false },
+    type: 'SET_SETTINGS',
+    payload: { requiresSignature: false },
   });
-  assert.equal(disabled.template.settings.requiresSignature, true);
+  assert.equal(disabled.template.settings.requiresSignature, false);
+  assert.equal(
+    formBuilderReducer(disabled, { type: 'SET_TEMPLATE', payload: disabled.template }).template
+      .settings.requiresSignature,
+    false
+  );
   assert.equal(disabled.template.schema.length, 1);
   const deleted = formBuilderReducer(unchanged, { type: 'DELETE_FIELD', payload: signature.id });
   assert.equal(deleted.template.schema.length, 0);

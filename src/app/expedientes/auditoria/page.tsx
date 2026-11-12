@@ -1,15 +1,71 @@
 'use client';
 
-import { Download, Filter, Hash, Search, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { createDemoCaseFile } from '@/lib/case-files/schema';
-import { CaseWorkspace, SectionHeader, TrafficBadge } from '../components/CaseUI';
+import { createClient } from '@/lib/supabase/client';
+import { CaseWorkspace, SectionHeader } from '../components/CaseUI';
+
+type AuditEvent = {
+  id: string;
+  actor_label: string;
+  action: string;
+  affected_object_type: string;
+  occurred_at: string;
+};
 
 export default function AuditoriaExpedientesPage() {
-  const events = createDemoCaseFile().auditEvents;
-  return <AppLayout noPadding><CaseWorkspace><SectionHeader title="Auditoría de expedientes" description="Bitácora avanzada de acciones, resultados y objetos afectados, con cadena de integridad por expediente." action={<button className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card"><Download size={15} /> Exportar</button>} /><section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/30 dark:border-border dark:bg-card"><header className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-border md:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input placeholder="Buscar por folio, usuario, acción u objeto" className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background" /></div><button className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border"><Filter size={14} /> Filtros avanzados</button></header><div className="overflow-x-auto"><table className="w-full min-w-[1000px]"><thead><tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-border dark:bg-muted/30"><Head>Fecha y hora</Head><Head>Acción</Head><Head>Usuario</Head><Head>Objeto afectado</Head><Head>Resultado</Head><Head>Integridad</Head></tr></thead><tbody className="divide-y divide-slate-200 dark:divide-border">{events.map((event) => <tr key={event.id} className="transition hover:bg-slate-50/70"><td className="px-4 py-4 text-xs text-slate-500">{new Date(event.occurredAt).toLocaleString('es-MX')}</td><td className="px-4 py-4 text-sm font-semibold">{event.action}</td><td className="px-4 py-4 text-sm">{event.actor}</td><td className="px-4 py-4 text-xs text-slate-600">{event.object}</td><td className="px-4 py-4"><TrafficBadge tone={event.result === 'success' ? 'green' : event.result === 'warning' ? 'amber' : 'red'}>{event.result === 'success' ? 'Correcto' : 'Advertencia'}</TrafficBadge></td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-slate-500"><Hash size={12} />{event.hash}</span></td></tr>)}</tbody></table></div><footer className="flex items-center gap-2 border-t border-slate-200 px-4 py-3 text-xs text-slate-500 dark:border-border"><ShieldCheck size={14} className="text-emerald-600" />Cadena de auditoría íntegra. No se detectaron eventos modificados.</footer></section></CaseWorkspace></AppLayout>;
-}
-
-function Head({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-xs font-semibold text-slate-500">{children}</th>;
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    createClient()
+      .from('case_file_audit_events')
+      .select('id,actor_label,action,affected_object_type,occurred_at')
+      .order('occurred_at', { ascending: false })
+      .limit(100)
+      .then(({ data, error: loadError }) => {
+        if (!cancelled) {
+          setEvents(data || []);
+          setError(Boolean(loadError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <AppLayout noPadding>
+      <CaseWorkspace>
+        <SectionHeader
+          title="Auditoría de expedientes"
+          description="Actividad registrada en los expedientes de tu espacio."
+        />
+        <section className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+          {error ? (
+            <p role="alert" className="p-8 text-center text-sm text-amber-700">
+              No se pudo cargar la auditoría.
+            </p>
+          ) : events.length ? (
+            events.map((event) => (
+              <div
+                key={event.id}
+                className="grid gap-2 p-4 text-sm md:grid-cols-[180px_1fr_180px_160px]"
+              >
+                <span className="text-slate-500">
+                  {new Date(event.occurred_at).toLocaleString('es-MX')}
+                </span>
+                <span className="font-medium">{event.action}</span>
+                <span>{event.actor_label}</span>
+                <span className="text-slate-500">{event.affected_object_type}</span>
+              </div>
+            ))
+          ) : (
+            <p className="p-8 text-center text-sm text-slate-500">
+              No hay eventos de expedientes registrados.
+            </p>
+          )}
+        </section>
+      </CaseWorkspace>
+    </AppLayout>
+  );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { processPendingCaseControls } from '@/lib/case-files/runtime.server';
 import {
   sendCertificateExpiryEmail,
   sendDocumentExpiredToAll,
@@ -27,6 +28,7 @@ async function runExpiryCheck(req: NextRequest, expectedSecret: string | undefin
     }
 
     const now = new Date();
+    await processPendingCaseControls();
     const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
     // ── 1. Find documents expiring within 72 hours (not yet expired) ──────────

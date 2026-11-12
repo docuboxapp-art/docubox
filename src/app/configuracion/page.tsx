@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { TemplateDocumentSettingsPanel } from '@/components/templates/TemplateDocumentSettingsPanel';
 import { FormPdfDefaultsPanel } from '@/components/forms/FormPdfDefaultsPanel';
 import { FormExperienceDefaultsPanel } from '@/components/forms/FormExperienceDefaultsPanel';
+import { FormLegalDefaultsPanel } from '@/components/forms/FormLegalDefaultsPanel';
 import { FormAppearanceDefaultsPanel } from '@/components/forms/FormAppearanceDefaultsPanel';
 import { ParticipationTermsSettingsPanel } from '@/components/signing/ParticipationTermsSettingsPanel';
 import { WorkspaceManagementSection } from '@/components/workspaces/WorkspaceManagementSection';
@@ -28,6 +29,7 @@ import {
   createDefaultFormExperienceDefaults,
   type FormExperienceDefaults,
 } from '@/lib/forms/experience-defaults';
+import { createDefaultFormLegalDefaults, type FormLegalDefaults } from '@/lib/forms/legal-field-content';
 import { formDefaultsErrorMessage, loadFormDefaults, saveFormDefault } from '@/lib/forms/remote-defaults';
 import { createDefaultFormAppearance, type FormAppearance } from '@/lib/forms/schema';
 
@@ -216,7 +218,6 @@ export default function ConfiguracionPage() {
   const [notifPush, setNotifPush] = useState(true);
   const [notifInApp, setNotifInApp] = useState(true);
   const [notifFirma, setNotifFirma] = useState(true);
-  const [notifTarea, setNotifTarea] = useState(true);
   const [notifSolicitud, setNotifSolicitud] = useState(true);
   const [notifVencimiento, setNotifVencimiento] = useState(true);
   const [notifSistema, setNotifSistema] = useState(false);
@@ -284,7 +285,8 @@ export default function ConfiguracionPage() {
     useState<FormExperienceDefaults>(createDefaultFormExperienceDefaults);
   const [formAppearanceDefaults, setFormAppearanceDefaults] =
     useState<FormAppearance>(createDefaultFormAppearance);
-  const [formConfigTab, setFormConfigTab] = useState<'general' | 'web' | 'pdf'>('general');
+  const [formLegalDefaults, setFormLegalDefaults] = useState<FormLegalDefaults>(createDefaultFormLegalDefaults);
+  const [formConfigTab, setFormConfigTab] = useState<'general' | 'legal' | 'web' | 'pdf'>('general');
   const [formExperienceSaved, setFormExperienceSaved] = useState(false);
   const [formDefaultsSaved, setFormDefaultsSaved] = useState(false);
   const [formDefaultsError, setFormDefaultsError] = useState('');
@@ -362,6 +364,7 @@ export default function ConfiguracionPage() {
       setFormPdfDefaults(defaults.pdf);
       setFormExperienceDefaults(defaults.experience);
       setFormAppearanceDefaults(defaults.appearance);
+      setFormLegalDefaults(defaults.legal);
       setFormExperienceSaved(true);
       setFormDefaultsError('');
       setFormDefaultsLoadedWorkspaceId(currentWsId);
@@ -572,6 +575,18 @@ export default function ConfiguracionPage() {
     }
   };
 
+  const handleSaveFormLegalDefaults = async (settings: FormLegalDefaults) => {
+    try {
+      if (!currentWsId) throw new Error('Selecciona un espacio de trabajo.');
+      setFormLegalDefaults(await saveFormDefault(currentWsId, 'legal', settings));
+      setFormDefaultsError('');
+      setFormDefaultsSaved(true);
+      setTimeout(() => setFormDefaultsSaved(false), 3000);
+    } catch (error) {
+      setFormDefaultsError(formDefaultsErrorMessage(error));
+    }
+  };
+
   const handleSaveNotifications = () => {
     setNotifSaving(true);
     setTimeout(() => {
@@ -743,7 +758,6 @@ export default function ConfiguracionPage() {
         <div className="space-y-1">
           {[
             { label: 'Solicitudes de firma', desc: 'Cuando alguien te envía un documento para firmar', value: notifFirma, set: setNotifFirma },
-            { label: 'Tareas pendientes', desc: 'Recordatorios de tareas próximas a vencer', value: notifTarea, set: setNotifTarea },
             { label: 'Solicitudes enviadas', desc: 'Actualizaciones de tus solicitudes de firma', value: notifSolicitud, set: setNotifSolicitud },
             { label: 'Documentos por vencer', desc: 'Alertas de documentos próximos a expirar', value: notifVencimiento, set: setNotifVencimiento },
             { label: 'Comentarios y notas', desc: 'Cuando alguien comenta en tus documentos', value: notifComentario, set: setNotifComentario },
@@ -1607,7 +1621,7 @@ export default function ConfiguracionPage() {
     <div className="flex flex-col gap-6">
       <SettingsSectionHeader
         title="Configuración de formularios"
-        description="Define la experiencia, el diseño web y el PDF de los formularios nuevos."
+        description="Define la experiencia, los textos legales, el diseño web y el PDF de los formularios nuevos."
       />
       {formDefaultsSaved && formDefaultsLoadedWorkspaceId === currentWsId && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
@@ -1623,6 +1637,7 @@ export default function ConfiguracionPage() {
       <div role="tablist" aria-label="Valores predeterminados de formularios" className="flex gap-1 overflow-x-auto border-b border-slate-200">
         {([
           ['general', 'General'],
+          ['legal', 'Consentimientos y declaraciones'],
           ['web', 'Diseño del formulario'],
           ['pdf', 'Diseño del PDF'],
         ] as const).map(([id, label]) => (
@@ -1637,6 +1652,13 @@ export default function ConfiguracionPage() {
           initialSettings={formExperienceDefaults}
           saved={formExperienceSaved}
           onSave={handleSaveFormExperienceDefaults}
+        />
+      </div>}
+      {formConfigTab === 'legal' && <div className="w-full max-w-4xl min-w-0" role="tabpanel">
+        <FormLegalDefaultsPanel
+          key={`legal:${currentWsId || 'personal'}:${JSON.stringify(formLegalDefaults)}`}
+          initialSettings={formLegalDefaults}
+          onSave={handleSaveFormLegalDefaults}
         />
       </div>}
       {formConfigTab === 'web' && <div className="w-full min-w-0" role="tabpanel">

@@ -15,8 +15,8 @@ test('all document tables share the initial column-width preference request', ()
 
 test('advanced filter catalogs load only when the relevant control is opened', () => {
   assert.match(source, /openFilterDropdown === 'tipoDocumento'/);
-  assert.match(source, /openFilterDropdown === 'propietario'/);
-  assert.match(source, /openFilterDropdown === 'participantes'/);
+  assert.match(source, /const workspaceUsers = React\.useMemo/);
+  assert.match(source, /const participantUsers = React\.useMemo/);
   assert.match(source, /if \(!showCarpetaModal\) return;/);
   assert.doesNotMatch(
     source,

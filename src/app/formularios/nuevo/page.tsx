@@ -34,6 +34,7 @@ import { readFormPdfDefaults } from '@/lib/forms/pdf-defaults';
 import { getFormPageSize } from '@/lib/forms/pdf-page-sizes';
 import { readFormAppearanceDefaults } from '@/lib/forms/appearance-defaults';
 import { readFormExperienceDefaults } from '@/lib/forms/experience-defaults';
+import { readFormLegalDefaults } from '@/lib/forms/legal-field-content';
 import { loadFormDefaults } from '@/lib/forms/remote-defaults';
 import {
   createFormRevision,
@@ -165,17 +166,29 @@ function BuilderWorkspace() {
         defaults = await loadFormDefaults(workspaceId);
       } catch {
         const pdf = readFormPdfDefaults(workspaceId);
-        defaults = { pdf, appearance: readFormAppearanceDefaults(workspaceId), experience: readFormExperienceDefaults(workspaceId, pdf.configurePdfDetails) };
+        defaults = { pdf, appearance: readFormAppearanceDefaults(workspaceId), experience: readFormExperienceDefaults(workspaceId, pdf.configurePdfDetails), legal: readFormLegalDefaults(workspaceId) };
       }
       if (!active) return;
       appliedDefaults.current = true;
       dispatch({ type: 'APPLY_PDF_DEFAULTS', payload: defaults.pdf });
       dispatch({ type: 'APPLY_APPEARANCE_DEFAULTS', payload: defaults.appearance });
       dispatch({ type: 'APPLY_EXPERIENCE_DEFAULTS', payload: defaults.experience });
+      dispatch({ type: 'APPLY_LEGAL_DEFAULTS', payload: defaults.legal });
       setLoading(false);
     })();
     return () => { active = false; };
   }, [activeWorkspace, dispatch, initialId, workspaceLoading]);
+
+  useEffect(() => {
+    if (!initialId || !activeWorkspace?.id) return;
+    let active = true;
+    void loadFormDefaults(activeWorkspace.id).then((defaults) => {
+      if (active) dispatch({ type: 'APPLY_LEGAL_DEFAULTS', payload: defaults.legal });
+    }).catch(() => {
+      if (active) dispatch({ type: 'APPLY_LEGAL_DEFAULTS', payload: readFormLegalDefaults(activeWorkspace.id) });
+    });
+    return () => { active = false; };
+  }, [activeWorkspace?.id, dispatch, initialId]);
 
   useEffect(() => {
     if (!initialId || loadedId.current === initialId) return;
@@ -441,7 +454,7 @@ function BuilderWorkspace() {
                 aria-current={index === step ? 'step' : undefined}
                 disabled={busy || index > furthest}
                 onClick={() => navigate(index)}
-                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-normal transition-colors sm:px-2.5 ${index === step ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)] dark:bg-card' : index <= furthest ? 'text-slate-700 hover:bg-white hover:text-primary dark:text-foreground dark:hover:bg-card' : 'text-slate-400'} disabled:cursor-default`}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors sm:px-2.5 ${index === step ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.12)] dark:bg-card' : index <= furthest ? 'text-slate-700 hover:bg-white hover:text-primary dark:text-foreground dark:hover:bg-card' : 'text-slate-400'} disabled:cursor-default`}
               >
                 <span
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${index === step ? 'bg-primary text-white' : index < step ? 'bg-primary/10 text-primary' : 'bg-slate-200/70 text-slate-400'}`}
@@ -609,7 +622,7 @@ function BuilderWorkspace() {
             </div>
             {!readOnly && state.canvasMode === 'list' && (
               <fieldset disabled={busy} className="hidden w-[320px] shrink-0 xl:block">
-                <FieldProperties />
+                <FieldProperties disabled={busy} />
               </fieldset>
             )}
           </>
@@ -895,7 +908,7 @@ function BuilderWorkspace() {
           <div
             className={`absolute inset-y-0 w-[min(340px,92vw)] bg-card shadow-xl ${libraryOpen ? 'left-0' : 'right-0'}`}
           >
-            <button
+            {(libraryOpen || !state.selectedFieldId) && <button
               type="button"
               aria-label="Cerrar panel"
               onClick={() => {
@@ -905,9 +918,9 @@ function BuilderWorkspace() {
               className="absolute right-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-md bg-card shadow-sm"
             >
               <X size={16} />
-            </button>
+            </button>}
             <fieldset disabled={busy} className="h-full">
-              {libraryOpen ? <FieldLibrary /> : <FieldProperties />}
+              {libraryOpen ? <FieldLibrary /> : <FieldProperties disabled={busy} onClose={() => setPropertiesOpen(false)} />}
             </fieldset>
           </div>
         </div>

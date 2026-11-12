@@ -68,6 +68,7 @@ export function formTemplateFromRow(row: FormTemplateRow): FormTemplate {
 }
 
 export function signatureFieldError(template: FormTemplate): string | null {
+  if (!template.settings.requiresSignature) return null;
   return !template.schema.some((field) => field.type === 'signature_block')
     ? 'Agrega el campo Firma en Contenido antes de continuar.'
     : null;
@@ -80,13 +81,29 @@ export function publicationError(template: FormTemplate): string | null {
   if (!template.schema.length) return 'Agrega al menos un campo antes de publicar.';
   if (template.schema.some((field) => !field.label.trim() || !field.slug.trim()))
     return 'Completa la etiqueta y el nombre interno de cada campo.';
-  if (template.schema.some((field) => isLegalField(field.type) && (!field.description?.trim() || !field.acceptanceLabel?.trim())))
+  if (
+    template.schema.some(
+      (field) =>
+        isLegalField(field.type) && (!field.description?.trim() || !field.acceptanceLabel?.trim())
+    )
+  )
     return 'Completa el texto y la casilla de aceptación de cada consentimiento o declaración.';
-  if (template.schema.some((field) => isLegalField(field.type) && ((field.description?.length || 0) > 1000 || (field.acceptanceLabel?.length || 0) > 160)))
+  if (
+    template.schema.some(
+      (field) =>
+        isLegalField(field.type) &&
+        ((field.description?.length || 0) > 1000 || (field.acceptanceLabel?.length || 0) > 160)
+    )
+  )
     return 'Reduce el texto legal a 1000 caracteres y la casilla de aceptación a 160.';
   if (new Set(template.schema.map((field) => field.slug)).size !== template.schema.length)
     return 'Cada campo debe tener un nombre interno diferente.';
-  if (template.settings.configureLinkExpiration && (!Number.isFinite(template.settings.expirationHours) || template.settings.expirationHours < 1 / 60 || template.settings.expirationHours > 720))
+  if (
+    template.settings.configureLinkExpiration &&
+    (!Number.isFinite(template.settings.expirationHours) ||
+      template.settings.expirationHours < 1 / 60 ||
+      template.settings.expirationHours > 720)
+  )
     return 'La vigencia del enlace debe estar entre 1 minuto y 720 horas.';
   return null;
 }
@@ -132,7 +149,8 @@ export async function submitFormForApproval(
   if (error) throw error;
   if (typeof instanceId !== 'string') throw new Error('No se confirmó la instancia de aprobación.');
   const result = await client.from('form_templates').select('*').eq('id', formId).single();
-  if (result.error || !result.data) throw result.error || new Error('No se confirmó el envío a aprobación.');
+  if (result.error || !result.data)
+    throw result.error || new Error('No se confirmó el envío a aprobación.');
   return formTemplateFromRow(result.data);
 }
 
@@ -202,7 +220,9 @@ export async function createFormVersion(client: SupabaseClient, sourceId: string
 }
 
 export async function createFormRevision(client: SupabaseClient, sourceId: string) {
-  const { data, error } = await client.rpc('create_form_template_revision', { source_id: sourceId });
+  const { data, error } = await client.rpc('create_form_template_revision', {
+    source_id: sourceId,
+  });
   if (error) throw error;
   const row = Array.isArray(data) && data.length === 1 ? data[0] : data;
   if (!row?.id) throw new Error('No se pudo crear la revisión de la versión actual.');
@@ -238,23 +258,34 @@ export async function switchFormDraftVersionMode(
   }
   if (!sourceId) throw new Error('No se encontró la versión publicada de origen.');
 
-  const created = mode === 'revision'
-    ? await createFormRevision(client, sourceId)
-    : await createFormVersion(client, sourceId);
+  const created =
+    mode === 'revision'
+      ? await createFormRevision(client, sourceId)
+      : await createFormVersion(client, sourceId);
   let replacement: FormTemplate;
   try {
-    replacement = await persistFormDraft(client, {
-      ...template,
-      id: created.id,
-      rootTemplateId: created.rootTemplateId,
-      sourceTemplateId: created.sourceTemplateId,
-      versionNumber: created.versionNumber,
-      revisionNumber: created.revisionNumber,
-      publishedAt: undefined,
-      updatedAt: created.updatedAt,
-    }, workspaceId, userId);
+    replacement = await persistFormDraft(
+      client,
+      {
+        ...template,
+        id: created.id,
+        rootTemplateId: created.rootTemplateId,
+        sourceTemplateId: created.sourceTemplateId,
+        versionNumber: created.versionNumber,
+        revisionNumber: created.revisionNumber,
+        publishedAt: undefined,
+        updatedAt: created.updatedAt,
+      },
+      workspaceId,
+      userId
+    );
   } catch (cause) {
-    await client.from('form_templates').delete().eq('id', created.id).eq('workspace_id', workspaceId).eq('status', 'draft');
+    await client
+      .from('form_templates')
+      .delete()
+      .eq('id', created.id)
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'draft');
     throw cause;
   }
 

@@ -725,6 +725,7 @@ export const StepEnviar = forwardRef<
           ruta: docConfig.ruta || 'raiz',
           etiquetasIds: docConfig.etiquetasIds || [],
           participantes: participantesData,
+          participantMode,
           camposSolicitados,
           workspaceId,
           participationOrder: participationOrder || 'paralelo',

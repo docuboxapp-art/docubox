@@ -3,26 +3,17 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { requiresFormSignature } from '../supabase/functions/_shared/form-signature-policy.ts';
 
-test('every form launch requires a signature, including legacy forms', () => {
+test('signature is required by default and explicit opt-out is respected', () => {
+  assert.equal(requiresFormSignature(undefined, []), true);
+  assert.equal(requiresFormSignature({}, []), true);
+  assert.equal(requiresFormSignature({ requiresSignature: true }, []), true);
+  assert.equal(requiresFormSignature({ requiresSignature: false }, []), false);
   assert.equal(
     requiresFormSignature({ requiresSignature: false }, [
       { type: 'signature_block', required: true },
     ]),
-    true
+    false
   );
-  assert.equal(
-    requiresFormSignature({ requiresSignature: true }, [
-      { type: 'signature_block', required: true },
-    ]),
-    true
-  );
-  assert.equal(
-    requiresFormSignature({ requiresSignature: true }, [
-      { type: 'signature_block', required: false },
-    ]),
-    true
-  );
-  assert.equal(requiresFormSignature({ requiresSignature: true }, []), true);
 });
 
 test('builder does not choose the signature method or OTP', async () => {
@@ -30,7 +21,8 @@ test('builder does not choose the signature method or OTP', async () => {
   const properties = await readFile('src/app/formularios/components/FieldProperties.tsx', 'utf8');
   const renderer = await readFile('src/app/formularios/components/FieldRenderer.tsx', 'utf8');
   assert.match(settings, /Firma obligatoria/);
-  assert.doesNotMatch(settings, /SET_SETTINGS', payload: \{ requiresSignature: value \}/);
+  assert.match(settings, /SET_SETTINGS', payload: \{ requiresSignature: value \}/);
+  assert.doesNotMatch(settings, /Siempre activa/);
   assert.doesNotMatch(settings, /Métodos permitidos|Confirmación OTP/);
   assert.doesNotMatch(properties, /Métodos permitidos en este bloque/);
   assert.doesNotMatch(renderer, /Selecciona el mecanismo de firma/);

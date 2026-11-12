@@ -18,6 +18,10 @@ const documentViewer = await readFile(
   new URL('../src/app/visor-documento/[id]/page.tsx', import.meta.url),
   'utf8'
 );
+const requestsPage = await readFile(
+  new URL('../src/app/participation-requests/page.tsx', import.meta.url),
+  'utf8'
+);
 const emailService = await readFile(
   new URL('../src/lib/emailNotifications.ts', import.meta.url),
   'utf8'
@@ -79,14 +83,13 @@ test('participant emails use the sender full name from user_profiles', () => {
   }
 });
 
-test('the creator is not reminded when they are the only participant', () => {
-  assert.match(reminderRoute, /const isCreatorOnlyParticipant/);
-  assert.match(reminderRoute, /activeParticipants\.length === 1/);
-  assert.match(
-    reminderRoute,
-    /No se envían recordatorios cuando el creador es el único participante/
-  );
-  assert.match(documentViewer, /!isCreatorOnlyParticipant/);
+test('an unfinished creator-participant can receive a reminder', () => {
+  assert.doesNotMatch(reminderRoute, /isCreatorOnlyParticipant/);
+  assert.doesNotMatch(documentViewer, /isCreatorOnlyParticipant/);
+  assert.match(requestsPage, /function canSendReminderToParticipant/);
+  assert.doesNotMatch(requestsPage, /activeParticipants\.length === 1 && participant\.isCurrentUser/);
+  assert.match(reminderRoute, /const hasCompletedParticipation/);
+  assert.match(reminderRoute, /El participante ya completó su participación/);
 });
 
 test('participant invitations embed a centered white mail icon instead of an emoji', () => {

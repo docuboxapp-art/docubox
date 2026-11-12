@@ -40,9 +40,20 @@ test('experience defaults validate values and keep presentation mode consistent'
   assert.equal(normalized.expirationHours, 0.5);
   assert.equal(normalized.configureLinkExpiration, false);
   assert.equal(normalized.requiresSignature, true);
-  assert.equal(normalizeFormExperienceDefaults({ requiresSignature: false }).requiresSignature, true);
-  assert.equal(normalizeFormExperienceDefaults({ configureLinkExpiration: true, expirationHours: 0.5 }).configureLinkExpiration, true);
-  assert.equal(normalizeFormExperienceDefaults({ configureLinkExpiration: false, expirationHours: 0.5 }).configureLinkExpiration, false);
+  assert.equal(
+    normalizeFormExperienceDefaults({ requiresSignature: false }).requiresSignature,
+    false
+  );
+  assert.equal(
+    normalizeFormExperienceDefaults({ configureLinkExpiration: true, expirationHours: 0.5 })
+      .configureLinkExpiration,
+    true
+  );
+  assert.equal(
+    normalizeFormExperienceDefaults({ configureLinkExpiration: false, expirationHours: 0.5 })
+      .configureLinkExpiration,
+    false
+  );
   assert.equal(normalizeFormExperienceDefaults({ expirationHours: 0 }).expirationHours, 72);
 });
 
@@ -51,9 +62,15 @@ test('only experience options count as pending changes', () => {
   const settings = { ...baseline, documentNumber: 'FORM-2026-001' };
   assert.equal(hasFormExperienceChanges(settings, baseline), false);
   assert.equal(hasFormExperienceChanges({ ...settings, requiresSignature: true }, baseline), false);
-  assert.equal(hasFormExperienceChanges({ ...settings, requiresSignature: false }, baseline), false);
+  assert.equal(hasFormExperienceChanges({ ...settings, requiresSignature: false }, baseline), true);
   assert.equal(hasFormExperienceChanges({ ...settings, expirationHours: 0 }, baseline), false);
-  assert.equal(hasFormExperienceChanges({ ...settings, configureLinkExpiration: true, expirationHours: 0 }, baseline), true);
+  assert.equal(
+    hasFormExperienceChanges(
+      { ...settings, configureLinkExpiration: true, expirationHours: 0 },
+      baseline
+    ),
+    true
+  );
 });
 
 test('experience defaults are scoped to their workspace', () => {

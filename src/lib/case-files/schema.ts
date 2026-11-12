@@ -20,6 +20,7 @@ export type RequirementStatus = 'pending' | 'uploaded' | 'in_review' | 'approved
 export type SignatureFlow = 'sequential' | 'parallel' | 'mixed' | 'conditional';
 
 export interface CaseFileSummary {
+  templateId?: string;
   id: string;
   folio: string;
   title: string;
@@ -250,65 +251,6 @@ function defaultClosureLabels() {
     'Documentos principales firmados', 'Evidencia de firma generada', 'Hitos completados',
     'Sin observaciones abiertas', 'Sin documentos vencidos', 'Manifest preparado', 'Constancia de cierre emitida',
   ];
-}
-
-const now = '2026-08-02T18:40:00-06:00';
-
-export const DEMO_CASE_FILES: CaseFileSummary[] = [
-  { id: 'demo-supplier', folio: 'EXP-2026-000184', title: 'Alta de proveedor · Constructora del Norte', caseType: 'Proveedor', caseSubtype: 'Persona moral nacional', participant: 'Constructora del Norte, S.A. de C.V.', responsible: 'Luis Alberto Hernández', status: 'in_review', progress: 78, priority: 'high', sensitivity: 'confidential', pendingItems: 3, openObservations: 1, targetCloseAt: '2026-08-15', lastActivityAt: now },
-  { id: 'demo-contract', folio: 'EXP-2026-000183', title: 'Contrato marco · Soluciones Industriales MX', caseType: 'Contractual', participant: 'Soluciones Industriales MX', responsible: 'Ana Martínez', status: 'signing', progress: 88, priority: 'normal', sensitivity: 'confidential', pendingItems: 1, openObservations: 0, targetCloseAt: '2026-08-08', lastActivityAt: '2026-08-02T16:10:00-06:00' },
-  { id: 'demo-client', folio: 'EXP-2026-000179', title: 'Onboarding · Grupo Álamo', caseType: 'Cliente', participant: 'Grupo Álamo', responsible: 'Luis Alberto Hernández', status: 'observed', progress: 54, priority: 'urgent', sensitivity: 'highly_confidential', pendingItems: 5, openObservations: 2, targetCloseAt: '2026-08-05', lastActivityAt: '2026-08-01T13:20:00-06:00' },
-  { id: 'demo-sealed', folio: 'EXP-2026-000171', title: 'Renovación contractual · Logística del Pacífico', caseType: 'Contractual', participant: 'Logística del Pacífico', responsible: 'Ana Martínez', status: 'sealed', progress: 100, priority: 'normal', sensitivity: 'standard', pendingItems: 0, openObservations: 0, targetCloseAt: '2026-07-30', lastActivityAt: '2026-07-30T18:05:00-06:00' },
-];
-
-export function createDemoCaseFile(id = 'demo-supplier'): CaseFileDetail {
-  const summary = DEMO_CASE_FILES.find((item) => item.id === id) || DEMO_CASE_FILES[0];
-  return {
-    ...summary,
-    description: 'Integración documental, fiscal, bancaria y contractual para el alta del proveedor.',
-    responsibleArea: 'Legal y Cumplimiento', openedAt: '2026-07-26T09:30:00-06:00',
-    participants: [
-      { id: 'p1', name: summary.participant, role: 'Titular del expediente', email: 'administracion@constructoradelnorte.mx', rfc: 'CNO140410CH3', accessMethod: 'secure_link_otp', status: 'active' },
-      { id: 'p2', name: 'José Alberto González', role: 'Representante legal y firmante', email: 'jose.gonzalez@constructoradelnorte.mx', rfc: 'GOJA850214AB1', accessMethod: 'secure_link_otp', status: 'active' },
-      { id: 'p3', name: 'Ana Martínez', role: 'Revisora documental', email: 'ana.martinez@docubox.mx', accessMethod: 'docubox_account', status: 'active' },
-    ],
-    requirements: [
-      { id: 'r1', name: 'Acta constitutiva', description: 'Documento constitutivo completo.', category: 'attachment', required: true, ...requirementDefaults, status: 'approved', uploadedAt: '2026-07-27T12:20:00-06:00', hash: '27f8b0a4…98c1' },
-      { id: 'r2', name: 'Poder del representante legal', description: 'Poder vigente del representante.', category: 'attachment', required: true, ...requirementDefaults, status: 'approved', uploadedAt: '2026-07-27T12:24:00-06:00', hash: '7e2a13d1…5f89' },
-      { id: 'r3', name: 'Identificación oficial', description: 'INE o pasaporte vigente.', category: 'attachment', required: true, ...requirementDefaults, requiresIdentity: true, status: 'approved', uploadedAt: '2026-07-27T12:31:00-06:00', hash: 'ac48c8d3…7f11' },
-      { id: 'r4', name: 'Constancia de situación fiscal', description: 'Documento emitido por el SAT.', category: 'attachment', required: true, ...requirementDefaults, status: 'approved', uploadedAt: '2026-07-27T12:40:00-06:00', hash: '1802d121…32ae' },
-      { id: 'r5', name: 'Opinión de cumplimiento', description: 'Opinión positiva y vigente.', category: 'attachment', required: true, ...requirementDefaults, status: 'observed', uploadedAt: '2026-07-27T12:44:00-06:00', rejectionReason: 'El documento corresponde al mes anterior y ya no está vigente.', correctionAction: 'Descarga una opinión positiva vigente desde el portal del SAT y reemplaza este archivo.' },
-      { id: 'r6', name: 'Comprobante de domicilio', description: 'Antigüedad no mayor a tres meses.', category: 'attachment', required: true, ...requirementDefaults, status: 'in_review', uploadedAt: '2026-08-02T10:02:00-06:00' },
-      { id: 'r7', name: 'Carátula bancaria', description: 'Banco, CLABE y titular visibles.', category: 'attachment', required: true, ...requirementDefaults, status: 'approved', uploadedAt: '2026-07-27T13:01:00-06:00', hash: 'a409115c…6b92' },
-      { id: 'r8', name: 'Contrato de prestación de servicios', description: 'Contrato principal sujeto a firma.', category: 'signed', required: true, ...requirementDefaults, requiresSignature: true, requiresIdentity: true, status: 'uploaded', uploadedAt: '2026-08-01T16:12:00-06:00' },
-    ],
-    forms: [
-      { id: 'f1', name: 'Datos fiscales del proveedor', assignee: 'Constructora del Norte', status: 'approved', requiresSignature: false, pdfGenerated: true, updatedAt: '2026-07-28T11:20:00-06:00' },
-      { id: 'f2', name: 'Datos bancarios', assignee: 'Constructora del Norte', status: 'submitted', requiresSignature: false, pdfGenerated: true, updatedAt: '2026-07-28T11:42:00-06:00' },
-      { id: 'f3', name: 'Declaración bajo protesta', assignee: 'José Alberto González', status: 'in_progress', requiresSignature: true, pdfGenerated: false, updatedAt: '2026-08-02T09:18:00-06:00' },
-    ],
-    identityChecks: [
-      { id: 'i1', person: 'José Alberto González', method: 'INE + selfie', status: 'approved', verifiedAt: '2026-07-28T13:17:00-06:00', result: 'Coincidencia biométrica satisfactoria' },
-      { id: 'i2', person: 'Constructora del Norte, S.A. de C.V.', method: 'RFC / SAT', status: 'approved', verifiedAt: '2026-07-28T13:22:00-06:00', result: 'RFC activo y razón social coincidente' },
-    ],
-    milestones: defaultMilestoneBlueprints().map((item, index) => ({ ...item, id: `m${index + 1}`, status: index < 3 ? 'completed' : index === 3 ? 'in_progress' : 'pending', completedAt: index < 3 ? '2026-07-28T13:22:00-06:00' : undefined })),
-    signatures: [
-      { id: 's1', documentName: 'Contrato de prestación de servicios', signer: 'José Alberto González', type: 'efirma', flow: 'sequential', status: 'pending', sentAt: '2026-08-01T16:15:00-06:00' },
-      { id: 's2', documentName: 'Declaración bajo protesta', signer: 'José Alberto González', type: 'click_sign', flow: 'parallel', status: 'pending' },
-    ],
-    observations: [
-      { id: 'o1', target: 'Opinión de cumplimiento', reason: 'Documento vencido', message: 'La opinión presentada ya no se encuentra vigente.', correctionAction: 'Sube una opinión positiva emitida durante el mes en curso.', responsible: 'Constructora del Norte', status: 'open', dueDate: '2026-08-04', createdAt: '2026-08-01T10:16:00-06:00' },
-    ],
-    auditEvents: [
-      ['Documento cargado', 'Constructora del Norte', 'Comprobante de domicilio', '2026-08-02T10:02:00-06:00'],
-      ['Observación creada', 'Ana Martínez', 'Opinión de cumplimiento', '2026-08-01T10:16:00-06:00'],
-      ['Documento enviado a firma', 'Luis Alberto Hernández', 'Contrato de prestación de servicios', '2026-08-01T16:15:00-06:00'],
-      ['Identidad validada', 'Sistema Docubox', 'José Alberto González', '2026-07-28T13:17:00-06:00'],
-      ['Expediente creado', 'Luis Alberto Hernández', summary.folio, '2026-07-26T09:30:00-06:00'],
-    ].map(([action, actor, object, occurredAt], index) => ({ id: `a${index + 1}`, action, actor, object, occurredAt, result: index === 1 ? 'warning' : 'success', ip: index < 3 ? '187.172.89.124' : undefined, hash: `evt_${index + 1}_8f3a9d74` })),
-    closureRules: defaultClosureLabels().map((label, index) => ({ id: `c${index + 1}`, label, required: true, satisfied: index === 1 || index === 2 })),
-    manifestStatus: 'pending', certificateStatus: 'pending',
-  };
 }
 
 export function getCompletionStats(caseFile: CaseFileDetail) {

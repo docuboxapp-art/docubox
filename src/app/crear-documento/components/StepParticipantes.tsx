@@ -411,7 +411,7 @@ function InvitarParticipanteForm({
 
 // ─── Configurar Participación Modal ──────────────────────────────────────────
 
-function ConfigurarParticipacionModal({
+export function ConfigurarParticipacionModal({
   participant,
   onClose,
   onSave,
@@ -1119,7 +1119,7 @@ function ConfigurarParticipacionModal({
 
 // ─── Añadir Participantes Modal ───────────────────────────────────────────────
 
-function AñadirParticipantesModal({
+export function AñadirParticipantesModal({
   onClose,
   onAdd,
   existingParticipants,

@@ -205,21 +205,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       void fetchUserProfile(userId);
     };
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user?.id) {
-        syncUserProfile(session.user.id);
-      } else {
-        loadedProfileUserRef.current = null;
-        setUserProfile(null);
-        setEmailVerified(null);
-      }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
+    // INITIAL_SESSION supplies the initial state. Calling getSession here as
+    // well can start a second refresh while Auth is already degraded.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {

@@ -1,11 +1,69 @@
 'use client';
 
-import { Download, ExternalLink, FileCheck2, QrCode, Search, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
-import { CaseWorkspace, SectionHeader, TrafficBadge } from '../components/CaseUI';
+import { createClient } from '@/lib/supabase/client';
+import { CaseWorkspace, SectionHeader } from '../components/CaseUI';
 
-const certificates = [{ number: 'CONST-EXP-2026-000171', folio: 'EXP-2026-000171', title: 'Renovación contractual · Logística del Pacífico', closedAt: '30 jul 2026, 18:05', rootHash: '49de8a88…f1c2', nom151: true }];
+type Certificate = {
+  id: string;
+  case_file_id: string;
+  certificate_number: string;
+  closed_at: string;
+};
 
 export default function ConstanciasPage() {
-  return <AppLayout noPadding><CaseWorkspace><SectionHeader title="Constancias de cierre" description="Histórico verificable de expedientes cerrados herméticamente, con manifest y hash raíz." /><section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/30 dark:border-border dark:bg-card"><header className="border-b border-slate-200 p-4 dark:border-border"><div className="relative max-w-lg"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input placeholder="Buscar por constancia, folio o expediente" className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-background" /></div></header><div className="divide-y divide-slate-200 dark:divide-border">{certificates.map((item) => <article key={item.number} className="flex flex-col gap-4 p-4 transition hover:bg-slate-50/70 lg:flex-row lg:items-center"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50 text-emerald-600"><FileCheck2 size={20} /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-950 dark:text-foreground">{item.title}</p><p className="mt-1 text-xs text-slate-500">{item.number} · {item.folio} · Cerrado {item.closedAt}</p></div><TrafficBadge tone="green">Integridad verificada</TrafficBadge>{item.nom151 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600"><ShieldCheck size={14} className="text-primary" />NOM-151</span>}<span className="font-mono text-[11px] text-slate-500">SHA-256 {item.rootHash}</span><div className="flex gap-1.5"><button className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border" title="Ver QR"><QrCode size={15} /></button><button className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border"><Download size={14} /> Descargar</button><button className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border" title="Verificar"><ExternalLink size={15} /></button></div></article>)}</div></section></CaseWorkspace></AppLayout>;
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    createClient()
+      .from('case_file_closure_certificates')
+      .select('id,case_file_id,certificate_number,closed_at')
+      .order('closed_at', { ascending: false })
+      .then(({ data, error: loadError }) => {
+        if (!cancelled) {
+          setCertificates(data || []);
+          setError(Boolean(loadError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <AppLayout noPadding>
+      <CaseWorkspace>
+        <SectionHeader
+          title="Constancias de cierre"
+          description="Constancias generadas por expedientes cerrados."
+        />
+        <section className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
+          {error ? (
+            <p role="alert" className="p-8 text-center text-sm text-amber-700">
+              No se pudieron cargar las constancias.
+            </p>
+          ) : certificates.length ? (
+            certificates.map((item) => (
+              <Link
+                key={item.id}
+                href={`/expedientes/${item.case_file_id}?tab=cierre`}
+                className="flex items-center justify-between gap-4 p-4 hover:bg-slate-50 dark:hover:bg-muted/30"
+              >
+                <span className="text-sm font-medium">{item.certificate_number}</span>
+                <span className="text-xs text-slate-500">
+                  {new Date(item.closed_at).toLocaleDateString('es-MX')}
+                </span>
+              </Link>
+            ))
+          ) : (
+            <p className="p-8 text-center text-sm text-slate-500">
+              No hay constancias de cierre generadas.
+            </p>
+          )}
+        </section>
+      </CaseWorkspace>
+    </AppLayout>
+  );
 }

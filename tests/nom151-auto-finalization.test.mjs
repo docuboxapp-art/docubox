@@ -86,6 +86,8 @@ test('stored XML is checked against the artifact hash, not its embedded canonica
 });
 
 test('viewer distinguishes a verified development constancia from production evidence', () => {
-  assert.match(viewer, /!nom151Data\.production_trusted/);
-  assert.match(viewer, /Emisión de desarrollo verificada técnicamente/);
+  assert.match(viewer, /productionTrusted: nom151Data\?\.production_trusted/);
+  assert.match(viewer, /Integridad de constancia verificada/);
+  assert.match(viewer, /Producción confirmada/);
+  assert.match(viewer, /Entorno de pruebas/);
 });

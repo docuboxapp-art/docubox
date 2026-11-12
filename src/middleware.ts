@@ -1,7 +1,14 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import {
+  emitObservedEvent,
+  type ObservedOutcome,
+  type ObservedService,
+} from '@/lib/observability/events';
 
 const PUBLIC_ROUTES = [
+  '/api/public/case-portal',
+  '/api/public/case-entry',
   '/',
   '/login',
   '/registro',
@@ -48,6 +55,7 @@ const PUBLIC_PREFIXES = [
 const SESSION_POLICY_BOOTSTRAP_API_ROUTES = new Set(['/api/auth/totp/check']);
 const KIOSK_COOKIE_NAME = 'docubox_kiosk_session';
 const SESSION_RETRY_COOKIE_NAME = 'docubox_session_check_retry';
+const SESSION_PROBE_PATH = '/api/auth/session-probe';
 const KIOSK_AUTH_API_ROUTES = new Set([
   '/api/auth/check-login-options',
   '/api/auth/send-login-otp',
@@ -268,15 +276,11 @@ type SessionPolicyValidationResult = {
 };
 
 const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt', 'PGRST301']);
-const TRANSIENT_SESSION_POLICY_ERROR_CODES = new Set(['PGRST002']);
-const TRANSIENT_SESSION_HTTP_STATUSES = new Set([0, 502, 503, 504]);
 const SESSION_POLICY_RETRY_DELAY_MS = 350;
-const SESSION_POLICY_BACKOFF_RETRY_DELAY_MS = 1_200;
 // The policy RPC's observed p99 is above eight seconds during gateway pressure.
 const SESSION_VALIDATION_TIMEOUT_MS = 12_000;
 const MIDDLEWARE_DEADLINE_MS = 20_000;
 const SESSION_POLICY_FAILURE_BACKOFF_MS = 2_000;
-const SESSION_PAGE_RETRY_DELAYS_SECONDS = [5, 15, 30, 60, 60] as const;
 const inFlightSessionPolicyValidations = new Map<string, Promise<SessionPolicyValidationResult>>();
 const sessionPolicyFailureUntil = new Map<string, number>();
 
@@ -297,7 +301,8 @@ function normalizeSessionPolicyError(error: unknown): SessionPolicyError {
 async function fetchWithSessionValidationTimeout(
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
-  requestSignal?: AbortSignal
+  requestSignal?: AbortSignal,
+  onResponse?: (response: Response) => void
 ) {
   const controller = new AbortController();
   const upstreamSignal = init?.signal;
@@ -310,7 +315,9 @@ async function fetchWithSessionValidationTimeout(
 
   const timeout = setTimeout(() => controller.abort(), SESSION_VALIDATION_TIMEOUT_MS);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    onResponse?.(response);
+    return response;
   } finally {
     clearTimeout(timeout);
     upstreamSignal?.removeEventListener('abort', forwardAbort);
@@ -362,6 +369,7 @@ function hasMalformedSessionCookie(request: NextRequest) {
 
 function isInvalidSessionError(error: SessionPolicyError | null) {
   if (!error) return false;
+  if (typeof error.status === 'number' && error.status >= 500) return false;
   if (error.code && INVALID_SESSION_ERROR_CODES.has(error.code)) return true;
   const message = error.message?.toLowerCase() || '';
   return (
@@ -373,34 +381,8 @@ function isInvalidSessionError(error: SessionPolicyError | null) {
   );
 }
 
-function isTransientSessionPolicyError(error: SessionPolicyError | null) {
-  if (!error) return false;
-  if (error.code && TRANSIENT_SESSION_POLICY_ERROR_CODES.has(error.code)) return true;
-  if (typeof error.status === 'number' && TRANSIENT_SESSION_HTTP_STATUSES.has(error.status)) {
-    return true;
-  }
-  if (error.name === 'AuthRetryableFetchError') return true;
-  const message = error.message?.toLowerCase() || '';
-  return (
-    message.includes('schema cache') ||
-    message.includes('fetch failed') ||
-    message.includes('network error') ||
-    message.includes('timed out') ||
-    message.includes('timeout') ||
-    message.includes('aborted')
-  );
-}
-
-function shouldRetrySessionCheckAfterBackoff(error: SessionPolicyError | null) {
-  return Boolean(
-    error &&
-      (error.code === 'PGRST002' ||
-        (typeof error.status === 'number' && [502, 503, 504].includes(error.status)))
-  );
-}
-
-function waitForSessionPolicyRetry(delayMs = SESSION_POLICY_RETRY_DELAY_MS) {
-  return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+function waitForSessionPolicyRetry() {
+  return new Promise<void>((resolve) => setTimeout(resolve, SESSION_POLICY_RETRY_DELAY_MS));
 }
 
 function unauthenticatedResponse(
@@ -410,10 +392,35 @@ function unauthenticatedResponse(
   isPublicPage: boolean
 ) {
   clearSessionCookies(request, response);
-  if (isApiRequest || isPublicPage) return response;
+  if (request.nextUrl.pathname === SESSION_PROBE_PATH) {
+    const probeResponse = NextResponse.json(
+      { ready: false },
+      { status: 401, headers: { 'Cache-Control': 'private, no-store' } }
+    );
+    for (const cookie of response.cookies.getAll()) probeResponse.cookies.set(cookie);
+    return probeResponse;
+  }
+  if (isApiRequest) {
+    const denied = NextResponse.json(
+      { error: 'SESSION_INVALID', message: 'La sesión no es válida.' },
+      { status: 401, headers: { 'Cache-Control': 'private, no-store' } }
+    );
+    for (const cookie of response.cookies.getAll()) denied.cookies.set(cookie);
+    return denied;
+  }
+  if (isPublicPage) return response;
   const redirectResponse = NextResponse.redirect(new URL('/login', request.url));
   for (const cookie of response.cookies.getAll()) redirectResponse.cookies.set(cookie);
   return redirectResponse;
+}
+
+function readySessionProbeResponse(response: NextResponse) {
+  const probeResponse = NextResponse.json(
+    { ready: true },
+    { headers: { 'Cache-Control': 'private, no-store' } }
+  );
+  for (const cookie of response.cookies.getAll()) probeResponse.cookies.set(cookie);
+  return probeResponse;
 }
 
 type MiddlewareTiming = {
@@ -421,10 +428,21 @@ type MiddlewareTiming = {
   sessionPolicyMs?: number;
 };
 
+type SessionObservation = {
+  route: string;
+  correlationId: string;
+  upstreamRequestIds: string[];
+  upstreamStatuses: number[];
+  service: ObservedService;
+  outcome?: ObservedOutcome;
+  code?: string | null;
+};
+
 function withMiddlewareTiming(
   response: NextResponse,
   startedAt: number,
-  timing: MiddlewareTiming = {}
+  timing: MiddlewareTiming = {},
+  observation?: SessionObservation
 ) {
   const duration = performance.now() - startedAt;
   const serverTiming = [`middleware;dur=${duration.toFixed(1)}`];
@@ -435,7 +453,24 @@ function withMiddlewareTiming(
     serverTiming.push(`session_policy;dur=${timing.sessionPolicyMs.toFixed(1)}`);
   }
   response.headers.set('Server-Timing', serverTiming.join(', '));
-  if (duration >= 1_000) {
+  if (observation) {
+    response.headers.set('X-Docubox-Correlation-Id', observation.correlationId);
+    if (observation.outcome || duration >= 3_000) {
+      emitObservedEvent({
+        service: observation.service,
+        outcome: observation.outcome || 'slow',
+        route: observation.route,
+        status: observation.outcome === 'invalid' ? undefined : response.status,
+        durationMs: duration,
+        claimsMs: timing.claimsMs,
+        policyMs: timing.sessionPolicyMs,
+        code: observation.code,
+        correlationId: observation.correlationId,
+        upstreamRequestIds: observation.upstreamRequestIds,
+        upstreamStatuses: observation.upstreamStatuses,
+      });
+    }
+  } else if (duration >= 3_000) {
     console.warn('[performance] Slow middleware request', {
       middleware_ms: Math.round(duration),
       auth_claims_ms: timing.claimsMs === undefined ? undefined : Math.round(timing.claimsMs),
@@ -475,19 +510,16 @@ function unavailableSessionPolicyResponse(
   isApiRequest: boolean
 ) {
   if (isApiRequest) {
-    return NextResponse.json(
+    const unavailableResponse = NextResponse.json(
       {
         error: 'SESSION_POLICY_UNAVAILABLE',
         message: 'No fue posible validar la sesión. Inténtalo de nuevo.',
       },
-      { status: 503 }
+      { status: 503, headers: { 'Cache-Control': 'private, no-store', 'Retry-After': '15' } }
     );
+    for (const cookie of response.cookies.getAll()) unavailableResponse.cookies.set(cookie);
+    return unavailableResponse;
   }
-
-  const retryCount = Number(request.cookies.get(SESSION_RETRY_COOKIE_NAME)?.value || 0);
-  const autoRetry = Number.isInteger(retryCount) && retryCount >= 0 &&
-    retryCount < SESSION_PAGE_RETRY_DELAYS_SECONDS.length;
-  const retryAfterSeconds = SESSION_PAGE_RETRY_DELAYS_SECONDS[retryCount] || 60;
 
   const unavailableResponse = new NextResponse(
     `<!doctype html>
@@ -495,27 +527,104 @@ function unavailableSessionPolicyResponse(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Verificación temporalmente no disponible</title>
+    <title>Conectando con Docubox</title>
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; background: #f5f7fa; color: #111827; font-family: Arial, sans-serif; }
+      body { margin: 0; background: #f5f7fa; color: #172033; font-family: Arial, sans-serif; }
       main { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-      section { width: min(100%, 440px); padding: 28px; border: 1px solid #dbe3ee; border-radius: 8px; background: #fff; box-shadow: 0 12px 32px rgba(15, 23, 42, .08); }
+      section { width: min(100%, 440px); padding: 30px; border: 1px solid #dbe3ee; border-radius: 12px; background: #fff; box-shadow: 0 12px 32px rgba(15, 23, 42, .06); }
+      .brand { display: block; width: 144px; height: auto; margin-bottom: 30px; }
+      .spinner { width: 28px; height: 28px; margin-bottom: 18px; border: 3px solid #dbeafe; border-top-color: #246bfd; border-radius: 50%; animation: spin .8s linear infinite; }
       h1 { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 600; }
-      p { margin: 10px 0 22px; color: #64748b; font-size: 14px; line-height: 1.55; }
-      a { display: inline-flex; min-height: 40px; align-items: center; padding: 0 16px; border-radius: 8px; background: #246bfd; color: #fff; font-size: 14px; font-weight: 400; text-decoration: none; }
-      a:hover { background: #1859dc; }
+      p { margin: 10px 0 0; color: #64748b; font-size: 14px; line-height: 1.55; }
+      button { display: inline-flex; min-height: 40px; align-items: center; margin-top: 22px; padding: 0 16px; border: 1px solid #cdddfc; border-radius: 8px; background: #fff; color: #246bfd; font: inherit; font-size: 14px; cursor: pointer; }
+      button:hover:not(:disabled) { background: #f1f6ff; }
+      button:disabled { cursor: progress; opacity: .65; }
+      [hidden] { display: none !important; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
     </style>
   </head>
   <body>
     <main>
       <section>
-        <h1>No fue posible verificar la sesión</h1>
-        <p>No cerramos tu sesión. El servicio de verificación no respondió correctamente. ${autoRetry ? `Intentaremos de nuevo en ${retryAfterSeconds} segundos.` : 'Intenta nuevamente.'}</p>
-        <a href="">Reintentar</a>
+        <img class="brand" src="/assets/images/docubox-logo-2026.png" alt="Docubox" width="144" height="28">
+        <div class="spinner" aria-hidden="true"></div>
+        <h1>Preparando tu espacio</h1>
+        <p id="connection-status" role="status" aria-live="polite">Estamos verificando tu sesión de forma automática.</p>
+        <button id="retry-now" type="button" hidden>Reintentar ahora</button>
+        <noscript><p>Activa JavaScript para continuar o vuelve a cargar esta página.</p></noscript>
       </section>
     </main>
-    ${autoRetry ? `<script>setTimeout(function () { window.location.reload(); }, ${retryAfterSeconds * 1000});</script>` : ''}
+    <script>
+      (function () {
+        var status = document.getElementById('connection-status');
+        var button = document.getElementById('retry-now');
+        var timer;
+        var checking = false;
+        var failures = 0;
+        var startedAt = Date.now();
+
+        function scheduleRetry() {
+          if (failures >= 5) {
+            button.hidden = false;
+            status.textContent = 'La conexión sigue sin responder. Puedes reintentar cuando vuelva el servicio.';
+            return;
+          }
+          var delays = [3000, 7000, 15000, 30000];
+          var delay = delays[Math.min(failures - 1, delays.length - 1)];
+          timer = window.setTimeout(checkSession, delay + Math.floor(Math.random() * 1500));
+          if (Date.now() - startedAt >= 15000) {
+            button.hidden = false;
+            status.textContent = 'La conexión está tardando más de lo habitual. Seguimos intentando.';
+          } else {
+            status.textContent = 'Estamos verificando tu sesión de forma automática.';
+          }
+        }
+
+        async function checkSession() {
+          if (checking) return;
+          window.clearTimeout(timer);
+          checking = true;
+          button.disabled = true;
+          button.textContent = 'Comprobando...';
+          status.textContent = 'Comprobando la conexión...';
+          var controller = new AbortController();
+          var timeout = window.setTimeout(function () { controller.abort(); }, 25000);
+          try {
+            var response = await fetch('/api/auth/session-probe', {
+              method: 'GET',
+              credentials: 'same-origin',
+              cache: 'no-store',
+              headers: { Accept: 'application/json' },
+              signal: controller.signal
+            });
+            if (response.status === 200) {
+              window.location.replace(window.location.href);
+              return;
+            }
+            if (response.status === 401) {
+              window.location.replace('/login?reason=session-expired');
+              return;
+            }
+          } catch (_) {
+            // The next attempt runs without replacing this page.
+          } finally {
+            window.clearTimeout(timeout);
+            checking = false;
+            button.disabled = false;
+            button.textContent = 'Reintentar ahora';
+          }
+          failures += 1;
+          scheduleRetry();
+        }
+
+        button.addEventListener('click', checkSession);
+        window.addEventListener('online', checkSession);
+        window.setTimeout(function () { button.hidden = false; }, 15000);
+        checkSession();
+      })();
+    </script>
   </body>
 </html>`,
     {
@@ -523,47 +632,78 @@ function unavailableSessionPolicyResponse(
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'private, no-store',
-        'Retry-After': String(retryAfterSeconds),
+        'Retry-After': '15',
       },
     }
   );
   for (const cookie of response.cookies.getAll()) {
     unavailableResponse.cookies.set(cookie);
   }
-  if (autoRetry) {
-    unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, String(retryCount + 1), {
-      path: '/',
-      maxAge: 600,
-      sameSite: 'lax',
-      httpOnly: true,
-    });
+  if (request.cookies.has(SESSION_RETRY_COOKIE_NAME)) {
+    unavailableResponse.cookies.set(SESSION_RETRY_COOKIE_NAME, '', { path: '/', maxAge: 0 });
   }
   return unavailableResponse;
 }
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const correlationId = crypto.randomUUID();
+  const startedAt = performance.now();
   const controller = new AbortController();
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<NextResponse>((resolve) => {
     deadlineTimer = setTimeout(() => {
       controller.abort();
-      resolve(unavailableSessionPolicyResponse(
+      const response = unavailableSessionPolicyResponse(
         request,
         NextResponse.next(),
         request.nextUrl.pathname.startsWith('/api/')
-      ));
+      );
+      response.headers.set('X-Docubox-Correlation-Id', correlationId);
+      emitObservedEvent({
+        service: 'session_policy',
+        outcome: 'unavailable',
+        route: request.nextUrl.pathname,
+        status: 503,
+        durationMs: performance.now() - startedAt,
+        code: 'MIDDLEWARE_DEADLINE',
+        correlationId,
+      });
+      resolve(response);
     }, MIDDLEWARE_DEADLINE_MS);
   });
   try {
-    return await Promise.race([handleMiddlewareRequest(request, event, controller.signal), deadline]);
+    return await Promise.race([
+      handleMiddlewareRequest(request, event, controller.signal, correlationId),
+      deadline,
+    ]);
   } finally {
     clearTimeout(deadlineTimer);
   }
 }
 
-async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEvent, requestSignal: AbortSignal) {
+async function handleMiddlewareRequest(
+  request: NextRequest,
+  event: NextFetchEvent,
+  requestSignal: AbortSignal,
+  correlationId: string
+) {
   const startedAt = performance.now();
   const { pathname } = request.nextUrl;
+  const upstreamRequestIds: string[] = [];
+  const upstreamStatuses: number[] = [];
+  const observe = (
+    service: ObservedService,
+    outcome?: ObservedOutcome,
+    code?: string | null
+  ): SessionObservation => ({
+    route: pathname,
+    correlationId,
+    upstreamRequestIds,
+    upstreamStatuses,
+    service,
+    outcome,
+    code,
+  });
   const kioskResponse = await enforceKioskScope(request);
   if (kioskResponse) return withMiddlewareTiming(kioskResponse, startedAt);
 
@@ -601,10 +741,15 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
     return withMiddlewareTiming(NextResponse.redirect(requestsUrl, 308), startedAt);
   }
 
-  if (pathname === '/pending-tasks') {
-    const tasksUrl = request.nextUrl.clone();
-    tasksUrl.pathname = '/mis-tareas';
-    return withMiddlewareTiming(NextResponse.redirect(tasksUrl, 308), startedAt);
+  if (
+    pathname === '/pending-tasks' ||
+    pathname === '/mis-tareas' ||
+    pathname.startsWith('/mis-tareas/')
+  ) {
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = '/inicio';
+    homeUrl.search = '';
+    return withMiddlewareTiming(NextResponse.redirect(homeUrl, 308), startedAt);
   }
 
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
@@ -612,6 +757,7 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
   }
 
   const isApiRequest = pathname.startsWith('/api/');
+  const isSessionProbe = pathname === SESSION_PROBE_PATH;
   const isPublicPage = PUBLIC_ROUTES.includes(pathname);
   if (isPublicPage) return withMiddlewareTiming(NextResponse.next(), startedAt);
   if (isApiRequest && SESSION_POLICY_BOOTSTRAP_API_ROUTES.has(pathname)) {
@@ -620,6 +766,12 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
 
   let response = NextResponse.next({ request });
   if (!hasSessionMaterial(request)) {
+    if (isSessionProbe) {
+      return withMiddlewareTiming(
+        unauthenticatedResponse(request, response, true, false),
+        startedAt
+      );
+    }
     const result =
       isApiRequest || isPublicPage
         ? response
@@ -630,7 +782,9 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
   if (hasMalformedSessionCookie(request)) {
     return withMiddlewareTiming(
       unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
-      startedAt
+      startedAt,
+      {},
+      observe('auth', 'invalid', 'INVALID_SESSION')
     );
   }
 
@@ -640,7 +794,15 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       global: {
-        fetch: (input, init) => fetchWithSessionValidationTimeout(input, init, requestSignal),
+        fetch: (input, init) =>
+          fetchWithSessionValidationTimeout(input, init, requestSignal, (upstream) => {
+            if (upstreamStatuses.length < 4) upstreamStatuses.push(upstream.status);
+            const id =
+              upstream.headers.get('x-request-id') ||
+              upstream.headers.get('sb-request-id') ||
+              upstream.headers.get('cf-ray');
+            if (id && upstreamRequestIds.length < 4) upstreamRequestIds.push(id);
+          }),
         ...(authorization ? { headers: { authorization } } : {}),
       },
       cookies: {
@@ -648,7 +810,7 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
+          cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
           // Forward the refreshed cookies to the current server render as well
@@ -668,15 +830,7 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
   let claimsError: SessionPolicyError | null = null;
   const claimsStartedAt = performance.now();
   try {
-    let result = await supabase.auth.getClaims(accessToken);
-    if (!requestSignal.aborted && isTransientSessionPolicyError(result.error)) {
-      await waitForSessionPolicyRetry();
-      result = await supabase.auth.getClaims(accessToken);
-      if (!requestSignal.aborted && shouldRetrySessionCheckAfterBackoff(result.error)) {
-        await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
-        result = await supabase.auth.getClaims(accessToken);
-      }
-    }
+    const result = await supabase.auth.getClaims(accessToken);
     claimsData = result.data;
     claimsError = result.error;
   } catch (error) {
@@ -689,19 +843,24 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
         startedAt,
-        { claimsMs }
+        { claimsMs },
+        observe('auth', 'invalid', claimsError.code || claimsError.name)
       );
     }
-    console.error('[session-policy] Middleware token validation unavailable', {
-      policyErrorCode: claimsError.code,
-      policyErrorMessage: claimsError.message,
-      policyErrorName: claimsError.name,
-      policyErrorStatus: claimsError.status,
-    });
     return withMiddlewareTiming(
       unavailableSessionPolicyResponse(request, response, isApiRequest),
       startedAt,
-      { claimsMs }
+      { claimsMs },
+      observe('auth', 'unavailable', claimsError.code || claimsError.name)
+    );
+  }
+
+  if (!claimsData || !getSessionIdFromClaims(claimsData)) {
+    return withMiddlewareTiming(
+      unavailableSessionPolicyResponse(request, response, isApiRequest),
+      startedAt,
+      { claimsMs },
+      observe('auth', 'unavailable', 'MISSING_SESSION_CLAIMS')
     );
   }
 
@@ -713,26 +872,27 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
     return withMiddlewareTiming(
       unavailableSessionPolicyResponse(request, response, isApiRequest),
       startedAt,
-      { claimsMs }
+      { claimsMs },
+      observe('session_policy', 'unavailable')
     );
   }
   if (sessionId) sessionPolicyFailureUntil.delete(sessionId);
   const sessionPolicyStartedAt = performance.now();
   try {
     const validatePolicy = async (): Promise<SessionPolicyValidationResult> => {
+      const firstAttemptAt = performance.now();
       let result = await supabase.rpc('enforce_docubox_session_policy', {
         p_record_user_activity: false,
       });
-      if (!requestSignal.aborted && isTransientSessionPolicyError(result.error)) {
-        // PostgREST can briefly return PGRST002 while rebuilding its schema cache.
-        // A persistent failure still blocks protected traffic.
+      if (
+        !requestSignal.aborted &&
+        result.error?.code === 'PGRST002' &&
+        performance.now() - firstAttemptAt < 1_000
+      ) {
+        // Only a fast schema-cache miss gets one retry. Slow gateway failures
+        // remain fail-closed and must not multiply load on an impaired backend.
         await waitForSessionPolicyRetry();
-        result = await supabase.rpc('enforce_docubox_session_policy', {
-          p_record_user_activity: false,
-        });
-        if (!requestSignal.aborted && shouldRetrySessionCheckAfterBackoff(result.error)) {
-          // Brief gateway outages also need time to recover before the last attempt.
-          await waitForSessionPolicyRetry(SESSION_POLICY_BACKOFF_RETRY_DELAY_MS);
+        if (!requestSignal.aborted) {
           result = await supabase.rpc('enforce_docubox_session_policy', {
             p_record_user_activity: false,
           });
@@ -769,29 +929,33 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
         startedAt,
-        { claimsMs, sessionPolicyMs }
+        { claimsMs, sessionPolicyMs },
+        observe('session_policy', 'invalid', policyError.code || policyError.name)
       );
     }
     if (sessionId) {
       if (sessionPolicyFailureUntil.size >= 1_000) sessionPolicyFailureUntil.clear();
       sessionPolicyFailureUntil.set(sessionId, Date.now() + SESSION_POLICY_FAILURE_BACKOFF_MS);
     }
-    console.error('[session-policy] Middleware validation unavailable', {
-      policyErrorCode: policyError.code,
-      policyErrorMessage: policyError.message,
-      policyErrorName: policyError.name,
-      policyErrorStatus: policyError.status,
-    });
     return withMiddlewareTiming(
       unavailableSessionPolicyResponse(request, response, isApiRequest),
       startedAt,
-      { claimsMs, sessionPolicyMs }
+      { claimsMs, sessionPolicyMs },
+      observe('session_policy', 'unavailable', policyError.code || policyError.name)
     );
   }
 
   // Fail closed: server-side session validation is mandatory for authenticated traffic.
   if (policy?.active !== true) {
     const reason = typeof policy?.reason === 'string' ? policy.reason : null;
+    if (reason === 'POLICY_BUSY') {
+      return withMiddlewareTiming(
+        unavailableSessionPolicyResponse(request, response, isApiRequest),
+        startedAt,
+        { claimsMs, sessionPolicyMs },
+        observe('session_policy', 'unavailable', reason)
+      );
+    }
     if (
       reason === 'UNAUTHENTICATED' ||
       reason === 'INVALID_SESSION' ||
@@ -800,12 +964,18 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
       return withMiddlewareTiming(
         unauthenticatedResponse(request, response, isApiRequest, isPublicPage),
         startedAt,
-        { claimsMs, sessionPolicyMs }
+        { claimsMs, sessionPolicyMs },
+        observe('session_policy', 'invalid', reason)
       );
     }
-    console.warn('[session-policy] Middleware sign-out requested', {
-      policyReason: reason,
-    });
+    if (reason !== 'ABSOLUTE_TIMEOUT' && reason !== 'INACTIVITY_TIMEOUT') {
+      return withMiddlewareTiming(
+        unavailableSessionPolicyResponse(request, response, isApiRequest),
+        startedAt,
+        { claimsMs, sessionPolicyMs },
+        observe('session_policy', 'unavailable', reason || 'MALFORMED_POLICY_RESPONSE')
+      );
+    }
     event.waitUntil(
       supabase.auth
         .signOut({ scope: 'local' })
@@ -822,7 +992,8 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
       {
         claimsMs,
         sessionPolicyMs,
-      }
+      },
+      observe('session_policy', 'expired', reason)
     );
   }
 
@@ -830,7 +1001,23 @@ async function handleMiddlewareRequest(request: NextRequest, event: NextFetchEve
   if (request.cookies.has(SESSION_RETRY_COOKIE_NAME)) {
     response.cookies.set(SESSION_RETRY_COOKIE_NAME, '', { path: '/', maxAge: 0 });
   }
-  return withMiddlewareTiming(response, startedAt, { claimsMs, sessionPolicyMs });
+  if (isSessionProbe) {
+    return withMiddlewareTiming(
+      readySessionProbeResponse(response),
+      startedAt,
+      {
+        claimsMs,
+        sessionPolicyMs,
+      },
+      observe('session_policy')
+    );
+  }
+  return withMiddlewareTiming(
+    response,
+    startedAt,
+    { claimsMs, sessionPolicyMs },
+    observe('session_policy')
+  );
 }
 
 export const config = {

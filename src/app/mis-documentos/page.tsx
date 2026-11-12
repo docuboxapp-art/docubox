@@ -12,6 +12,7 @@ import {
   FolderPlus,
   FileText,
   Search,
+  UserRound,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -29,6 +30,7 @@ import {
   Eye,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Plus,
   Filter,
   Pencil,
@@ -40,6 +42,16 @@ import {
   RotateCcw,
   LayoutTemplate,
   ClipboardList,
+  CalendarCheck2,
+  CalendarClock,
+  CalendarDays,
+  CircleDot,
+  Clock3,
+  Files,
+  Flag,
+  Tags,
+  UsersRound,
+  type LucideIcon,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
@@ -55,6 +67,21 @@ import {
   type FilterVisibilityConfig,
   type GridColumnConfig,
 } from './components/view-config';
+import {
+  matchesCustomDocumentCriteria,
+  matchesOwnedParticipantStatus,
+} from './components/custom-filter-matcher';
+import {
+  availableCustomSortFields,
+  compareCustomDocuments,
+  compareCustomFolders,
+  type CustomSortField,
+} from './components/custom-filter-sort';
+import {
+  hasDocumentCriteria,
+  uniqueMatchingDocumentFolderPath,
+  visibleFoldersForDocuments,
+} from './components/folder-filter';
 import AppLayout from '@/components/AppLayout';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { DocumentPriorityBadge } from '@/components/documents/DocumentPriorityBadge';
@@ -69,7 +96,20 @@ const PersonalizarVistaModal = dynamic(() => import('./components/PersonalizarVi
   ssr: false,
 });
 
-const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_000, 2_500];
+const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_200];
+
+function UrgentDocumentIcon() {
+  return (
+    <span
+      className="inline-flex flex-shrink-0 items-center text-red-500"
+      role="img"
+      aria-label="Documento urgente"
+      title="Documento urgente"
+    >
+      <Flag size={12} strokeWidth={2.25} aria-hidden="true" />
+    </span>
+  );
+}
 
 function waitForDocumentLoadRetry(delayMs: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
@@ -91,6 +131,7 @@ async function isRetryableDocumentLoadResponse(response: Response) {
 
   return (
     errorCode === 'SESSION_POLICY_UNAVAILABLE' ||
+    errorCode === 'DATA_API_UNAVAILABLE' ||
     errorCode === 'PGRST002' ||
     errorMessage.includes('schema cache') ||
     (response.status === 503 && errorMessage.includes('validar la sesi'))
@@ -444,6 +485,7 @@ interface Document {
   tipoDocumentoId?: string | null;
   tipoDocumentoNombre?: string | null;
   miSubEstado?: string | null;
+  ownerId?: string | null;
   ownerName?: string | null;
   estadoRaw?: string | null;
   canTrash?: boolean;
@@ -563,6 +605,48 @@ function sortDirectionLabel(field: MiEspacioSortField, direction: MiEspacioSortD
   return direction === 'asc' ? 'De antigua a nueva' : 'De nueva a antigua';
 }
 
+function SortableColumnHeader({
+  field,
+  label,
+  activeField,
+  direction,
+  onSort,
+}: {
+  field: MiEspacioSortField;
+  label: string;
+  activeField: MiEspacioSortField;
+  direction: MiEspacioSortDirection;
+  onSort: (field: MiEspacioSortField) => void;
+}) {
+  const active = field === activeField;
+  const nextDirection = active
+    ? direction === 'asc'
+      ? 'desc'
+      : 'asc'
+    : field === 'nombre' || field === 'estado'
+      ? 'asc'
+      : 'desc';
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      aria-label={`Ordenar ${label}: ${sortDirectionLabel(field, nextDirection)}`}
+      className="mis-documentos-sort-header inline-flex items-center gap-1.5 text-left text-inherit hover:text-primary"
+    >
+      <span>{label}</span>
+      {active ? (
+        direction === 'asc' ? (
+          <ArrowUp size={13} className="text-primary" aria-hidden="true" />
+        ) : (
+          <ArrowDown size={13} className="text-primary" aria-hidden="true" />
+        )
+      ) : (
+        <ArrowUpDown size={12} className="text-slate-400" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
 const documentNameCollator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 
 function compareSortDates(
@@ -657,6 +741,22 @@ interface WorkspaceUser {
   email: string;
 }
 
+function ownerFilterKey(doc: Document) {
+  return (
+    doc.ownerId || `sender:${(doc.ownerName || 'Sin identificar').trim().toLocaleLowerCase('es')}`
+  );
+}
+
+function participantFilterKey(participant: Record<string, string | undefined>) {
+  return (
+    (participant.email || '').trim().toLowerCase() ||
+    participant.id ||
+    participant.user_id ||
+    participant.userId ||
+    ''
+  );
+}
+
 // ─── Custom Filter Interface ├─────────────────────────────────────────────────
 interface CustomFilter {
   id: string;
@@ -664,7 +764,130 @@ interface CustomFilter {
   descripcion?: string;
   icono: string;
   filtros: Record<string, any>;
+  criterios?: string[];
 }
+
+function configuredCustomFilterCriteria(filter: CustomFilter): string[] {
+  const available = new Set(DEFAULT_FILTERS.map((criterion) => criterion.id));
+  return [...new Set([...(filter.criterios || []), ...Object.keys(filter.filtros || {})])].filter(
+    (id) => available.has(id as (typeof DEFAULT_FILTERS)[number]['id'])
+  );
+}
+
+const CUSTOM_FILTER_CRITERION_ICONS: Record<(typeof DEFAULT_FILTERS)[number]['id'], LucideIcon> = {
+  estructura: Folder,
+  origen: Files,
+  tipoDocumento: ClipboardList,
+  propietario: UserRound,
+  ultimaModificacion: Clock3,
+  estado: CircleDot,
+  estadoParticipacion: Check,
+  fechaVencimiento: CalendarClock,
+  etiquetas: Tags,
+  fechaCompletado: CalendarCheck2,
+  fechaCreacion: CalendarDays,
+  participantes: UsersRound,
+  estadoParticipantes: UsersRound,
+  prioridad: Flag,
+};
+
+const CUSTOM_FILTER_CRITERIA = DEFAULT_FILTERS;
+
+const OWNED_PARTICIPANT_STATUS_OPTIONS = [
+  { value: '', label: 'Todos', dot: '' },
+  { value: 'sin_participantes', label: 'Sin participantes', dot: 'bg-gray-300' },
+  { value: 'sin_revisar', label: 'Sin revisar', dot: 'bg-amber-400' },
+  { value: 'en_revision', label: 'En revisión', dot: 'bg-cyan-500' },
+  { value: 'firmo', label: 'Firmado', dot: 'bg-green-500' },
+  { value: 'rechazo', label: 'Rechazado', dot: 'bg-red-500' },
+  { value: 'aprobo', label: 'Aprobado', dot: 'bg-blue-500' },
+  { value: 'cancelo', label: 'Cancelado', dot: 'bg-slate-400' },
+  { value: 'urgente_atencion', label: 'Urgente atención', dot: 'bg-orange-500' },
+  { value: 'participacion_vencida', label: 'Participación vencida', dot: 'bg-red-800' },
+] as const;
+
+const CUSTOM_FILTER_ICON_OPTIONS = [
+  '📁',
+  '⭐',
+  '🔥',
+  '📌',
+  '✅',
+  '🚨',
+  '📋',
+  '🗂️',
+  '💼',
+  '🔒',
+  '📄',
+  '📝',
+  '📊',
+  '📈',
+  '📉',
+  '🗃️',
+  '🗄️',
+  '📦',
+  '🏷️',
+  '🔖',
+  '⚡',
+  '🎯',
+  '💡',
+  '🔍',
+  '🔔',
+  '⏰',
+  '📅',
+  '🗓️',
+  '✉️',
+  '📨',
+  '💬',
+  '🤝',
+  '👥',
+  '🏢',
+  '🌐',
+  '🔗',
+  '⚙️',
+  '🛡️',
+  '🔑',
+  '💰',
+  '🧾',
+  '📜',
+  '🏆',
+  '🎖️',
+  '✍️',
+  '🖊️',
+  '📮',
+  '📬',
+  '🗺️',
+  '🧩',
+  '📂',
+  '📑',
+  '🗒️',
+  '📚',
+  '📘',
+  '🪪',
+  '👤',
+  '📍',
+  '🧭',
+  '🧰',
+  '⚖️',
+  '🏛️',
+  '🏠',
+  '🏭',
+  '🏦',
+  '🏥',
+  '🚚',
+  '🛒',
+  '💳',
+  '🪙',
+  '📱',
+  '💻',
+  '🖨️',
+  '📷',
+  '🎓',
+  '🧮',
+  '🧪',
+  '🩺',
+  '🗳️',
+  '🔐',
+] as const;
 
 interface GrupoTipoDocumento {
   id: string;
@@ -895,6 +1118,7 @@ function mapDocRow(d: any): Document {
     participantes: d.participantes || [],
     tipoDocumentoId: d.tipo_documento_id || null,
     tipoDocumentoNombre: d.tipo_documento?.nombre || null,
+    ownerId: d.owner_id || null,
     ownerName: d._ownerName || null,
     estadoRaw: d.estado || null,
     canTrash: d.can_trash === true,
@@ -2094,6 +2318,46 @@ function DocumentosSinRevisionSection({
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+function DocumentListSearch({
+  value,
+  onChange,
+  placeholder,
+  containerClassName = 'relative min-w-[180px] flex-1',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  containerClassName?: string;
+}) {
+  return (
+    <div className={containerClassName}>
+      <Search
+        size={15}
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-9 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
+      />
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Borrar búsqueda"
+          title="Borrar búsqueda"
+          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MisDocumentosContent() {
   const [activeSection, setActiveSection] = useState('mi-espacio');
   const [trashNow, setTrashNow] = useState(() => new Date());
@@ -2154,6 +2418,7 @@ function MisDocumentosContent() {
       tipoDocumento: 110,
       fechaVencimiento: 130,
       prioridad: 100,
+      folioInterno: 110,
     },
     user?.id,
     activeSection === 'favoritos'
@@ -2173,6 +2438,7 @@ function MisDocumentosContent() {
       etiquetas: 130,
       tipoDocumento: 110,
       prioridad: 100,
+      folioInterno: 110,
     },
     user?.id,
     activeSection === 'por-vencer'
@@ -2426,11 +2692,14 @@ function MisDocumentosContent() {
 
   // Custom filters state
   const [customFilters, setCustomFilters] = useState<CustomFilter[]>([]);
-  // Inline editing of custom filter name
   const [editingFilterId, setEditingFilterId] = useState<string | null>(null);
   const [editingFilterName, setEditingFilterName] = useState('');
-  const editingFilterRef = useRef<HTMLInputElement>(null);
+  const [savingFilterName, setSavingFilterName] = useState(false);
   const [showCrearFiltroModal, setShowCrearFiltroModal] = useState(false);
+  const [editingCustomFilterId, setEditingCustomFilterId] = useState<string | null>(null);
+  const [savingCustomFilter, setSavingCustomFilter] = useState(false);
+  const [customFilterActionsOpen, setCustomFilterActionsOpen] = useState(false);
+  const customFilterActionsRef = useRef<HTMLDivElement>(null);
   const [nuevoFiltroNombre, setNuevoFiltroNombre] = useState('');
   const [nuevoFiltroDescripcion, setNuevoFiltroDescripcion] = useState('');
   const [nuevoFiltroIcono, setNuevoFiltroIcono] = useState('📁');
@@ -2439,6 +2708,7 @@ function MisDocumentosContent() {
   // Criteria drag & drop state
   const [nuevoFiltroCriterios, setNuevoFiltroCriterios] = useState<string[]>([]);
   const [showCriterioSelector, setShowCriterioSelector] = useState(false);
+  const [openCustomCriterionValue, setOpenCustomCriterionValue] = useState<string | null>(null);
   const [dragCriterioIdx, setDragCriterioIdx] = useState<number | null>(null);
   const [dragOverCriterioIdx, setDragOverCriterioIdx] = useState<number | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(true);
@@ -2446,6 +2716,8 @@ function MisDocumentosContent() {
   // Per-custom-filter toolbar state: search, sort, viewMode, column config
   const [cfSearchQueries, setCfSearchQueries] = useState<Record<string, string>>({});
   const [cfSortOrders, setCfSortOrders] = useState<Record<string, string>>({});
+  const [cfSortDropdownOpen, setCfSortDropdownOpen] = useState<string | null>(null);
+  const cfSortDropdownRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [cfViewModes, setCfViewModes] = useState<Record<string, 'list' | 'grid'>>({});
   const [cfColumnConfigs, setCfColumnConfigs] = useState<Record<string, ColumnConfig[]>>({});
   const [cfColumnConfigOpen, setCfColumnConfigOpen] = useState<string | null>(null);
@@ -2456,6 +2728,23 @@ function MisDocumentosContent() {
   const [favColumnConfigOpen, setFavColumnConfigOpen] = useState(false);
   const [favColumnConfig, setFavColumnConfig] = useState<ColumnConfig[]>(DEFAULT_CF_COLUMNS);
   const favColumnConfigRef = React.useRef<HTMLDivElement>(null);
+  const favVisibleColumnIds = [
+    'propietario',
+    'estado',
+    'fechaCreacion',
+    'numeroDocumento',
+    'ultimaModificacion',
+    'tamano',
+    'etiquetas',
+    'tipoDocumento',
+    'fechaVencimiento',
+    'prioridad',
+    'folioInterno',
+  ].filter((id) => favColumnConfig.some((column) => column.id === id && column.visible));
+  const favTableMinWidth =
+    48 + favColWidths.nombre +
+    favVisibleColumnIds.reduce((width, id) => width + (favColWidths[id] || 100), 0) +
+    56;
 
   // Por vencer toolbar state
   const [porVencerSortOrder, setPorVencerSortOrder] = useState('fechaVencimiento_asc');
@@ -2463,12 +2752,33 @@ function MisDocumentosContent() {
   const [porVencerColumnConfig, setPorVencerColumnConfig] =
     useState<ColumnConfig[]>(DEFAULT_CF_COLUMNS);
   const porVencerColumnConfigRef = React.useRef<HTMLDivElement>(null);
+  const porVencerVisibleColumnIds = [
+    'propietario',
+    'estado',
+    'fechaCreacion',
+    'numeroDocumento',
+    'ultimaModificacion',
+    'tamano',
+    'vence',
+    'etiquetas',
+    'tipoDocumento',
+    'prioridad',
+    'folioInterno',
+  ].filter(
+    (id) =>
+      id === 'vence' || porVencerColumnConfig.some((column) => column.id === id && column.visible)
+  );
+  const porVencerTableMinWidth =
+    48 + porVencerColWidths.nombre +
+    porVencerVisibleColumnIds.reduce((width, id) => width + (porVencerColWidths[id] || 100), 0) +
+    56;
 
   // Active filter values
   const [activeFilters, setActiveFilters] = useState<Record<string, any>>({});
   // Which filter dropdown is open
   const [openFilterDropdown, setOpenFilterDropdown] = useState<string | null>(null);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
+  const activeFiltersDropdownRef = useRef<HTMLDivElement>(null);
 
   // Custom date range state per date filter
   const [customDateRanges, setCustomDateRanges] = useState<Record<string, DateRange>>({});
@@ -2487,15 +2797,44 @@ function MisDocumentosContent() {
   const [etiquetasSearch, setEtiquetasSearch] = useState('');
   const [loadingEtiquetas, setLoadingEtiquetas] = useState(false);
 
-  // Workspace users for propietario filter
-  const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([]);
   const [propietarioSearch, setPropietarioSearch] = useState('');
-  const [loadingPropietarios, setLoadingPropietarios] = useState(false);
 
-  // Participants list for participantes filter
-  const [participantUsers, setParticipantUsers] = useState<WorkspaceUser[]>([]);
   const [participantesSearch, setParticipantesSearch] = useState('');
-  const [loadingParticipantes, setLoadingParticipantes] = useState(false);
+  const workspaceUsers = React.useMemo<WorkspaceUser[]>(() => {
+    const owners = new Map<string, WorkspaceUser>();
+    for (const doc of realDocuments) {
+      const id = ownerFilterKey(doc);
+      if (owners.has(id)) continue;
+      const isMine = doc.ownerId === user?.id;
+      owners.set(id, {
+        id,
+        full_name: isMine
+          ? user?.user_metadata?.full_name || user?.email || 'Yo'
+          : doc.ownerName || 'Sin identificar',
+        email: isMine ? user?.email || '' : '',
+      });
+    }
+    return [...owners.values()].sort((a, b) =>
+      documentNameCollator.compare(a.full_name, b.full_name)
+    );
+  }, [realDocuments, user?.id, user?.email, user?.user_metadata?.full_name]);
+  const participantUsers = React.useMemo<WorkspaceUser[]>(() => {
+    const participants = new Map<string, WorkspaceUser>();
+    for (const doc of realDocuments) {
+      for (const person of doc.participantes || []) {
+        const id = participantFilterKey(person);
+        if (!id) continue;
+        const fullName = person.nombre || person.name || person.full_name || person.email || id;
+        const previous = participants.get(id);
+        if (!previous || previous.full_name === previous.email) {
+          participants.set(id, { id, full_name: fullName, email: person.email || '' });
+        }
+      }
+    }
+    return [...participants.values()].sort((a, b) =>
+      documentNameCollator.compare(a.full_name, b.full_name)
+    );
+  }, [realDocuments]);
 
   // Drag & drop state
   const [dragDocId, setDragDocId] = useState<string | null>(null);
@@ -2650,7 +2989,14 @@ function MisDocumentosContent() {
     closeFolderContextMenu();
     setCurrentFolderId(carpeta.id);
     setFolderBreadcrumb((prev) => [...prev, { id: carpeta.id, name: carpeta.name }]);
-    setSearchQuery('');
+    if (searchQuery.trim()) {
+      // A folder-only search must reveal the matching document after entering it.
+      setActiveFilters((prev) =>
+        prev['estructura'] === 'carpeta' ? { ...prev, estructura: '' } : prev
+      );
+    } else {
+      setSearchQuery('');
+    }
     setSelectedRows([]);
     setSelectedFolders([]);
   };
@@ -3198,7 +3544,10 @@ function MisDocumentosContent() {
         closeContextMenu();
       if (folderContextMenuRef.current && !folderContextMenuRef.current.contains(e.target as Node))
         closeFolderContextMenu();
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node))
+      if (
+        !filterDropdownRef.current?.contains(e.target as Node) &&
+        !activeFiltersDropdownRef.current?.contains(e.target as Node)
+      )
         setOpenFilterDropdown(null);
       // Check cfColumnConfig refs - only close if click is outside the ref container
       if (cfColumnConfigOpen !== null) {
@@ -3217,6 +3566,12 @@ function MisDocumentosContent() {
         !miEspacioSortDropdownRef.current.contains(e.target as Node)
       )
         setMiEspacioSortDropdownOpen(false);
+      if (cfSortDropdownOpen !== null) {
+        const cfSortRef = cfSortDropdownRefs.current[cfSortDropdownOpen];
+        if (cfSortRef && !cfSortRef.contains(e.target as Node)) setCfSortDropdownOpen(null);
+      }
+      if (customFilterActionsOpen && !customFilterActionsRef.current?.contains(e.target as Node))
+        setCustomFilterActionsOpen(false);
     };
     // Note: scroll should NOT close context menus — menus are fixed positioned and stay open
     const handleScroll = () => {
@@ -3230,7 +3585,9 @@ function MisDocumentosContent() {
       cfColumnConfigOpen !== null ||
       favColumnConfigOpen ||
       porVencerColumnConfigOpen ||
-      miEspacioSortDropdownOpen
+      miEspacioSortDropdownOpen ||
+      cfSortDropdownOpen !== null ||
+      customFilterActionsOpen
     ) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('scroll', handleScroll, true);
@@ -3247,6 +3604,8 @@ function MisDocumentosContent() {
     favColumnConfigOpen,
     porVencerColumnConfigOpen,
     miEspacioSortDropdownOpen,
+    cfSortDropdownOpen,
+    customFilterActionsOpen,
   ]);
 
   // Load tipos de documento for filter
@@ -3276,119 +3635,20 @@ function MisDocumentosContent() {
     }
   }, []);
 
-  const loadWorkspaceUsers = useCallback(async () => {
-    if (!user) return;
-    setLoadingPropietarios(true);
-    try {
-      const supabase = createClient();
-      // Get distinct owner_ids from documentos
-      const { data: docsData, error: docsError } = await supabase
-        .from('documentos')
-        .select('owner_id')
-        .is('deleted_at', null);
-      if (!docsError && docsData) {
-        const ownerIds = [...new Set((docsData as any[]).map((d) => d.owner_id).filter(Boolean))];
-        if (ownerIds.length > 0) {
-          const { data: profilesData, error: profilesError } = await supabase
-            .from('user_profiles')
-            .select('id, full_name, email')
-            .in('id', ownerIds)
-            .order('full_name');
-          if (!profilesError && profilesData) {
-            setWorkspaceUsers(profilesData as WorkspaceUser[]);
-          }
-        } else {
-          setWorkspaceUsers([]);
-        }
-      }
-    } catch (e) {
-      console.error('Error loading workspace users:', e);
-    } finally {
-      setLoadingPropietarios(false);
-    }
-  }, [user]);
-
-  const loadParticipantUsers = useCallback(async () => {
-    if (!user) return;
-    setLoadingParticipantes(true);
-    try {
-      const supabase = createClient();
-      // Get all documents with their participantes field
-      const { data, error } = await supabase
-        .from('documentos')
-        .select('participantes')
-        .is('deleted_at', null);
-      if (!error && data) {
-        const userMap = new Map<string, WorkspaceUser>();
-        (data as any[]).forEach((doc) => {
-          const parts: any[] = doc.participantes || [];
-          parts.forEach((p) => {
-            const id = p.id || p.user_id || p.userId;
-            const name = p.nombre || p.name || p.full_name || '';
-            const email = p.email || '';
-            if (id && !userMap.has(id)) {
-              userMap.set(id, { id, full_name: name, email });
-            } else if (!id && email && !userMap.has(email)) {
-              userMap.set(email, { id: email, full_name: name, email });
-            }
-          });
-        });
-        // Also fetch from user_profiles for registered participants
-        const participantIds = [...userMap.keys()].filter((k) => k.length === 36); // UUID-like
-        if (participantIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('user_profiles')
-            .select('id, full_name, email')
-            .in('id', participantIds);
-          if (profiles) {
-            (profiles as WorkspaceUser[]).forEach((p) => {
-              userMap.set(p.id, p);
-            });
-          }
-        }
-        setParticipantUsers([...userMap.values()].filter((u) => u.email || u.full_name));
-      }
-    } catch (e) {
-      console.error('Error loading participant users:', e);
-    } finally {
-      setLoadingParticipantes(false);
-    }
-  }, [user]);
-
   /* eslint-disable react-hooks/set-state-in-effect -- Catalog loaders update state after their awaited requests. */
   useEffect(() => {
     if (openFilterDropdown === 'tipoDocumento') {
       if (tiposDocumento.length === 0 && !loadingTipos) void loadTiposDocumento();
       if (gruposDocumento.length === 0 && !loadingGrupos) void loadGruposDocumento();
     }
-    if (
-      openFilterDropdown === 'propietario' &&
-      workspaceUsers.length === 0 &&
-      !loadingPropietarios
-    ) {
-      void loadWorkspaceUsers();
-    }
-    if (
-      openFilterDropdown === 'participantes' &&
-      participantUsers.length === 0 &&
-      !loadingParticipantes
-    ) {
-      void loadParticipantUsers();
-    }
   }, [
     gruposDocumento.length,
     loadGruposDocumento,
-    loadParticipantUsers,
     loadTiposDocumento,
-    loadWorkspaceUsers,
     loadingGrupos,
-    loadingParticipantes,
-    loadingPropietarios,
     loadingTipos,
     openFilterDropdown,
-    participantUsers.length,
     tiposDocumento.length,
-    workspaceUsers.length,
   ]);
 
   useEffect(() => {
@@ -3548,7 +3808,7 @@ function MisDocumentosContent() {
                 })) || [],
               tipo_documento_id: null,
               tipo_documento: p.documentType ? { nombre: p.documentType } : null,
-              owner_id: null, // not the current user
+              owner_id: p.senderId || null,
               _isParticipantDoc: true,
               _mySubEstado: p.mySignatureStatus,
               _myActo: p.myActo,
@@ -4090,34 +4350,13 @@ function MisDocumentosContent() {
     user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Mi Espacio';
   const workspaceLabel = isPersonalWorkspace ? 'Espacio personal de' : 'Espacio de';
 
-  // Derived: carpetas visible in current folder view
-  const visibleCarpetas = carpetas.filter((c) => {
-    const matchesFolder =
-      currentFolderId === null ? c.parentId === null : c.parentId === currentFolderId;
-    const hasDocumentOriginFilter = Boolean(activeFilters['origen']);
-    return (
-      !hasDocumentOriginFilter &&
-      matchesFolder &&
-      c.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  // Derived: documents visible in current folder view
-  const visibleDocuments = realDocuments.filter((doc) => {
-    const matchesFolder =
-      currentFolderId === null
-        ? doc.carpetaId === null || doc.carpetaId === undefined
-        : doc.carpetaId === currentFolderId;
-    if (!matchesFolder) return false;
-    if (!doc.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+  // Match documents across the whole folder tree before restricting the current view.
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase('es');
+  const matchingDocuments = realDocuments.filter((doc) => {
+    if (normalizedSearch && !doc.name.toLocaleLowerCase('es').includes(normalizedSearch))
+      return false;
 
     // Apply active filters
-    // estructura / tipo: 'carpeta' | 'archivo' — documents are always 'archivo'
-    if (activeFilters['estructura'] && activeFilters['estructura'] !== '') {
-      if (activeFilters['estructura'] === 'carpeta') return false; // documents are not folders
-      // 'archivo' matches all documents — keep
-    }
-
     // origen: distinguishes direct documents from documents created from a template
     if (activeFilters['origen'] && activeFilters['origen'] !== '') {
       const isFromTemplate = Boolean(doc.sourceTemplateId);
@@ -4144,21 +4383,19 @@ function MisDocumentosContent() {
       if (!matchesOtro && !matchesRegular) return false;
     }
 
-    // propietario: all docs belong to current user — filter by name match
+    // Include owned and received documents; the latter identify their sender by name.
     if (
       activeFilters['propietario'] &&
       activeFilters['propietario'] !== '' &&
       activeFilters['propietario'] !== 'todos'
     ) {
       if (activeFilters['propietario'] === 'mios') {
-        // Only show docs owned by current user — already the case since we query by owner_id
-        // no-op: all docs are already the current user's
+        if (doc.ownerId !== user?.id) return false;
       } else if (
         Array.isArray(activeFilters['propietario']) &&
         activeFilters['propietario'].length > 0
       ) {
-        // filter by selected user IDs — since docs are owner_id = user.id, only show if user.id is in list
-        if (!activeFilters['propietario'].includes(user?.id || '')) return false;
+        if (!activeFilters['propietario'].includes(ownerFilterKey(doc))) return false;
       }
     }
 
@@ -4318,8 +4555,10 @@ function MisDocumentosContent() {
         // Show docs where current user is a participant
         const isParticipant = parts.some((p) => {
           const pid = p.id || p.user_id || p.userId;
-          const pemail = p.email || '';
-          return pid === user?.id || pemail === user?.email;
+          const pemail = String(p.email || '')
+            .trim()
+            .toLowerCase();
+          return pid === user?.id || (pemail !== '' && pemail === user?.email?.toLowerCase());
         });
         if (!isParticipant) return false;
       } else if (
@@ -4328,8 +4567,7 @@ function MisDocumentosContent() {
       ) {
         const selectedIds: string[] = activeFilters['participantes'];
         const hasMatch = parts.some((p) => {
-          const pid = p.id || p.user_id || p.userId || p.email;
-          return selectedIds.includes(pid);
+          return selectedIds.includes(participantFilterKey(p));
         });
         if (!hasMatch) return false;
       }
@@ -4363,8 +4601,56 @@ function MisDocumentosContent() {
       }
     }
 
+    if (
+      !matchesOwnedParticipantStatus(doc, activeFilters['estadoParticipantes'] || '', {
+        id: user?.id,
+        email: user?.email,
+      })
+    )
+      return false;
+
     return true;
   });
+
+  const singleSearchFolderId =
+    normalizedSearch && !loadingDocs && matchingDocuments.length === 1
+      ? matchingDocuments[0].carpetaId
+      : null;
+  useEffect(() => {
+    if (activeSection !== 'mi-espacio' || currentFolderId !== null || !singleSearchFolderId) return;
+
+    const timer = window.setTimeout(() => {
+      if (loadDocumentsInFlightRef.current) return;
+      const singleSearchFolderPath = uniqueMatchingDocumentFolderPath(carpetas, [
+        { carpetaId: singleSearchFolderId },
+      ]);
+      if (!singleSearchFolderPath) return;
+      setCurrentFolderId(singleSearchFolderId);
+      setFolderBreadcrumb(singleSearchFolderPath);
+      setSelectedRows([]);
+      setSelectedFolders([]);
+      setActiveFilters((prev) =>
+        prev['estructura'] === 'carpeta' ? { ...prev, estructura: '' } : prev
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [activeSection, currentFolderId, singleSearchFolderId, carpetas]);
+
+  const visibleDocuments =
+    activeFilters['estructura'] === 'carpeta'
+      ? []
+      : matchingDocuments.filter((doc) =>
+          currentFolderId === null
+            ? doc.carpetaId === null || doc.carpetaId === undefined
+            : doc.carpetaId === currentFolderId
+        );
+  const visibleCarpetas = visibleFoldersForDocuments(
+    carpetas,
+    matchingDocuments,
+    currentFolderId,
+    activeFilters['estructura'] || '',
+    Boolean(normalizedSearch) || hasDocumentCriteria(activeFilters)
+  );
 
   const documentSortDate = (doc: Document): string | null | undefined => {
     switch (miEspacioSortField) {
@@ -4529,7 +4815,7 @@ function MisDocumentosContent() {
         ? miEspacioSortDirection === 'asc'
           ? 'desc'
           : 'asc'
-        : field === 'nombre'
+        : field === 'nombre' || field === 'estado'
           ? 'asc'
           : 'desc'
     );
@@ -4537,40 +4823,14 @@ function MisDocumentosContent() {
   };
 
   const sortableHeader = (field: MiEspacioSortField, label: string) => {
-    const active = miEspacioSortField === field;
-    const nextDirection = active
-      ? miEspacioSortDirection === 'asc'
-        ? 'desc'
-        : 'asc'
-      : field === 'nombre'
-        ? 'asc'
-        : 'desc';
-    const nextLabel =
-      field === 'nombre'
-        ? nextDirection === 'asc'
-          ? 'A a Z'
-          : 'Z a A'
-        : nextDirection === 'asc'
-          ? 'más antiguo primero'
-          : 'más reciente primero';
     return (
-      <button
-        type="button"
-        onClick={() => toggleMiEspacioColumnSort(field)}
-        aria-label={`Ordenar ${label}: ${nextLabel}`}
-        className={`inline-flex items-center gap-1.5 text-left hover:text-primary ${active ? 'text-primary' : ''}`}
-      >
-        <span>{label}</span>
-        {active ? (
-          miEspacioSortDirection === 'asc' ? (
-            <ArrowUp size={13} />
-          ) : (
-            <ArrowDown size={13} />
-          )
-        ) : (
-          <ArrowUpDown size={12} className="text-slate-400" />
-        )}
-      </button>
+      <SortableColumnHeader
+        field={field}
+        label={label}
+        activeField={miEspacioSortField}
+        direction={miEspacioSortDirection}
+        onSort={toggleMiEspacioColumnSort}
+      />
     );
   };
 
@@ -5023,18 +5283,78 @@ function MisDocumentosContent() {
   };
 
   // Save custom filters helper
-  const saveCustomFilters = async (filters: CustomFilter[]) => {
-    if (!user) return;
-    const supabase = createClient();
-    const VIEW_KEY = 'mi_espacio_v1';
-    await supabase.from('user_view_preferences').upsert(
-      {
-        user_id: user.id,
-        view_key: VIEW_KEY,
-        custom_filters: filters,
-      },
-      { onConflict: 'user_id,view_key' }
+  const saveCustomFilters = async (filters: CustomFilter[]): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from('user_view_preferences').upsert(
+        {
+          user_id: user.id,
+          view_key: 'mi_espacio_v1',
+          custom_filters: filters,
+        },
+        { onConflict: 'user_id,view_key' }
+      );
+      if (error) throw error;
+      return true;
+    } catch {
+      showToast('No se pudo guardar el filtro. Intenta de nuevo.');
+      return false;
+    }
+  };
+
+  const saveCustomFilterName = async (filter: CustomFilter) => {
+    if (savingFilterName) return;
+    const nombre = editingFilterName.trim();
+    if (!nombre) {
+      showToast('El nombre del filtro es obligatorio.');
+      return;
+    }
+    if (nombre === filter.nombre) {
+      setEditingFilterId(null);
+      return;
+    }
+    const updated = customFilters.map((item) =>
+      item.id === filter.id ? { ...item, nombre } : item
     );
+    setSavingFilterName(true);
+    try {
+      if (!(await saveCustomFilters(updated))) return;
+      setCustomFilters(updated);
+      setEditingFilterId(null);
+    } finally {
+      setSavingFilterName(false);
+    }
+  };
+
+  const closeCustomFilterEditor = () => {
+    setShowCrearFiltroModal(false);
+    setEditingCustomFilterId(null);
+    setNuevoFiltroNombre('');
+    setNuevoFiltroDescripcion('');
+    setNuevoFiltroIcono('📁');
+    setNuevoFiltroFiltros({});
+    setNuevoFiltroError('');
+    setNuevoFiltroCriterios([]);
+    setShowCriterioSelector(false);
+    setOpenCustomCriterionValue(null);
+    setIconPickerOpen(true);
+  };
+
+  const openCustomFilterEditor = (filter?: CustomFilter) => {
+    setEditingCustomFilterId(filter?.id || null);
+    setNuevoFiltroNombre(filter?.nombre || '');
+    setNuevoFiltroDescripcion(filter?.descripcion || '');
+    setNuevoFiltroIcono(filter?.icono || '📁');
+    setNuevoFiltroFiltros({ ...(filter?.filtros || {}) });
+    setNuevoFiltroCriterios(filter ? configuredCustomFilterCriteria(filter) : []);
+    setNuevoFiltroError('');
+    setShowCriterioSelector(false);
+    setOpenCustomCriterionValue(null);
+    setIconPickerOpen(!filter);
+    setCustomFilterActionsOpen(false);
+    setShowCrearFiltroModal(true);
+    if (tiposDocumento.length === 0 && !loadingTipos) void loadTiposDocumento();
   };
 
   // ─── Render helpers ────────────────────────────────────────────────────────
@@ -5316,12 +5636,7 @@ function MisDocumentosContent() {
             {doc.isFavorite && (
               <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
             )}
-            {doc.esUrgente && (
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block"
-                title="Urgente"
-              />
-            )}
+            {doc.esUrgente && <UrgentDocumentIcon />}
             <button
               onClick={() =>
                 doc.isDraft
@@ -5582,12 +5897,7 @@ function MisDocumentosContent() {
                 {doc.isFavorite && (
                   <Star size={11} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
                 )}
-                {doc.esUrgente && (
-                  <span
-                    className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 inline-block"
-                    title="Urgente"
-                  />
-                )}
+                {doc.esUrgente && <UrgentDocumentIcon />}
                 <span>{doc.name}</span>
               </button>
               {doc.accessProtectionActive && <AccessProtectionIndicator />}
@@ -5962,134 +6272,123 @@ function MisDocumentosContent() {
     showToast(`Documento renombrado a "${nombre}"`);
   };
 
-  const getCustomFilterDocuments = (cf: CustomFilter): Document[] => {
-    return realDocuments.filter((doc) => {
-      const filtros = cf.filtros || {};
-      if (filtros['estado'] && doc.estado !== filtros['estado']) return false;
-      if (
-        filtros['tipoDocumento'] &&
-        Array.isArray(filtros['tipoDocumento']) &&
-        filtros['tipoDocumento'].length > 0
-      ) {
-        if (!doc.tipoDocumentoId || !filtros['tipoDocumento'].includes(doc.tipoDocumentoId))
-          return false;
-      }
-      if (
-        filtros['etiquetas'] &&
-        Array.isArray(filtros['etiquetas']) &&
-        filtros['etiquetas'].length > 0
-      ) {
-        const hasMatch = doc.etiquetas.some((t) => filtros['etiquetas'].includes(String(t)));
-        if (!hasMatch) return false;
-      }
-      if (filtros['prioridad']) {
-        if (filtros['prioridad'] === 'urgente' && !doc.esUrgente) return false;
-        if (filtros['prioridad'] === 'normal' && doc.esUrgente) return false;
-      }
-      if (filtros['fechaUltimaModificacion'] && filtros['fechaUltimaModificacion'] !== '') {
-        const now = new Date();
-        const range = filtros['fechaUltimaModificacion'];
-        const docDate =
-          doc.ultimaModificacion !== '—'
-            ? new Date(doc.ultimaModificacion.split('/').reverse().join('-'))
-            : null;
-        if (docDate) {
-          if (range === 'today') {
-            const t = new Date();
-            t.setHours(0, 0, 0, 0);
-            if (docDate < t) return false;
-          } else if (range === 'week') {
-            if (docDate < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
-          } else if (range === 'month') {
-            if (docDate < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
-          } else if (range === 'year') {
-            if (docDate < new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)) return false;
-          }
-        }
-      }
-      if (filtros['fechaCreacion'] && filtros['fechaCreacion'] !== '') {
-        const now = new Date();
-        const range = filtros['fechaCreacion'];
-        if (doc.fechaCreacion) {
-          let d = new Date(doc.fechaCreacion.split('/').reverse().join('-'));
-          if (range === 'today') {
-            const t = new Date();
-            t.setHours(0, 0, 0, 0);
-            if (d < t) return false;
-          } else if (range === 'week') {
-            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
-          } else if (range === 'month') {
-            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
-          } else if (range === 'year') {
-            if (d < new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)) return false;
-          }
-        } else {
-          return false;
-        }
-      }
-      if (filtros['fechaVencimiento'] && filtros['fechaVencimiento'] !== '') {
-        const fv = filtros['fechaVencimiento'];
-        const now = new Date();
-        if (fv === 'vencido') {
-          if (!doc.fechaVencimiento || new Date(doc.fechaVencimiento) >= now) return false;
-        } else if (fv === 'proximos') {
-          const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-          if (
-            !doc.fechaVencimiento ||
-            new Date(doc.fechaVencimiento) < now ||
-            new Date(doc.fechaVencimiento) > in72h
-          )
-            return false;
-        } else if (fv === 'sin_vencimiento') {
-          if (doc.fechaVencimiento) return false;
-        }
-      }
-      if (filtros['fechaCompletado'] && filtros['fechaCompletado'] !== '') {
-        const range = filtros['fechaCompletado'];
-        const now = new Date();
-        if (doc.fechaCompletado) {
-          let d = new Date(doc.fechaCompletado.split('/').reverse().join('-'));
-          if (range === 'sin_completado') {
-            if (doc.fechaCompletado) return false;
-          } else if (range === 'today') {
-            const t = new Date();
-            t.setHours(0, 0, 0, 0);
-            if (d < t) return false;
-          } else if (range === 'week') {
-            if (d < new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) return false;
-          } else if (range === 'month') {
-            if (d < new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) return false;
-          }
-        } else {
-          if (range !== 'sin_completado') return false;
-        }
-      }
-      if (
-        filtros['participantes'] &&
-        filtros['participantes'] !== '' &&
-        filtros['participantes'] !== 'todos'
-      ) {
-        const parts: any[] = doc.participantes || [];
-        if (filtros['participantes'] === 'yo') {
-          const isParticipant = parts.some((p) => {
-            const pid = p.id || p.user_id || p.userId;
-            const pemail = p.email || '';
-            return pid === user?.id || pemail === user?.email;
-          });
-          if (!isParticipant) return false;
-        }
-      }
-      if (
-        filtros['propietario'] &&
-        filtros['propietario'] !== '' &&
-        filtros['propietario'] !== 'todos'
-      ) {
-        if (filtros['propietario'] === 'mios') {
-          /* all docs are already owner's */
-        }
-      }
-      return true;
-    });
+  const matchesCustomFilter = (doc: Document, filters: Record<string, unknown>) =>
+    matchesCustomDocumentCriteria(doc, filters, { id: user?.id, email: user?.email });
+
+  const getCustomFilterDocuments = (cf: CustomFilter): Document[] =>
+    realDocuments.filter((doc) => matchesCustomFilter(doc, cf.filtros || {}));
+
+  const getCustomCriterionOptions = (criterionId: string) => {
+    const any = (label: string) => [{ value: '', label }];
+    const dates = [
+      { value: 'today', label: 'Hoy' },
+      { value: 'week', label: 'Últimos 7 días' },
+      { value: 'month', label: 'Últimos 30 días' },
+      { value: 'year', label: 'Último año' },
+    ];
+    switch (criterionId) {
+      case 'estructura':
+        return [
+          ...any('Todos los tipos'),
+          { value: 'archivo', label: 'Archivos' },
+          { value: 'carpeta', label: 'Carpetas' },
+        ];
+      case 'origen':
+        return [
+          ...any('Todos los orígenes'),
+          { value: 'documento', label: 'Documento' },
+          { value: 'plantilla', label: 'Plantilla' },
+          { value: 'formulario', label: 'Formulario' },
+        ];
+      case 'estado':
+        return [
+          ...any('Cualquier estado'),
+          ...[
+            'Borrador',
+            'En progreso',
+            'En espera',
+            'Completado',
+            'Rechazado',
+            'Cancelado',
+            'Vencido',
+          ].map((value) => ({ value, label: value })),
+        ];
+      case 'estadoParticipacion':
+        return [
+          ...any('Todos'),
+          { value: 'ninguna', label: 'Ninguna (sin participación)' },
+          { value: 'sin_revisar', label: 'Sin revisar' },
+          { value: 'en_revision', label: 'En revisión' },
+          { value: 'firmo', label: 'Firmado' },
+          { value: 'rechazo', label: 'Rechazado' },
+          { value: 'aprobo', label: 'Aprobado' },
+          { value: 'cancelo', label: 'Cancelado' },
+          { value: 'urgente_atencion', label: 'Urgente atención' },
+          { value: 'participacion_vencida', label: 'Participación vencida' },
+        ];
+      case 'estadoParticipantes':
+        return OWNED_PARTICIPANT_STATUS_OPTIONS.map(({ value, label }) => ({ value, label }));
+      case 'prioridad':
+        return [
+          ...any('Cualquier prioridad'),
+          { value: 'urgente', label: 'Urgente' },
+          { value: 'normal', label: 'Normal' },
+        ];
+      case 'tipoDocumento':
+        return [
+          ...any('Cualquier tipo'),
+          ...tiposDocumento.map((type) => ({ value: type.id, label: type.nombre })),
+          { value: '__otros__', label: 'Otro' },
+        ];
+      case 'etiquetas':
+        return [
+          ...any('Cualquier etiqueta'),
+          ...etiquetasList.map((tag) => ({ value: tag.nombre, label: tag.nombre })),
+        ];
+      case 'ultimaModificacion':
+      case 'fechaCreacion':
+        return [...any('Cualquier fecha'), ...dates];
+      case 'fechaCompletado':
+        return [
+          ...any('Cualquier fecha'),
+          { value: 'sin_completado', label: 'Sin completar' },
+          ...dates.filter((date) => date.value !== 'year'),
+        ];
+      case 'fechaVencimiento':
+        return [
+          ...any('Cualquier vencimiento'),
+          { value: 'vencido', label: 'Vencido' },
+          { value: 'proximos', label: 'Próximos 72h' },
+          { value: 'sin_vencimiento', label: 'Sin vencimiento' },
+        ];
+      case 'propietario':
+        return [
+          ...any('Todos'),
+          { value: 'mios', label: 'Míos' },
+          ...workspaceUsers
+            .filter((person) => person.id !== user?.id)
+            .map((person) => ({ value: person.id, label: person.full_name || person.email })),
+        ];
+      case 'participantes':
+        return [
+          ...any('Todos'),
+          { value: 'yo', label: 'Yo' },
+          ...participantUsers
+            .filter(
+              (person) =>
+                person.id !== user?.id && person.email.toLowerCase() !== user?.email?.toLowerCase()
+            )
+            .map((person) => ({
+              value: person.id,
+              label:
+                person.email && person.email !== person.full_name
+                  ? `${person.full_name} · ${person.email}`
+                  : person.full_name || person.email,
+            })),
+        ];
+      default:
+        return any('Todos');
+    }
   };
 
   const renderMiEspacioContent = () => {
@@ -6115,8 +6414,9 @@ function MisDocumentosContent() {
         case 'propietario':
           if (value === 'mios') return 'Míos';
           if (Array.isArray(value) && value.length > 0) {
+            if (value.length > 1) return `${value.length} propietarios`;
             const u = workspaceUsers.find((x) => x.id === value[0]);
-            return u ? u.full_name || u.email : `${value.length} propietario(s)`;
+            return u ? u.full_name || u.email : '1 propietario';
           }
           return '';
         case 'ultimaModificacion':
@@ -6142,6 +6442,7 @@ function MisDocumentosContent() {
         case 'tipoDocumento':
           if (Array.isArray(value) && value.length > 0) {
             if (value.length === 1) {
+              if (value[0] === '__otros__') return 'Otro';
               const t = tiposDocumento.find((x) => x.id === value[0]);
               return t ? t.nombre : '1 tipo';
             }
@@ -6156,10 +6457,18 @@ function MisDocumentosContent() {
         case 'participantes':
           if (value === 'yo') return 'Yo';
           if (Array.isArray(value) && value.length > 0) {
+            if (value.length > 1) return `${value.length} participantes`;
             const u = participantUsers.find((x) => x.id === value[0]);
-            return u ? u.full_name || u.email : `${value.length} participante(s)`;
+            return u ? u.full_name || u.email : '1 participante';
           }
           return '';
+        case 'estadoParticipacion':
+          return value === 'ninguna' ? 'Ninguna' : getParticipacionLabel(value);
+        case 'estadoParticipantes':
+          return (
+            OWNED_PARTICIPANT_STATUS_OPTIONS.find((option) => option.value === value)?.label ||
+            String(value)
+          );
         case 'prioridad':
           if (value === 'urgente') return 'Urgente';
           if (value === 'normal') return 'Normal';
@@ -6167,6 +6476,182 @@ function MisDocumentosContent() {
         default:
           return String(value);
       }
+    };
+
+    const getFilterItemLabel = (filterId: string, value: string) => {
+      if (filterId === 'tipoDocumento') {
+        return value === '__otros__'
+          ? 'Otro'
+          : tiposDocumento.find((item) => item.id === value)?.nombre || 'Tipo de documento';
+      }
+      if (filterId === 'propietario') {
+        const person = workspaceUsers.find((item) => item.id === value);
+        return person?.full_name || person?.email || 'Propietario';
+      }
+      if (filterId === 'participantes') {
+        const person = participantUsers.find((item) => item.id === value);
+        return person?.full_name || person?.email || 'Participante';
+      }
+      return value;
+    };
+
+    const activeFilterSelections = Object.entries(activeFilters).flatMap(([filterId, value]) => {
+      if (!value || (Array.isArray(value) && value.length === 0)) return [];
+      const filterLabel =
+        filterConfig.find((filter) => filter.id === filterId)?.label ||
+        DEFAULT_FILTERS.find((filter) => filter.id === filterId)?.label ||
+        filterId;
+      const values: string[] = Array.isArray(value) ? value : [value];
+      return values.map((selectedValue) => {
+        const selectedLabel = Array.isArray(value)
+          ? getFilterItemLabel(filterId, selectedValue)
+          : getFilterLabel(filterId, selectedValue);
+        return {
+          filterId,
+          value: selectedValue,
+          filterLabel,
+          selectedLabel,
+          label: `${filterLabel}: ${selectedLabel}`,
+        };
+      });
+    });
+
+    const removeFilterSelection = (filterId: string, value?: string, keepMenuOpen = false) => {
+      if (!keepMenuOpen || activeFilterSelections.length === 1) setOpenFilterDropdown(null);
+      setActiveFilters((previous) => {
+        const next = { ...previous };
+        if (value && Array.isArray(next[filterId])) {
+          next[filterId] = next[filterId].filter((item: string) => item !== value);
+        } else {
+          delete next[filterId];
+        }
+        return next;
+      });
+    };
+
+    const renderPersonFilter = (filterId: 'propietario' | 'participantes') => {
+      const isOwner = filterId === 'propietario';
+      const people = isOwner ? workspaceUsers : participantUsers;
+      const search = isOwner ? propietarioSearch : participantesSearch;
+      const setSearch = isOwner ? setPropietarioSearch : setParticipantesSearch;
+      const selectedValue = activeFilters[filterId];
+      const selectedIds: string[] = Array.isArray(selectedValue) ? selectedValue : [];
+      const allSelected = !selectedValue || (Array.isArray(selectedValue) && !selectedValue.length);
+      const specialValue = isOwner ? 'mios' : 'yo';
+      const currentEmail = user?.email?.trim().toLowerCase() || '';
+      const visiblePeople = people.filter((person) => {
+        const isCurrentUser = isOwner
+          ? person.id === user?.id
+          : person.id === user?.id ||
+            (currentEmail !== '' && person.email.trim().toLowerCase() === currentEmail);
+        return (
+          !isCurrentUser &&
+          `${person.full_name} ${person.email}`
+            .toLocaleLowerCase('es')
+            .includes(search.toLocaleLowerCase('es'))
+        );
+      });
+
+      return (
+        <div className="w-72 py-1.5">
+          <div className="relative px-2 pb-2">
+            <Search size={15} className="absolute left-5 top-2.5 text-slate-400" />
+            <input
+              type="search"
+              aria-label={isOwner ? 'Buscar propietarios' : 'Buscar participantes'}
+              placeholder="Buscar por nombre o correo..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+            />
+          </div>
+          <div className="border-y border-slate-100 py-1">
+            {[
+              { value: '', label: 'Todos', icon: <XCircle size={15} /> },
+              {
+                value: specialValue,
+                label: isOwner ? 'Míos' : 'Yo',
+                icon: <UserRound size={15} />,
+              },
+            ].map((option) => {
+              const selected = option.value ? selectedValue === option.value : allSelected;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setActiveFilters((previous) => ({ ...previous, [filterId]: option.value }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-normal hover:bg-slate-50 ${selected ? 'text-primary' : 'text-slate-700'}`}
+                >
+                  {option.icon}
+                  <span className="flex-1">{option.label}</span>
+                  {selected && <Check size={15} aria-hidden="true" />}
+                </button>
+              );
+            })}
+          </div>
+          <div
+            className={`max-h-56 overflow-y-auto py-1 ${visiblePeople.length === 0 && !search.trim() ? 'hidden' : ''}`}
+          >
+            {visiblePeople.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-slate-500">No se encontraron otras personas</p>
+            ) : (
+              visiblePeople.map((person) => {
+                const selected = selectedIds.includes(person.id);
+                return (
+                  <button
+                    key={person.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setActiveFilters((previous) => {
+                        const ids: string[] = Array.isArray(previous[filterId])
+                          ? previous[filterId]
+                          : [];
+                        return {
+                          ...previous,
+                          [filterId]: selected
+                            ? ids.filter((id) => id !== person.id)
+                            : [...ids, person.id],
+                        };
+                      })
+                    }
+                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-left font-normal hover:bg-slate-50 ${selected ? 'bg-primary/5 text-primary' : 'text-slate-700'}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selected ? 'border-primary bg-primary text-white' : 'border-slate-300 bg-white'}`}
+                    >
+                      {selected && <Check size={12} strokeWidth={2.5} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-normal">{person.full_name}</span>
+                      {person.email && person.email !== person.full_name && (
+                        <span className="block truncate text-xs text-slate-500">
+                          {person.email}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {selectedIds.length > 0 && (
+            <div className="border-t border-slate-100 px-2 pt-1.5">
+              <button
+                type="button"
+                onClick={() => setOpenFilterDropdown(null)}
+                className="w-full rounded-md px-3 py-1.5 text-center text-sm font-normal text-primary hover:bg-primary/5"
+              >
+                Listo ({selectedIds.length})
+              </button>
+            </div>
+          )}
+        </div>
+      );
     };
 
     // Render dropdown content for each filter
@@ -6186,7 +6671,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, estructura: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['estructura'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${activeFilters['estructura'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.label}
                 </button>
@@ -6209,11 +6694,7 @@ function MisDocumentosContent() {
                     setActiveFilters((previous) => ({ ...previous, origen: option.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
-                    activeFilters['origen'] === option.value
-                      ? 'font-medium text-primary'
-                      : 'text-foreground'
-                  }`}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-normal transition-colors hover:bg-muted ${activeFilters['origen'] === option.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {option.value === 'plantilla' ? (
                     <LayoutTemplate size={15} className="shrink-0" />
@@ -6248,7 +6729,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, estado: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estado'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.value && (
                     <span
@@ -6261,63 +6742,7 @@ function MisDocumentosContent() {
             </div>
           );
         case 'propietario':
-          return (
-            <div className="py-1 min-w-[200px]">
-              <div className="px-3 py-2">
-                <input
-                  type="text"
-                  placeholder="Buscar propietario..."
-                  value={propietarioSearch}
-                  onChange={(e) => setPropietarioSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <button
-                onClick={() => {
-                  setActiveFilters((prev) => ({ ...prev, propietario: '' }));
-                  setOpenFilterDropdown(null);
-                }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['propietario'] ? 'text-primary font-medium' : 'text-foreground'}`}
-              >
-                Todos
-              </button>
-              <button
-                onClick={() => {
-                  setActiveFilters((prev) => ({ ...prev, propietario: 'mios' }));
-                  setOpenFilterDropdown(null);
-                }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['propietario'] === 'mios' ? 'text-primary font-medium' : 'text-foreground'}`}
-              >
-                Míos
-              </button>
-              <div className="max-h-40 overflow-y-auto">
-                {loadingPropietarios ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
-                ) : (
-                  workspaceUsers
-                    .filter(
-                      (u) =>
-                        !propietarioSearch ||
-                        (u.full_name || u.email || '')
-                          .toLowerCase()
-                          .includes(propietarioSearch.toLowerCase())
-                    )
-                    .map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          setActiveFilters((prev) => ({ ...prev, propietario: [u.id] }));
-                          setOpenFilterDropdown(null);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['propietario']) && activeFilters['propietario'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}
-                      >
-                        {u.full_name || u.email}
-                      </button>
-                    ))
-                )}
-              </div>
-            </div>
-          );
+          return renderPersonFilter('propietario');
         case 'ultimaModificacion':
         case 'fechaCreacion':
           return showDateRangePicker === filterId ? (
@@ -6353,7 +6778,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, [filterId]: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters[filterId] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${activeFilters[filterId] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.label}
                 </button>
@@ -6376,7 +6801,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, fechaCompletado: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaCompletado'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${activeFilters['fechaCompletado'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.label}
                 </button>
@@ -6398,7 +6823,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, fechaVencimiento: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['fechaVencimiento'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${activeFilters['fechaVencimiento'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.label}
                 </button>
@@ -6407,14 +6832,20 @@ function MisDocumentosContent() {
           );
         case 'tipoDocumento':
           return (
-            <div className="py-1 min-w-[200px]">
-              <div className="px-3 py-2">
+            <div className="w-72 py-1.5">
+              <div className="relative px-2 pb-2">
+                <Search
+                  size={15}
+                  className="absolute left-5 top-2.5 text-slate-400"
+                  aria-hidden="true"
+                />
                 <input
-                  type="text"
+                  type="search"
+                  aria-label="Buscar tipos de documento"
                   placeholder="Buscar tipo..."
                   value={tipoDocSearch}
                   onChange={(e) => setTipoDocSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                 />
               </div>
               <button
@@ -6422,7 +6853,7 @@ function MisDocumentosContent() {
                   setActiveFilters((prev) => ({ ...prev, tipoDocumento: [] }));
                   setOpenFilterDropdown(null);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['tipoDocumento'] || activeFilters['tipoDocumento'].length === 0 ? 'text-primary font-medium' : 'text-foreground'}`}
+                className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${!activeFilters['tipoDocumento'] || activeFilters['tipoDocumento'].length === 0 ? 'text-primary' : 'text-foreground'}`}
               >
                 Todos
               </button>
@@ -6449,7 +6880,7 @@ function MisDocumentosContent() {
                                 : [...selected, t.id];
                               setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                            className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary' : 'text-foreground'}`}
                           >
                             <span
                               className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
@@ -6484,7 +6915,7 @@ function MisDocumentosContent() {
                                 : [...selected, '__otros__'];
                               setActiveFilters((prev) => ({ ...prev, tipoDocumento: updated }));
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 italic ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                            className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors flex items-center gap-2 italic ${isSelected ? 'text-primary' : 'text-foreground'}`}
                           >
                             <span
                               className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
@@ -6514,7 +6945,7 @@ function MisDocumentosContent() {
                   <div className="border-t border-border px-3 py-2">
                     <button
                       onClick={() => setOpenFilterDropdown(null)}
-                      className="w-full text-xs font-semibold text-primary text-center py-1 hover:underline"
+                      className="w-full py-1 text-center text-xs font-normal text-primary hover:underline"
                     >
                       Aplicar
                     </button>
@@ -6524,14 +6955,20 @@ function MisDocumentosContent() {
           );
         case 'etiquetas':
           return (
-            <div className="py-1 min-w-[200px]">
-              <div className="px-3 py-2">
+            <div className="w-72 py-1.5">
+              <div className="relative px-2 pb-2">
+                <Search
+                  size={15}
+                  className="absolute left-5 top-2.5 text-slate-400"
+                  aria-hidden="true"
+                />
                 <input
-                  type="text"
+                  type="search"
+                  aria-label="Buscar etiquetas"
                   placeholder="Buscar etiqueta..."
                   value={etiquetasSearch}
                   onChange={(e) => setEtiquetasSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                 />
               </div>
               <button
@@ -6539,7 +6976,7 @@ function MisDocumentosContent() {
                   setActiveFilters((prev) => ({ ...prev, etiquetas: [] }));
                   setOpenFilterDropdown(null);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!activeFilters['etiquetas'] || activeFilters['etiquetas'].length === 0 ? 'text-primary font-medium' : 'text-foreground'}`}
+                className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${!activeFilters['etiquetas'] || activeFilters['etiquetas'].length === 0 ? 'text-primary' : 'text-foreground'}`}
               >
                 Todas
               </button>
@@ -6565,7 +7002,7 @@ function MisDocumentosContent() {
                               : [...selected, et.nombre];
                             setActiveFilters((prev) => ({ ...prev, etiquetas: updated }));
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}
+                          className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors flex items-center gap-2 ${isSelected ? 'text-primary' : 'text-foreground'}`}
                         >
                           <span
                             className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${isSelected ? 'bg-primary border-primary' : 'border-border'}`}
@@ -6592,60 +7029,7 @@ function MisDocumentosContent() {
             </div>
           );
         case 'participantes':
-          return (
-            <div className="py-1 min-w-[200px]">
-              <div className="px-3 py-2">
-                <input
-                  type="text"
-                  placeholder="Buscar participante..."
-                  value={participantesSearch}
-                  onChange={(e) => setParticipantesSearch(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              {[
-                { value: '', label: 'Todos' },
-                { value: 'yo', label: 'Yo' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    setActiveFilters((prev) => ({ ...prev, participantes: opt.value }));
-                    setOpenFilterDropdown(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['participantes'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-              <div className="max-h-40 overflow-y-auto">
-                {loadingParticipantes ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">Cargando...</div>
-                ) : (
-                  participantUsers
-                    .filter(
-                      (u) =>
-                        !participantesSearch ||
-                        (u.full_name || u.email || '')
-                          .toLowerCase()
-                          .includes(participantesSearch.toLowerCase())
-                    )
-                    .map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          setActiveFilters((prev) => ({ ...prev, participantes: [u.id] }));
-                          setOpenFilterDropdown(null);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${Array.isArray(activeFilters['participantes']) && activeFilters['participantes'].includes(u.id) ? 'text-primary font-medium' : 'text-foreground'}`}
-                      >
-                        {u.full_name || u.email}
-                      </button>
-                    ))
-                )}
-              </div>
-            </div>
-          );
+          return renderPersonFilter('participantes');
         case 'prioridad':
           return (
             <div className="py-1 min-w-[160px]">
@@ -6660,7 +7044,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, prioridad: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${activeFilters['prioridad'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors ${activeFilters['prioridad'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.label}
                 </button>
@@ -6692,7 +7076,7 @@ function MisDocumentosContent() {
                     setActiveFilters((prev) => ({ ...prev, estadoParticipacion: opt.value }));
                     setOpenFilterDropdown(null);
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estadoParticipacion'] === opt.value ? 'text-primary font-medium' : 'text-foreground'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-normal hover:bg-muted transition-colors flex items-center gap-2 ${activeFilters['estadoParticipacion'] === opt.value ? 'text-primary' : 'text-foreground'}`}
                 >
                   {opt.dot && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${opt.dot}`} />}
                   {!opt.dot && <span className="w-2 h-2 flex-shrink-0" />}
@@ -6701,16 +7085,35 @@ function MisDocumentosContent() {
               ))}
             </div>
           );
+        case 'estadoParticipantes':
+          return (
+            <div className="min-w-[220px] py-1">
+              {OWNED_PARTICIPANT_STATUS_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setActiveFilters((previous) => ({
+                      ...previous,
+                      estadoParticipantes: option.value,
+                    }));
+                    setOpenFilterDropdown(null);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-normal transition-colors hover:bg-muted ${activeFilters['estadoParticipantes'] === option.value ? 'text-primary' : 'text-foreground'}`}
+                >
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${option.dot || 'bg-transparent'}`}
+                    aria-hidden="true"
+                  />
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          );
         default:
           return null;
       }
     };
-    const activeFilterCount = Object.entries(activeFilters).filter(([, v]) => {
-      if (!v || v === '') return false;
-      if (Array.isArray(v) && v.length === 0) return false;
-      return true;
-    }).length;
-
     return (
       <>
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
@@ -6764,19 +7167,79 @@ function MisDocumentosContent() {
         <section className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           {/* Toolbar row */}
           <div className="flex flex-wrap items-center gap-2 p-3">
-            <div className="flex-1 relative min-w-[160px]">
-              <Search
-                size={15}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                type="text"
-                placeholder="Buscar documentos..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-              />
-            </div>
+            <DocumentListSearch
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Buscar documentos..."
+              containerClassName="relative min-w-[160px] flex-1"
+            />
+            {activeFilterSelections.length > 0 && (
+              <div className="relative shrink-0" ref={activeFiltersDropdownRef}>
+                <div className="flex h-9 items-center rounded-md border border-primary/25 bg-white text-xs text-primary">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenFilterDropdown(
+                        openFilterDropdown === 'activeFilters' ? null : 'activeFilters'
+                      )
+                    }
+                    aria-expanded={openFilterDropdown === 'activeFilters'}
+                    aria-label={`Filtros aplicados: ${activeFilterSelections.length}. Ver criterios`}
+                    className="flex h-full items-center gap-1.5 px-2.5 text-left"
+                  >
+                    <Filter size={13} aria-hidden="true" />
+                    <span>Filtros aplicados</span>
+                    <span className="filter-selected-value">({activeFilterSelections.length})</span>
+                    <ChevronDown size={13} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFilters({});
+                      setOpenFilterDropdown(null);
+                    }}
+                    aria-label="Quitar todos los filtros"
+                    title="Quitar todos los filtros"
+                    className="flex h-7 w-7 items-center justify-center border-l border-primary/25 text-primary/70 hover:bg-primary/5 hover:text-primary"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                </div>
+                {openFilterDropdown === 'activeFilters' && (
+                  <div
+                    role="group"
+                    aria-label="Criterios aplicados"
+                    className="absolute right-0 top-full z-[200] mt-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
+                  >
+                    <p className="px-2 py-1.5 text-xs text-slate-500">Criterios aplicados</p>
+                    {activeFilterSelections.map((selection) => (
+                      <div
+                        key={`${selection.filterId}:${selection.value}`}
+                        className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-slate-50"
+                      >
+                        <span className="min-w-0 flex-1 break-words text-sm text-slate-700">
+                          {selection.filterLabel}: {' '}
+                          <span className="font-medium text-slate-900">
+                            {selection.selectedLabel}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeFilterSelection(selection.filterId, selection.value, true)
+                          }
+                          aria-label={`Quitar ${selection.label}`}
+                          title={`Quitar ${selection.label}`}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                        >
+                          <X size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="relative" ref={miEspacioSortDropdownRef}>
               <button
                 onClick={() => setMiEspacioSortDropdownOpen((v) => !v)}
@@ -6803,7 +7266,7 @@ function MisDocumentosContent() {
                       role="menuitemradio"
                       aria-checked={miEspacioSortField === opt.value}
                       onClick={() => selectMiEspacioSortField(opt.value)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortField === opt.value ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortField === opt.value ? 'bg-primary/5 text-primary font-medium' : 'text-slate-700'}`}
                     >
                       <span className="w-4 shrink-0">
                         {miEspacioSortField === opt.value && <Check size={15} />}
@@ -6825,7 +7288,7 @@ function MisDocumentosContent() {
                           setMiEspacioSortField(miEspacioSortField);
                           setMiEspacioSortDirection(direction);
                         }}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortDirection === direction ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioSortDirection === direction ? 'bg-primary/5 text-primary font-medium' : 'text-slate-700'}`}
                       >
                         <span className="w-4 shrink-0">
                           {miEspacioSortDirection === direction && <Check size={15} />}
@@ -6848,7 +7311,7 @@ function MisDocumentosContent() {
                       role="menuitemradio"
                       aria-checked={miEspacioFoldersFirst === option.first}
                       onClick={() => setMiEspacioFoldersFirst(option.first)}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioFoldersFirst === option.first ? 'bg-blue-50 text-primary font-medium' : 'text-slate-700'}`}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${miEspacioFoldersFirst === option.first ? 'bg-primary/5 text-primary font-medium' : 'text-slate-700'}`}
                     >
                       <span className="w-4 shrink-0">
                         {miEspacioFoldersFirst === option.first && <Check size={15} />}
@@ -6906,7 +7369,7 @@ function MisDocumentosContent() {
           {/* Filter bar row */}
           {visibleFilters.length > 0 && (
             <div
-              className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5"
+              className="mis-documentos-filters flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5"
               ref={filterDropdownRef}
             >
               {visibleFilters.map((f) => {
@@ -6917,36 +7380,47 @@ function MisDocumentosContent() {
                     : activeFilters[f.id] !== '');
                 return (
                   <div key={f.id} className="relative">
-                    <button
-                      onClick={() =>
-                        setOpenFilterDropdown(openFilterDropdown === f.id ? null : f.id)
-                      }
-                      className={`flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-600 transition-colors ${hasValue ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                    <div
+                      className={`group flex min-h-8 max-w-full items-center rounded-md border text-xs font-normal transition-colors sm:max-w-[28rem] ${hasValue ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                     >
-                      {f.label}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenFilterDropdown(openFilterDropdown === f.id ? null : f.id)
+                        }
+                        aria-expanded={openFilterDropdown === f.id}
+                        className="flex min-h-8 min-w-0 items-center gap-1 px-2.5 py-1 text-left font-normal"
+                      >
+                        <span className="min-w-0 whitespace-normal break-words">
+                          {f.label}
+                          {hasValue && (
+                            <span className="filter-selected-value">
+                              : {getFilterLabel(f.id, activeFilters[f.id])}
+                            </span>
+                          )}
+                        </span>
+                        <ChevronDown size={13} className="shrink-0" aria-hidden="true" />
+                      </button>
                       {hasValue && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => removeFilterSelection(f.id)}
+                          aria-label={`Quitar filtro ${f.label}`}
+                          title={`Quitar filtro ${f.label}`}
+                          className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-primary/70 opacity-0 transition-opacity hover:bg-primary/10 hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                        >
+                          <X size={12} />
+                        </button>
                       )}
-                    </button>
+                    </div>
                     {openFilterDropdown === f.id && (
-                      <div className="absolute left-0 top-full z-[200] mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
+                      <div className="absolute left-0 top-full z-[200] mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white font-normal shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]">
                         {renderFilterDropdown(f.id)}
                       </div>
                     )}
                   </div>
                 );
               })}
-              {Object.values(activeFilters).some(
-                (v) => v && (Array.isArray(v) ? v.length > 0 : v !== '')
-              ) && (
-                <button
-                  onClick={() => setActiveFilters({})}
-                  className="flex items-center gap-1 px-2 py-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <X size={11} />
-                  Limpiar filtros
-                </button>
-              )}
             </div>
           )}
         </section>
@@ -7237,12 +7711,19 @@ function MisDocumentosContent() {
                       {columnConfig.filter((c) => c.visible).find((c) => c.id === 'estado') && (
                         <ResizableTh
                           colKey="estado"
+                          ariaSort={
+                            miEspacioSortField === 'estado'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.estado}
                           minWidth={80}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Estado
+                          {sortableHeader('estado', 'Estado')}
                         </ResizableTh>
                       )}
                       {columnConfig
@@ -7371,12 +7852,19 @@ function MisDocumentosContent() {
                       {columnConfig.filter((c) => c.visible).find((c) => c.id === 'prioridad') && (
                         <ResizableTh
                           colKey="prioridad"
+                          ariaSort={
+                            miEspacioSortField === 'operativo'
+                              ? miEspacioSortDirection === 'asc'
+                                ? 'ascending'
+                                : 'descending'
+                              : 'none'
+                          }
                           width={mainColWidths.prioridad}
                           minWidth={70}
                           onResize={resizeMainCol}
                           className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                         >
-                          Prioridad
+                          {sortableHeader('operativo', 'Prioridad')}
                         </ResizableTh>
                       )}
                       {columnConfig
@@ -7534,44 +8022,29 @@ function MisDocumentosContent() {
                 }`}
               >
                 {editingFilterId === cf.id ? (
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span className="text-base flex-shrink-0">{cf.icono}</span>
+                  <div className="flex min-w-0 flex-1 items-center gap-1">
+                    <span className="flex-shrink-0 text-base">{cf.icono}</span>
                     <input
-                      ref={editingFilterRef}
                       type="text"
                       value={editingFilterName}
-                      onChange={(e) => setEditingFilterName(e.target.value)}
-                      onKeyDown={async (e) => {
-                        if (e.key === 'Enter') {
-                          const nombre = editingFilterName.trim();
-                          if (nombre && nombre !== cf.nombre) {
-                            const updated = customFilters.map((f) =>
-                              f.id === cf.id ? { ...f, nombre } : f
-                            );
-                            setCustomFilters(updated);
-                            await saveCustomFilters(updated);
-                          }
-                          setEditingFilterId(null);
-                        } else if (e.key === 'Escape') {
-                          setEditingFilterId(null);
-                        }
+                      onChange={(event) => setEditingFilterName(event.target.value)}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void saveCustomFilterName(cf);
+                        if (event.key === 'Escape' && !savingFilterName) setEditingFilterId(null);
                       }}
-                      className="flex-1 min-w-0 text-sm bg-transparent border-b border-primary outline-none text-foreground"
+                      disabled={savingFilterName}
+                      aria-label={`Cambiar nombre de ${cf.nombre}`}
+                      className="min-w-0 flex-1 border-b border-primary bg-transparent text-sm text-foreground outline-none"
                       autoFocus
                     />
                     <button
-                      onClick={async () => {
-                        const nombre = editingFilterName.trim();
-                        if (nombre && nombre !== cf.nombre) {
-                          const updated = customFilters.map((f) =>
-                            f.id === cf.id ? { ...f, nombre } : f
-                          );
-                          setCustomFilters(updated);
-                          await saveCustomFilters(updated);
-                        }
-                        setEditingFilterId(null);
-                      }}
-                      className="flex-shrink-0 p-0.5 rounded hover:bg-green-100 text-green-600 transition-colors"
+                      type="button"
+                      onClick={() => void saveCustomFilterName(cf)}
+                      disabled={savingFilterName}
+                      aria-label="Guardar nombre"
+                      title="Guardar nombre"
+                      className="flex-shrink-0 rounded p-0.5 text-green-600 transition-colors hover:bg-green-100 disabled:opacity-50"
                     >
                       <Check size={12} />
                     </button>
@@ -7579,22 +8052,26 @@ function MisDocumentosContent() {
                 ) : (
                   <>
                     <button
-                      onClick={() => setActiveSection(`custom-${cf.id}`)}
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                      onClick={() => {
+                        setCustomFilterActionsOpen(false);
+                        setActiveSection(`custom-${cf.id}`);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <span className="text-base flex-shrink-0">{cf.icono}</span>
+                      <span className="flex-shrink-0 text-base">{cf.icono}</span>
                       <span className="flex-1 truncate">{cf.nombre}</span>
                     </button>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
+                      type="button"
+                      onClick={() => {
                         setEditingFilterId(cf.id);
                         setEditingFilterName(cf.nombre);
                       }}
-                      className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-                      title="Editar nombre"
+                      className="flex-shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                      aria-label={`Cambiar nombre de ${cf.nombre}`}
+                      title="Cambiar nombre"
                     >
-                      <Pencil size={11} />
+                      <Pencil size={12} />
                     </button>
                   </>
                 )}
@@ -7602,7 +8079,7 @@ function MisDocumentosContent() {
             ))}
             {/* Crear filtro button */}
             <button
-              onClick={() => setShowCrearFiltroModal(true)}
+              onClick={() => openCustomFilterEditor()}
               className="mt-2 flex w-full items-center gap-2.5 rounded-md border border-dashed border-primary/30 px-3 py-2 text-sm font-600 text-primary transition-colors hover:bg-primary/5"
             >
               <Plus size={15} className="flex-shrink-0" />
@@ -7624,19 +8101,11 @@ function MisDocumentosContent() {
                 </div>
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                <div className="relative min-w-[180px] flex-1">
-                  <Search
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Buscar en Favoritos..."
-                    value={favSearchQuery}
-                    onChange={(e) => setFavSearchQuery(e.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  />
-                </div>
+                <DocumentListSearch
+                  value={favSearchQuery}
+                  onChange={setFavSearchQuery}
+                  placeholder="Buscar en Favoritos..."
+                />
                 <div className="relative">
                   <select
                     value={favSortOrder}
@@ -7846,22 +8315,20 @@ function MisDocumentosContent() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-max table-fixed">
+                    <table className="w-full table-fixed" style={{ minWidth: `${favTableMinWidth}px` }}>
                       <colgroup>
-                        <col style={{ width: '40px' }} />
-                        <col style={{ width: `${papeleraColWidths.nombre}px` }} />
-                        <col style={{ width: `${papeleraColWidths.tipo}px` }} />
-                        <col style={{ width: `${papeleraColWidths.fechaEliminacion}px` }} />
-                        <col style={{ width: `${papeleraColWidths.tamano}px` }} />
-                        <col style={{ width: `${papeleraColWidths.retencion}px` }} />
-                        <col style={{ width: `${papeleraColWidths.tiempoRestante}px` }} />
-                        <col style={{ width: '76px' }} />
+                        <col style={{ width: '48px' }} />
+                        <col style={{ width: `${favColWidths.nombre}px` }} />
+                        {favVisibleColumnIds.map((id) => (
+                          <col key={id} style={{ width: `${favColWidths[id] || 100}px` }} />
+                        ))}
+                        <col style={{ width: '56px' }} />
                       </colgroup>
                       <thead className="[&_th]:font-500">
                         <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
-                            style={{ width: `${favColWidths.checkbox}px` }}
+                            style={{ width: '48px' }}
                           >
                             <input
                               type="checkbox"
@@ -8007,7 +8474,18 @@ function MisDocumentosContent() {
                               Prioridad
                             </ResizableTh>
                           )}
-                          <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
+                          {favColumnConfig.find((c) => c.id === 'folioInterno')?.visible && (
+                            <ResizableTh
+                              colKey="folioInterno"
+                              width={favColWidths.folioInterno}
+                              minWidth={100}
+                              onResize={resizeFavCol}
+                              className="px-3 py-3 text-left text-xs font-semibold text-muted-foreground"
+                            >
+                              Folio interno
+                            </ResizableTh>
+                          )}
+                          <th className="sticky right-0 w-14 border-l border-border bg-muted/40 px-3 py-3 text-left text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -8188,7 +8666,12 @@ function MisDocumentosContent() {
                                   )}
                                 </td>
                               )}
-                              <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                              {favColumnConfig.find((c) => c.id === 'folioInterno')?.visible && (
+                                <td className="px-3 py-3 text-xs text-muted-foreground">
+                                  {doc.folioInterno || '—'}
+                                </td>
+                              )}
+                              <td className="sticky right-0 w-14 border-l border-border bg-white px-3 py-3 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                                 <button
                                   onClick={(e) => openContextMenu(e, doc)}
                                   className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
@@ -8213,7 +8696,7 @@ function MisDocumentosContent() {
                           d.name.toLowerCase().includes(favSearchQuery.toLowerCase())
                         ).length === 0 && (
                           <tr>
-                            <td colSpan={10} className="p-0">
+                            <td colSpan={favVisibleColumnIds.length + 3} className="p-0">
                               <LibraryEmptyState
                                 icon={Star}
                                 title={
@@ -8247,19 +8730,11 @@ function MisDocumentosContent() {
                 </div>
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                <div className="relative min-w-[180px] flex-1">
-                  <Search
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Buscar..."
-                    value={porVencerSearch}
-                    onChange={(e) => setPorVencerSearch(e.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  />
-                </div>
+                <DocumentListSearch
+                  value={porVencerSearch}
+                  onChange={setPorVencerSearch}
+                  placeholder="Buscar..."
+                />
                 <div className="relative">
                   <select
                     value={porVencerSortOrder}
@@ -8469,12 +8944,20 @@ function MisDocumentosContent() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-max">
+                    <table className="w-full table-fixed" style={{ minWidth: `${porVencerTableMinWidth}px` }}>
+                      <colgroup>
+                        <col style={{ width: '48px' }} />
+                        <col style={{ width: `${porVencerColWidths.nombre}px` }} />
+                        {porVencerVisibleColumnIds.map((id) => (
+                          <col key={id} style={{ width: `${porVencerColWidths[id] || 100}px` }} />
+                        ))}
+                        <col style={{ width: '56px' }} />
+                      </colgroup>
                       <thead className="[&_th]:font-500">
                         <tr className="border-b border-slate-200 bg-slate-50/80">
                           <th
                             className={selectionCheckboxCellClass}
-                            style={{ width: `${porVencerColWidths.checkbox}px` }}
+                            style={{ width: '48px' }}
                           >
                             <input
                               type="checkbox"
@@ -8620,7 +9103,18 @@ function MisDocumentosContent() {
                               Prioridad
                             </ResizableTh>
                           )}
-                          <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
+                          {porVencerColumnConfig.find((c) => c.id === 'folioInterno')?.visible && (
+                            <ResizableTh
+                              colKey="folioInterno"
+                              width={porVencerColWidths.folioInterno}
+                              minWidth={100}
+                              onResize={resizePorVencerCol}
+                              className="px-3 py-3 text-left text-xs font-semibold text-muted-foreground"
+                            >
+                              Folio interno
+                            </ResizableTh>
+                          )}
+                          <th className="sticky right-0 w-14 border-l border-border bg-muted/40 px-3 py-3 text-left text-xs font-semibold text-muted-foreground shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -8800,7 +9294,13 @@ function MisDocumentosContent() {
                                   )}
                                 </td>
                               )}
-                              <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                              {porVencerColumnConfig.find((c) => c.id === 'folioInterno')
+                                ?.visible && (
+                                <td className="px-3 py-3 text-xs text-muted-foreground">
+                                  {doc.folioInterno || '—'}
+                                </td>
+                              )}
+                              <td className="sticky right-0 w-14 border-l border-border bg-white px-3 py-3 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                                 <button
                                   onClick={(e) => openContextMenu(e, doc)}
                                   className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
@@ -8825,7 +9325,7 @@ function MisDocumentosContent() {
                           d.name.toLowerCase().includes(porVencerSearch.toLowerCase())
                         ).length === 0 && (
                           <tr>
-                            <td colSpan={10} className="p-0">
+                            <td colSpan={porVencerVisibleColumnIds.length + 3} className="p-0">
                               <LibraryEmptyState
                                 icon={AlertTriangle}
                                 title={porVencerSearch ? 'Sin resultados' : 'Todo está al día'}
@@ -9070,19 +9570,12 @@ function MisDocumentosContent() {
                 <div className={isDeletionHistoryOpen ? 'mt-3' : ''}>
                   <div className="mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                     <div className="flex flex-wrap items-center gap-2 p-3">
-                      <div className="relative flex-1">
-                        <Search
-                          size={15}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Buscar en papelera..."
-                          value={papeleraSearch}
-                          onChange={(e) => setPapeleraSearch(e.target.value)}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
+                      <DocumentListSearch
+                        value={papeleraSearch}
+                        onChange={setPapeleraSearch}
+                        placeholder="Buscar en papelera..."
+                        containerClassName="relative flex-1"
+                      />
                       <div className="relative">
                         <button
                           onClick={() => setPapeleraFilterOpen((value) => !value)}
@@ -9637,690 +10130,879 @@ function MisDocumentosContent() {
           )}
 
           {/* Custom filter sections */}
-          {customFilters.map(
-            (cf) =>
-              activeSection === `custom-${cf.id}` && (
-                <React.Fragment key={cf.id}>
-                  <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <h1 className="text-2xl font-600 text-slate-950">{cf.nombre}</h1>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {cf.descripcion || 'Filtro personalizado'}
-                      </p>
-                    </div>
+          {customFilters.map((cf) => {
+            if (activeSection !== `custom-${cf.id}`) return null;
+            const foldersOnly = cf.filtros?.estructura === 'carpeta';
+            const configuredColumns = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS;
+            const activeCriteria = Object.entries(cf.filtros || {})
+              .filter(([, value]) =>
+                Array.isArray(value)
+                  ? value.length > 0
+                  : value !== null && value !== undefined && value !== ''
+              )
+              .map(([field]) => field);
+            const sortFields = availableCustomSortFields(
+              configuredColumns.filter((column) => column.visible).map((column) => column.id),
+              activeCriteria,
+              foldersOnly
+            );
+            const sortOptions = MI_ESPACIO_SORT_OPTIONS.filter((option) =>
+              sortFields.includes(option.value as CustomSortField)
+            );
+            const savedSort =
+              cfSortOrders[cf.id] ||
+              (foldersOnly ? 'ultimaModificacion_desc' : 'fechaCreacion_desc');
+            const separator = savedSort.lastIndexOf('_');
+            const savedField = savedSort.slice(0, separator) as CustomSortField;
+            const savedDirection: MiEspacioSortDirection = savedSort.endsWith('_asc')
+              ? 'asc'
+              : 'desc';
+            const cfSortField = sortFields.includes(savedField)
+              ? savedField
+              : sortFields.includes('fechaCreacion')
+                ? 'fechaCreacion'
+                : sortFields.includes('ultimaModificacion')
+                  ? 'ultimaModificacion'
+                  : 'nombre';
+            const cfSortDirection = sortFields.includes(savedField)
+              ? savedDirection
+              : cfSortField === 'nombre' || cfSortField === 'estado'
+                ? 'asc'
+                : 'desc';
+            const setCfSort = (field: CustomSortField, direction: MiEspacioSortDirection) =>
+              setCfSortOrders((previous) => ({ ...previous, [cf.id]: `${field}_${direction}` }));
+            const toggleCfColumnSort = (field: MiEspacioSortField) => {
+              const selected = field as CustomSortField;
+              const direction =
+                cfSortField === selected
+                  ? cfSortDirection === 'asc'
+                    ? 'desc'
+                    : 'asc'
+                  : selected === 'nombre' || selected === 'estado'
+                    ? 'asc'
+                    : 'desc';
+              setCfSort(selected, direction);
+            };
+            const cfSortableHeader = (field: CustomSortField, label: string) => (
+              <SortableColumnHeader
+                field={field}
+                label={label}
+                activeField={cfSortField}
+                direction={cfSortDirection}
+                onSort={toggleCfColumnSort}
+              />
+            );
+            const cfAriaSort = (field: CustomSortField) =>
+              cfSortField === field
+                ? cfSortDirection === 'asc'
+                  ? ('ascending' as const)
+                  : ('descending' as const)
+                : ('none' as const);
+            return (
+              <React.Fragment key={cf.id}>
+                <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h1 className="text-2xl font-600 text-slate-950">{cf.nombre}</h1>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {cf.descripcion || 'Filtro personalizado'}
+                    </p>
+                  </div>
+                  <div
+                    ref={customFilterActionsRef}
+                    className="relative"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setCustomFilterActionsOpen(false);
+                    }}
+                  >
                     <button
-                      onClick={async () => {
-                        const updated = customFilters.filter((f) => f.id !== cf.id);
-                        setCustomFilters(updated);
-                        await saveCustomFilters(updated);
-                        setActiveSection('inicio');
-                        showToast(`Filtro "${cf.nombre}" eliminado`);
-                      }}
-                      className="flex h-9 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-600 text-red-600 transition-colors hover:bg-red-50"
+                      type="button"
+                      onClick={() => setCustomFilterActionsOpen((open) => !open)}
+                      aria-expanded={customFilterActionsOpen}
+                      aria-haspopup="menu"
+                      aria-controls={customFilterActionsOpen ? 'custom-filter-actions' : undefined}
+                      className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"
                     >
-                      <X size={14} />
-                      Eliminar filtro
+                      Acciones
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                    {customFilterActionsOpen && (
+                      <div
+                        id="custom-filter-actions"
+                        role="menu"
+                        aria-label={`Acciones de ${cf.nombre}`}
+                        className="absolute right-0 top-full z-30 mt-1 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => openCustomFilterEditor(cf)}
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <Pencil size={14} aria-hidden="true" />
+                          Editar filtro
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={async () => {
+                            setCustomFilterActionsOpen(false);
+                            const updated = customFilters.filter((filter) => filter.id !== cf.id);
+                            if (!(await saveCustomFilters(updated))) return;
+                            setCustomFilters(updated);
+                            setActiveSection('mi-espacio');
+                            showToast(`Filtro "${cf.nombre}" eliminado`);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                          Eliminar filtro
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Toolbar: search, sort, view type, configure columns */}
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                  <DocumentListSearch
+                    value={cfSearchQueries[cf.id] || ''}
+                    onChange={(value) =>
+                      setCfSearchQueries((prev) => ({ ...prev, [cf.id]: value }))
+                    }
+                    placeholder={`Buscar en ${cf.nombre}...`}
+                  />
+                  <div
+                    className="relative"
+                    ref={(element) => {
+                      cfSortDropdownRefs.current[cf.id] = element;
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCfSortDropdownOpen((current) => (current === cf.id ? null : cf.id))
+                      }
+                      aria-expanded={cfSortDropdownOpen === cf.id}
+                      aria-haspopup="menu"
+                      aria-label={`Ordenar documentos de ${cf.nombre}`}
+                      className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <ArrowUpDown size={14} />
+                      <span>Ordenar</span>
+                    </button>
+                    {cfSortDropdownOpen === cf.id && (
+                      <div
+                        role="menu"
+                        aria-label={`Ordenar documentos de ${cf.nombre}`}
+                        className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
+                      >
+                        <div className="px-3 py-2 text-[11px] font-semibold text-slate-500">
+                          Ordenar por
+                        </div>
+                        {sortOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={cfSortField === option.value}
+                            onClick={() => {
+                              const field = option.value as CustomSortField;
+                              setCfSort(
+                                field,
+                                field === 'nombre' || field === 'estado' ? 'asc' : 'desc'
+                              );
+                              setCfSortDropdownOpen(null);
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${cfSortField === option.value ? 'bg-primary/5 text-primary font-medium' : 'text-slate-700'}`}
+                          >
+                            <span className="w-4 shrink-0">
+                              {cfSortField === option.value && <Check size={15} />}
+                            </span>
+                            {option.label}
+                          </button>
+                        ))}
+                        <div className="mt-1 border-t border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                          Orden
+                        </div>
+                        {(['desc', 'asc'] as const).map((direction) => (
+                          <button
+                            key={direction}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={cfSortDirection === direction}
+                            onClick={() => setCfSort(cfSortField, direction)}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${cfSortDirection === direction ? 'bg-primary/5 text-primary font-medium' : 'text-slate-700'}`}
+                          >
+                            <span className="w-4 shrink-0">
+                              {cfSortDirection === direction && <Check size={15} />}
+                            </span>
+                            {sortDirectionLabel(cfSortField, direction)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
+                    <button
+                      onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'list' }))}
+                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                      title="Vista lista"
+                    >
+                      <LayoutList size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'grid' }))}
+                      className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
+                      title="Vista cuadrícula"
+                    >
+                      <LayoutGrid size={16} />
                     </button>
                   </div>
-
-                  {/* Toolbar: search, sort, view type, configure columns */}
-                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                    <div className="relative min-w-[180px] flex-1">
-                      <Search
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                      />
-                      <input
-                        type="text"
-                        placeholder={`Buscar en ${cf.nombre}...`}
-                        value={cfSearchQueries[cf.id] || ''}
-                        onChange={(e) =>
-                          setCfSearchQueries((prev) => ({ ...prev, [cf.id]: e.target.value }))
-                        }
-                        className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10"
-                      />
-                    </div>
-                    <div className="relative">
-                      <select
-                        value={cfSortOrders[cf.id] || 'ultimaModificacion_desc'}
-                        onChange={(e) =>
-                          setCfSortOrders((prev) => ({ ...prev, [cf.id]: e.target.value }))
-                        }
-                        style={{ fontFamily: 'inherit' }}
-                        className="h-9 cursor-pointer appearance-none rounded-md border border-slate-200 bg-white pl-8 pr-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                      >
-                        <option value="ultimaModificacion_desc">Más reciente</option>
-                        <option value="ultimaModificacion_asc">Más antiguo</option>
-                        <option value="nombre_asc">Nombre A–Z</option>
-                        <option value="nombre_desc">Nombre Z–A</option>
-                        <option value="estado_asc">Estado</option>
-                      </select>
-                      <ArrowUpDown
-                        size={14}
-                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-                      />
-                    </div>
-                    <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5">
-                      <button
-                        onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'list' }))}
-                        className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                        title="Vista lista"
-                      >
-                        <LayoutList size={16} />
-                      </button>
-                      <button
-                        onClick={() => setCfViewModes((prev) => ({ ...prev, [cf.id]: 'grid' }))}
-                        className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${(cfViewModes[cf.id] || 'list') === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                        title="Vista cuadrícula"
-                      >
-                        <LayoutGrid size={16} />
-                      </button>
-                    </div>
-                    <div
-                      className="relative"
-                      ref={(el) => {
-                        cfColumnConfigRefs.current[cf.id] = el;
+                  <div
+                    className={cf.filtros?.estructura === 'carpeta' ? 'hidden' : 'relative'}
+                    ref={(el) => {
+                      cfColumnConfigRefs.current[cf.id] = el;
+                    }}
+                  >
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCfColumnConfigOpen((prev) => (prev === cf.id ? null : cf.id));
                       }}
+                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${cfColumnConfigOpen === cf.id ? 'border-primary/40 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950'}`}
+                      title="Configurar columnas"
                     >
-                      <button
+                      <SlidersHorizontal size={14} />
+                    </button>
+                    {cfColumnConfigOpen === cf.id && (
+                      <div
+                        className="absolute right-0 top-full z-[200] mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
                         onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCfColumnConfigOpen((prev) => (prev === cf.id ? null : cf.id));
-                        }}
-                        className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${cfColumnConfigOpen === cf.id ? 'border-primary/40 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950'}`}
-                        title="Configurar columnas"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <SlidersHorizontal size={14} />
-                      </button>
-                      {cfColumnConfigOpen === cf.id && (
-                        <div
-                          className="absolute right-0 top-full z-[200] mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_14px_35px_-20px_rgba(15,23,42,0.4)]"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-                            Columnas visibles
-                          </p>
-                          <div className="space-y-0.5 max-h-64 overflow-y-auto">
-                            {/* Nombre - mandatory, always first, not draggable */}
-                            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100 select-none">
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="currentColor"
-                                className="text-muted-foreground/30 flex-shrink-0"
-                              >
-                                <circle cx="9" cy="5" r="1.5" />
-                                <circle cx="15" cy="5" r="1.5" />
-                                <circle cx="9" cy="12" r="1.5" />
-                                <circle cx="15" cy="12" r="1.5" />
-                                <circle cx="9" cy="19" r="1.5" />
-                                <circle cx="15" cy="19" r="1.5" />
-                              </svg>
-                              <span className="text-sm text-foreground font-medium flex-1">
-                                Nombre
-                              </span>
-                              <span className="text-[10px] text-blue-600 font-semibold">Fijo</span>
-                              <input
-                                type="checkbox"
-                                checked
-                                disabled
-                                className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60"
-                              />
-                            </div>
-                            {(cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS)
-                              .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
-                              .map((col, colIdx) => (
-                                <div
-                                  key={col.id}
-                                  draggable
-                                  onDragStart={() => {
-                                    cfColDragIdxRef.current[cf.id] = colIdx;
-                                    setCfColDragIdx((p) => ({ ...p, [cf.id]: colIdx }));
-                                  }}
-                                  onDragEnter={() => {
-                                    cfColDragOverIdxRef.current[cf.id] = colIdx;
-                                    setCfColDragOverIdx((p) => ({ ...p, [cf.id]: colIdx }));
-                                  }}
-                                  onDragEnd={() => {
-                                    const from = cfColDragIdxRef.current[cf.id];
-                                    const to = cfColDragOverIdxRef.current[cf.id];
-                                    if (
-                                      from !== null &&
-                                      from !== undefined &&
-                                      to !== null &&
-                                      to !== undefined &&
-                                      from !== to
-                                    ) {
-                                      const current =
-                                        cfColumnConfigs[cf.id] ||
-                                        DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
-                                      const nonNombre = current.filter(
-                                        (c) => c.id !== 'nombre' && c.id !== 'nombreDocumento'
-                                      );
-                                      const updated = [...nonNombre];
-                                      const [moved] = updated.splice(from, 1);
-                                      updated.splice(to, 0, moved);
-                                      setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
-                                    }
-                                    cfColDragIdxRef.current[cf.id] = null;
-                                    cfColDragOverIdxRef.current[cf.id] = null;
-                                    setCfColDragIdx((p) => ({ ...p, [cf.id]: null }));
-                                    setCfColDragOverIdx((p) => ({ ...p, [cf.id]: null }));
-                                  }}
-                                  onDragOver={(e) => e.preventDefault()}
-                                  className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${cfColDragIdx[cf.id] === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : cfColDragOverIdx[cf.id] === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
-                                >
-                                  <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="currentColor"
-                                    className="text-muted-foreground/40 flex-shrink-0 cursor-grab"
-                                  >
-                                    <circle cx="9" cy="5" r="1.5" />
-                                    <circle cx="15" cy="5" r="1.5" />
-                                    <circle cx="9" cy="12" r="1.5" />
-                                    <circle cx="15" cy="12" r="1.5" />
-                                    <circle cx="9" cy="19" r="1.5" />
-                                    <circle cx="15" cy="19" r="1.5" />
-                                  </svg>
-                                  <input
-                                    type="checkbox"
-                                    checked={col.visible}
-                                    onChange={() => {
-                                      const current =
-                                        cfColumnConfigs[cf.id] ||
-                                        DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
-                                      const actualIdx = current.findIndex((c) => c.id === col.id);
-                                      const updated = current.map((c, i) =>
-                                        i === actualIdx ? { ...c, visible: !c.visible } : c
-                                      );
-                                      setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
-                                  />
-                                  <span className="text-sm text-foreground">{col.label}</span>
-                                </div>
-                              ))}
-                          </div>
-                          <div className="mt-2 pt-2 border-t border-border flex gap-2">
-                            <button
-                              onClick={() => {
-                                setCfColumnConfigs((prev) => ({
-                                  ...prev,
-                                  [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })),
-                                }));
-                              }}
-                              className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1"
+                        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                          Columnas visibles
+                        </p>
+                        <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                          {/* Nombre - mandatory, always first, not draggable */}
+                          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50 border border-blue-100 select-none">
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              className="text-muted-foreground/30 flex-shrink-0"
                             >
-                              Mostrar todas
-                            </button>
-                            <button
-                              onClick={() => {
-                                setCfColumnConfigs((prev) => ({
-                                  ...prev,
-                                  [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c })),
-                                }));
-                              }}
-                              className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1"
-                            >
-                              Restablecer
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Document list */}
-                  {(() => {
-                    const cfSearch = (cfSearchQueries[cf.id] || '').toLowerCase();
-                    const cfSort = cfSortOrders[cf.id] || 'ultimaModificacion_desc';
-                    const cfView = cfViewModes[cf.id] || 'list';
-                    const cfCols = cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS;
-
-                    let docs = getCustomFilterDocuments(cf).filter(
-                      (doc) => !cfSearch || doc.name.toLowerCase().includes(cfSearch)
-                    );
-
-                    docs = [...docs].sort((a, b) => {
-                      if (cfSort === 'nombre_asc') return a.name.localeCompare(b.name);
-                      if (cfSort === 'nombre_desc') return b.name.localeCompare(a.name);
-                      if (cfSort === 'estado_asc') return a.estado.localeCompare(b.estado);
-                      if (cfSort === 'ultimaModificacion_asc')
-                        return a.ultimaModificacion.localeCompare(b.ultimaModificacion);
-                      return b.ultimaModificacion.localeCompare(a.ultimaModificacion);
-                    });
-
-                    if (cfView === 'grid') {
-                      return (
-                        <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                          {docs.length === 0 ? (
-                            <LibraryEmptyState
-                              icon={Filter}
-                              title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
-                              description={
-                                cfSearch
-                                  ? 'Prueba con otro nombre o término de búsqueda.'
-                                  : 'No hay documentos que cumplan las condiciones de este filtro.'
-                              }
+                              <circle cx="9" cy="5" r="1.5" />
+                              <circle cx="15" cy="5" r="1.5" />
+                              <circle cx="9" cy="12" r="1.5" />
+                              <circle cx="15" cy="12" r="1.5" />
+                              <circle cx="9" cy="19" r="1.5" />
+                              <circle cx="15" cy="19" r="1.5" />
+                            </svg>
+                            <span className="text-sm text-foreground font-medium flex-1">
+                              Nombre
+                            </span>
+                            <span className="text-[10px] text-blue-600 font-semibold">Fijo</span>
+                            <input
+                              type="checkbox"
+                              checked
+                              disabled
+                              className="rounded border-border accent-primary cursor-not-allowed flex-shrink-0 opacity-60"
                             />
-                          ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                              {docs.map(renderDocGridCard)}
-                            </div>
-                          )}
+                          </div>
+                          {(cfColumnConfigs[cf.id] || DEFAULT_CF_COLUMNS)
+                            .filter((col) => col.id !== 'nombre' && col.id !== 'nombreDocumento')
+                            .map((col, colIdx) => (
+                              <div
+                                key={col.id}
+                                draggable
+                                onDragStart={() => {
+                                  cfColDragIdxRef.current[cf.id] = colIdx;
+                                  setCfColDragIdx((p) => ({ ...p, [cf.id]: colIdx }));
+                                }}
+                                onDragEnter={() => {
+                                  cfColDragOverIdxRef.current[cf.id] = colIdx;
+                                  setCfColDragOverIdx((p) => ({ ...p, [cf.id]: colIdx }));
+                                }}
+                                onDragEnd={() => {
+                                  const from = cfColDragIdxRef.current[cf.id];
+                                  const to = cfColDragOverIdxRef.current[cf.id];
+                                  if (
+                                    from !== null &&
+                                    from !== undefined &&
+                                    to !== null &&
+                                    to !== undefined &&
+                                    from !== to
+                                  ) {
+                                    const current =
+                                      cfColumnConfigs[cf.id] ||
+                                      DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
+                                    const nonNombre = current.filter(
+                                      (c) => c.id !== 'nombre' && c.id !== 'nombreDocumento'
+                                    );
+                                    const updated = [...nonNombre];
+                                    const [moved] = updated.splice(from, 1);
+                                    updated.splice(to, 0, moved);
+                                    setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
+                                  }
+                                  cfColDragIdxRef.current[cf.id] = null;
+                                  cfColDragOverIdxRef.current[cf.id] = null;
+                                  setCfColDragIdx((p) => ({ ...p, [cf.id]: null }));
+                                  setCfColDragOverIdx((p) => ({ ...p, [cf.id]: null }));
+                                }}
+                                onDragOver={(e) => e.preventDefault()}
+                                className={`flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${cfColDragIdx[cf.id] === colIdx ? 'opacity-40 border border-blue-400 bg-blue-50' : cfColDragOverIdx[cf.id] === colIdx ? 'border border-blue-400 bg-blue-50' : 'hover:bg-muted'}`}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="currentColor"
+                                  className="text-muted-foreground/40 flex-shrink-0 cursor-grab"
+                                >
+                                  <circle cx="9" cy="5" r="1.5" />
+                                  <circle cx="15" cy="5" r="1.5" />
+                                  <circle cx="9" cy="12" r="1.5" />
+                                  <circle cx="15" cy="12" r="1.5" />
+                                  <circle cx="9" cy="19" r="1.5" />
+                                  <circle cx="15" cy="19" r="1.5" />
+                                </svg>
+                                <input
+                                  type="checkbox"
+                                  checked={col.visible}
+                                  onChange={() => {
+                                    const current =
+                                      cfColumnConfigs[cf.id] ||
+                                      DEFAULT_CF_COLUMNS.map((c) => ({ ...c }));
+                                    const actualIdx = current.findIndex((c) => c.id === col.id);
+                                    const updated = current.map((c, i) =>
+                                      i === actualIdx ? { ...c, visible: !c.visible } : c
+                                    );
+                                    setCfColumnConfigs((prev) => ({ ...prev, [cf.id]: updated }));
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="rounded border-border accent-primary cursor-pointer flex-shrink-0"
+                                />
+                                <span className="text-sm text-foreground">{col.label}</span>
+                              </div>
+                            ))}
                         </div>
-                      );
-                    }
+                        <div className="mt-2 pt-2 border-t border-border flex gap-2">
+                          <button
+                            onClick={() => {
+                              setCfColumnConfigs((prev) => ({
+                                ...prev,
+                                [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c, visible: true })),
+                              }));
+                            }}
+                            className="flex-1 text-xs text-primary hover:underline font-medium text-center py-1"
+                          >
+                            Mostrar todas
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCfColumnConfigs((prev) => ({
+                                ...prev,
+                                [cf.id]: DEFAULT_CF_COLUMNS.map((c) => ({ ...c })),
+                              }));
+                            }}
+                            className="flex-1 text-xs text-muted-foreground hover:text-foreground font-medium text-center py-1"
+                          >
+                            Restablecer
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-                    const visibleCols = cfCols.filter((c) => c.visible);
+                {/* Document list */}
+                {(() => {
+                  const cfSearch = (cfSearchQueries[cf.id] || '').toLowerCase();
+                  const cfView = cfViewModes[cf.id] || 'list';
+                  const cfCols = configuredColumns;
+
+                  if (cf.filtros?.estructura === 'carpeta') {
+                    const folders = carpetas
+                      .filter((folder) => !cfSearch || folder.name.toLowerCase().includes(cfSearch))
+                      .sort((a, b) => compareCustomFolders(a, b, cfSortField, cfSortDirection));
                     return (
-                      <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-                        <div className="overflow-x-auto">
-                          <table className="w-full min-w-max">
-                            <thead className="[&_th]:font-500">
-                              <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                        {folders.length === 0 ? (
+                          <LibraryEmptyState
+                            icon={Folder}
+                            title={cfSearch ? 'Sin resultados' : 'Sin carpetas'}
+                            description={
+                              cfSearch
+                                ? 'Prueba con otro nombre.'
+                                : 'No hay carpetas en este espacio.'
+                            }
+                          />
+                        ) : (
+                          <div
+                            className={
+                              cfView === 'grid'
+                                ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'
+                                : 'space-y-1'
+                            }
+                          >
+                            {folders.map((folder) => (
+                              <button
+                                key={folder.id}
+                                type="button"
+                                onClick={() => handleSidebarFolderNav(folder)}
+                                className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 text-left text-sm font-normal text-slate-700 transition-colors hover:border-primary/40 hover:bg-slate-50"
+                              >
+                                <Folder
+                                  size={18}
+                                  className="shrink-0 text-amber-500"
+                                  aria-hidden="true"
+                                />
+                                <span className="min-w-0 flex-1 break-words">{folder.name}</span>
+                                <ChevronRight
+                                  size={15}
+                                  className="shrink-0 text-slate-400"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  let docs = getCustomFilterDocuments(cf).filter(
+                    (doc) => !cfSearch || doc.name.toLowerCase().includes(cfSearch)
+                  );
+
+                  docs = [...docs].sort((a, b) =>
+                    compareCustomDocuments(a, b, cfSortField, cfSortDirection)
+                  );
+
+                  if (cfView === 'grid') {
+                    return (
+                      <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                        {docs.length === 0 ? (
+                          <LibraryEmptyState
+                            icon={Filter}
+                            title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
+                            description={
+                              cfSearch
+                                ? 'Prueba con otro nombre o término de búsqueda.'
+                                : 'No hay documentos que cumplan las condiciones de este filtro.'
+                            }
+                          />
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                            {docs.map(renderDocGridCard)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const visibleCols = cfCols.filter((c) => c.visible);
+                  return (
+                    <div className="overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-max">
+                          <thead className="[&_th]:font-500">
+                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                              <ResizableTh
+                                colKey="nombre"
+                                ariaSort={cfAriaSort('nombre')}
+                                width={cfColWidths.nombre}
+                                minWidth={120}
+                                onResize={resizeCfCol}
+                                className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                              >
+                                {cfSortableHeader('nombre', 'Nombre')}
+                              </ResizableTh>
+                              {visibleCols.find((c) => c.id === 'propietario') && (
                                 <ResizableTh
-                                  colKey="nombre"
-                                  width={cfColWidths.nombre}
+                                  colKey="propietario"
+                                  width={cfColWidths.propietario}
+                                  minWidth={80}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  Propietario
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'estado') && (
+                                <ResizableTh
+                                  colKey="estado"
+                                  ariaSort={cfAriaSort('estado')}
+                                  width={cfColWidths.estado}
+                                  minWidth={80}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  {cfSortableHeader('estado', 'Estado')}
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'fechaCreacion') && (
+                                <ResizableTh
+                                  colKey="fechaCreacion"
+                                  ariaSort={cfAriaSort('fechaCreacion')}
+                                  width={cfColWidths.fechaCreacion}
+                                  minWidth={100}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  {cfSortableHeader('fechaCreacion', 'Fecha de creación')}
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'numeroDocumento') && (
+                                <ResizableTh
+                                  colKey="numeroDocumento"
+                                  width={cfColWidths.numeroDocumento}
+                                  minWidth={80}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  N° Documento
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
+                                <ResizableTh
+                                  colKey="ultimaModificacion"
+                                  ariaSort={cfAriaSort('ultimaModificacion')}
+                                  width={cfColWidths.ultimaModificacion}
                                   minWidth={120}
                                   onResize={resizeCfCol}
-                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3"
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                                 >
-                                  Nombre
+                                  {cfSortableHeader('ultimaModificacion', 'Última modificación')}
                                 </ResizableTh>
-                                {visibleCols.find((c) => c.id === 'propietario') && (
-                                  <ResizableTh
-                                    colKey="propietario"
-                                    width={cfColWidths.propietario}
-                                    minWidth={80}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Propietario
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'estado') && (
-                                  <ResizableTh
-                                    colKey="estado"
-                                    width={cfColWidths.estado}
-                                    minWidth={80}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Estado
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'fechaCreacion') && (
-                                  <ResizableTh
-                                    colKey="fechaCreacion"
-                                    width={cfColWidths.fechaCreacion}
-                                    minWidth={100}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Fecha de creación
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'numeroDocumento') && (
-                                  <ResizableTh
-                                    colKey="numeroDocumento"
-                                    width={cfColWidths.numeroDocumento}
-                                    minWidth={80}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    N° Documento
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
-                                  <ResizableTh
-                                    colKey="ultimaModificacion"
-                                    width={cfColWidths.ultimaModificacion}
-                                    minWidth={120}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Última modificación
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'tamano') && (
-                                  <ResizableTh
-                                    colKey="tamano"
-                                    width={cfColWidths.tamano}
-                                    minWidth={60}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Tamaño
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'etiquetas') && (
-                                  <ResizableTh
-                                    colKey="etiquetas"
-                                    width={cfColWidths.etiquetas}
-                                    minWidth={80}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Etiquetas
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'tipoDocumento') && (
-                                  <ResizableTh
-                                    colKey="tipoDocumento"
-                                    width={cfColWidths.tipoDocumento}
-                                    minWidth={70}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Tipo
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'folioInterno') && (
-                                  <ResizableTh
-                                    colKey="folioInterno"
-                                    width={cfColWidths.folioInterno}
-                                    minWidth={70}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Folio
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'fechaCompletado') && (
-                                  <ResizableTh
-                                    colKey="fechaCompletado"
-                                    width={cfColWidths.fechaCompletado}
-                                    minWidth={100}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Completado
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
-                                  <ResizableTh
-                                    colKey="fechaVencimiento"
-                                    width={cfColWidths.fechaVencimiento}
-                                    minWidth={90}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Vencimiento
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'prioridad') && (
-                                  <ResizableTh
-                                    colKey="prioridad"
-                                    width={cfColWidths.prioridad}
-                                    minWidth={70}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Prioridad
-                                  </ResizableTh>
-                                )}
-                                {visibleCols.find((c) => c.id === 'rutaGuardado') && (
-                                  <ResizableTh
-                                    colKey="rutaGuardado"
-                                    width={cfColWidths.rutaGuardado}
-                                    minWidth={90}
-                                    onResize={resizeCfCol}
-                                    className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
-                                  >
-                                    Ruta
-                                  </ResizableTh>
-                                )}
-                                <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {docs.map((doc) => (
-                                <tr
-                                  key={doc.id}
-                                  className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group"
+                              )}
+                              {visibleCols.find((c) => c.id === 'tamano') && (
+                                <ResizableTh
+                                  colKey="tamano"
+                                  width={cfColWidths.tamano}
+                                  minWidth={60}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
                                 >
-                                  <td className="px-3 py-3 min-w-[200px]">
-                                    <div className="flex items-center gap-2.5">
-                                      <div
-                                        className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
-                                      >
-                                        <DocumentSourceIcon
-                                          document={doc}
-                                          size={16}
-                                          className={getDocIconColor(doc.estado)}
-                                        />
-                                      </div>
-                                      <div className="flex min-w-0 flex-col">
-                                        <div className="flex items-center gap-1.5">
-                                          <button
-                                            onClick={() =>
-                                              doc.isDraft
-                                                ? router.push(`/crear-documento?draft=${doc.id}`)
-                                                : router.push(`/visor-documento/${doc.id}`)
-                                            }
-                                            className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
-                                            title={doc.name}
-                                          >
-                                            {doc.name}
-                                          </button>
-                                          {doc.isFavorite && (
-                                            <Star
-                                              size={12}
-                                              className="text-yellow-400 fill-yellow-400 flex-shrink-0"
-                                            />
-                                          )}
-                                          {doc.esUrgente && (
-                                            <span
-                                              className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
-                                              title="Urgente"
-                                            />
-                                          )}
-                                        </div>
-                                        {doc.descripcion ? (
-                                          <span className="text-xs text-muted-foreground">
-                                            {doc.descripcion}
-                                          </span>
-                                        ) : (
-                                          <span className="text-xs text-muted-foreground">
-                                            {doc.fechaCreacion
-                                              ? doc.fechaCreacion.split(' ')[0]
-                                              : ''}
-                                          </span>
-                                        )}
-                                      </div>
+                                  Tamaño
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'etiquetas') && (
+                                <ResizableTh
+                                  colKey="etiquetas"
+                                  width={cfColWidths.etiquetas}
+                                  minWidth={80}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  Etiquetas
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'tipoDocumento') && (
+                                <ResizableTh
+                                  colKey="tipoDocumento"
+                                  width={cfColWidths.tipoDocumento}
+                                  minWidth={70}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  Tipo
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'folioInterno') && (
+                                <ResizableTh
+                                  colKey="folioInterno"
+                                  width={cfColWidths.folioInterno}
+                                  minWidth={70}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  Folio
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'fechaCompletado') && (
+                                <ResizableTh
+                                  colKey="fechaCompletado"
+                                  ariaSort={cfAriaSort('fechaCompletado')}
+                                  width={cfColWidths.fechaCompletado}
+                                  minWidth={100}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  {cfSortableHeader('fechaCompletado', 'Completado')}
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
+                                <ResizableTh
+                                  colKey="fechaVencimiento"
+                                  ariaSort={cfAriaSort('fechaVencimiento')}
+                                  width={cfColWidths.fechaVencimiento}
+                                  minWidth={90}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  {cfSortableHeader('fechaVencimiento', 'Vencimiento')}
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'prioridad') && (
+                                <ResizableTh
+                                  colKey="prioridad"
+                                  ariaSort={cfAriaSort('operativo')}
+                                  width={cfColWidths.prioridad}
+                                  minWidth={70}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  {cfSortableHeader('operativo', 'Prioridad')}
+                                </ResizableTh>
+                              )}
+                              {visibleCols.find((c) => c.id === 'rutaGuardado') && (
+                                <ResizableTh
+                                  colKey="rutaGuardado"
+                                  width={cfColWidths.rutaGuardado}
+                                  minWidth={90}
+                                  onResize={resizeCfCol}
+                                  className="text-left text-xs font-semibold text-muted-foreground px-3 py-3 whitespace-nowrap"
+                                >
+                                  Ruta
+                                </ResizableTh>
+                              )}
+                              <th className="sticky right-0 bg-muted/40 text-left text-xs font-semibold text-muted-foreground px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {docs.map((doc) => (
+                              <tr
+                                key={doc.id}
+                                className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors group"
+                              >
+                                <td className="px-3 py-3 min-w-[200px]">
+                                  <div className="flex items-center gap-2.5">
+                                    <div
+                                      className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${doc.estado === 'Rechazado' ? 'bg-red-50 border border-red-200' : doc.estado === 'Completado' ? 'bg-green-50 border border-green-200' : doc.estado === 'En progreso' ? 'bg-blue-50 border border-blue-200' : doc.estado === 'En espera' ? 'bg-orange-50 border border-orange-200' : doc.estado === 'Cancelado' ? 'bg-slate-50 border border-slate-200' : 'bg-gray-50 border border-gray-200'}`}
+                                    >
+                                      <DocumentSourceIcon
+                                        document={doc}
+                                        size={16}
+                                        className={getDocIconColor(doc.estado)}
+                                      />
                                     </div>
-                                  </td>
-                                  {visibleCols.find((c) => c.id === 'propietario') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.ownerName ||
-                                          user?.user_metadata?.full_name ||
-                                          user?.email?.split('@')[0] ||
-                                          'Yo'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'estado') && (
-                                    <td className="px-3 py-3">
+                                    <div className="flex min-w-0 flex-col">
                                       <div className="flex items-center gap-1.5">
-                                        <span
-                                          className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`}
-                                        />
+                                        <button
+                                          onClick={() =>
+                                            doc.isDraft
+                                              ? router.push(`/crear-documento?draft=${doc.id}`)
+                                              : router.push(`/visor-documento/${doc.id}`)
+                                          }
+                                          className="text-xs font-medium text-foreground hover:text-primary transition-colors text-left"
+                                          title={doc.name}
+                                        >
+                                          {doc.name}
+                                        </button>
+                                        {doc.isFavorite && (
+                                          <Star
+                                            size={12}
+                                            className="text-yellow-400 fill-yellow-400 flex-shrink-0"
+                                          />
+                                        )}
+                                        {doc.esUrgente && <UrgentDocumentIcon />}
+                                      </div>
+                                      {doc.descripcion ? (
                                         <span className="text-xs text-muted-foreground">
-                                          {doc.estado}
-                                        </span>
-                                      </div>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'fechaCreacion') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.fechaCreacion || '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'numeroDocumento') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.numeroOficio || '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.ultimaModificacion}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'tamano') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.tamano}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'etiquetas') && (
-                                    <td className="px-3 py-3">
-                                      <div className="flex flex-wrap gap-1">
-                                        {doc.etiquetas.length > 0 ? (
-                                          doc.etiquetas.slice(0, 2).map((tagId, i) => {
-                                            const etiqueta = etiquetasList.find(
-                                              (e) =>
-                                                e.id === String(tagId) || e.nombre === String(tagId)
-                                            );
-                                            const label = etiqueta
-                                              ? etiqueta.nombre
-                                              : String(tagId);
-                                            const color = etiqueta?.color || '#6366f1';
-                                            return (
-                                              <span
-                                                key={i}
-                                                className="px-1.5 py-0.5 text-xs rounded-full font-medium"
-                                                style={{
-                                                  backgroundColor: `${color}20`,
-                                                  color,
-                                                  border: `1px solid ${color}40`,
-                                                }}
-                                              >
-                                                {label}
-                                              </span>
-                                            );
-                                          })
-                                        ) : (
-                                          <span className="text-xs text-muted-foreground">—</span>
-                                        )}
-                                        {doc.etiquetas.length > 2 && (
-                                          <span className="text-xs text-muted-foreground">
-                                            +{doc.etiquetas.length - 2}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'tipoDocumento') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.tipoDocumentoNombre || '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'folioInterno') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.folioInterno || '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'fechaCompletado') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground">
-                                        {doc.fechaCompletado || '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
-                                    <td className="px-3 py-3">
-                                      <span
-                                        className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}
-                                      >
-                                        {doc.fechaVencimiento
-                                          ? formatDate(doc.fechaVencimiento)
-                                          : '—'}
-                                      </span>
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'prioridad') && (
-                                    <td className="px-3 py-3">
-                                      {doc.esUrgente ? (
-                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
-                                          Urgente
+                                          {doc.descripcion}
                                         </span>
                                       ) : (
                                         <span className="text-xs text-muted-foreground">
-                                          Normal
+                                          {doc.fechaCreacion ? doc.fechaCreacion.split(' ')[0] : ''}
                                         </span>
                                       )}
-                                    </td>
-                                  )}
-                                  {visibleCols.find((c) => c.id === 'rutaGuardado') && (
-                                    <td className="px-3 py-3">
-                                      <span className="text-xs text-muted-foreground truncate max-w-[120px] block">
-                                        {doc.rutaGuardado || '—'}
+                                    </div>
+                                  </div>
+                                </td>
+                                {visibleCols.find((c) => c.id === 'propietario') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.ownerName ||
+                                        user?.user_metadata?.full_name ||
+                                        user?.email?.split('@')[0] ||
+                                        'Yo'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'estado') && (
+                                  <td className="px-3 py-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusDot(doc.estado)}`}
+                                      />
+                                      <span className="text-xs text-muted-foreground">
+                                        {doc.estado}
                                       </span>
-                                    </td>
-                                  )}
-                                  <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
-                                    <button
-                                      onClick={(e) => openContextMenu(e, doc)}
-                                      className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
-                                      title="Opciones"
+                                    </div>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaCreacion') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.fechaCreacion || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'numeroDocumento') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.numeroOficio || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'ultimaModificacion') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.ultimaModificacion}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'tamano') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.tamano}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'etiquetas') && (
+                                  <td className="px-3 py-3">
+                                    <div className="flex flex-wrap gap-1">
+                                      {doc.etiquetas.length > 0 ? (
+                                        doc.etiquetas.slice(0, 2).map((tagId, i) => {
+                                          const etiqueta = etiquetasList.find(
+                                            (e) =>
+                                              e.id === String(tagId) || e.nombre === String(tagId)
+                                          );
+                                          const label = etiqueta ? etiqueta.nombre : String(tagId);
+                                          const color = etiqueta?.color || '#6366f1';
+                                          return (
+                                            <span
+                                              key={i}
+                                              className="px-1.5 py-0.5 text-xs rounded-full font-medium"
+                                              style={{
+                                                backgroundColor: `${color}20`,
+                                                color,
+                                                border: `1px solid ${color}40`,
+                                              }}
+                                            >
+                                              {label}
+                                            </span>
+                                          );
+                                        })
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">—</span>
+                                      )}
+                                      {doc.etiquetas.length > 2 && (
+                                        <span className="text-xs text-muted-foreground">
+                                          +{doc.etiquetas.length - 2}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'tipoDocumento') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.tipoDocumentoNombre || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'folioInterno') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.folioInterno || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaCompletado') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground">
+                                      {doc.fechaCompletado || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                {visibleCols.find((c) => c.id === 'fechaVencimiento') && (
+                                  <td className="px-3 py-3">
+                                    <span
+                                      className={`text-xs ${doc.fechaVencimiento ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}
                                     >
-                                      <svg
-                                        width="14"
-                                        height="14"
-                                        viewBox="0 0 24 24"
-                                        fill="currentColor"
-                                      >
-                                        <circle cx="12" cy="5" r="1.5" />
-                                        <circle cx="12" cy="12" r="1.5" />
-                                        <circle cx="12" cy="19" r="1.5" />
-                                      </svg>
-                                    </button>
+                                      {doc.fechaVencimiento
+                                        ? formatDate(doc.fechaVencimiento)
+                                        : '—'}
+                                    </span>
                                   </td>
-                                </tr>
-                              ))}
-                              {docs.length === 0 && (
-                                <tr>
-                                  <td colSpan={visibleCols.length + 2} className="p-0">
-                                    <LibraryEmptyState
-                                      icon={Filter}
-                                      title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
-                                      description={
-                                        cfSearch
-                                          ? 'Prueba con otro nombre o término de búsqueda.'
-                                          : 'No hay documentos que cumplan las condiciones de este filtro.'
-                                      }
-                                    />
+                                )}
+                                {visibleCols.find((c) => c.id === 'prioridad') && (
+                                  <td className="px-3 py-3">
+                                    {doc.esUrgente ? (
+                                      <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">
+                                        Urgente
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">Normal</span>
+                                    )}
                                   </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
+                                )}
+                                {visibleCols.find((c) => c.id === 'rutaGuardado') && (
+                                  <td className="px-3 py-3">
+                                    <span className="text-xs text-muted-foreground truncate max-w-[120px] block">
+                                      {doc.rutaGuardado || '—'}
+                                    </span>
+                                  </td>
+                                )}
+                                <td className="sticky right-0 bg-white px-3 py-3 border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] w-10">
+                                  <button
+                                    onClick={(e) => openContextMenu(e, doc)}
+                                    className={`p-1.5 rounded hover:bg-muted transition-colors ${activeContextMenuDocId === doc.id && contextMenu.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                    title="Opciones"
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="currentColor"
+                                    >
+                                      <circle cx="12" cy="5" r="1.5" />
+                                      <circle cx="12" cy="12" r="1.5" />
+                                      <circle cx="12" cy="19" r="1.5" />
+                                    </svg>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                            {docs.length === 0 && (
+                              <tr>
+                                <td colSpan={visibleCols.length + 2} className="p-0">
+                                  <LibraryEmptyState
+                                    icon={Filter}
+                                    title={cfSearch ? 'Sin resultados' : 'Sin documentos'}
+                                    description={
+                                      cfSearch
+                                        ? 'Prueba con otro nombre o término de búsqueda.'
+                                        : 'No hay documentos que cumplan las condiciones de este filtro.'
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
                       </div>
-                    );
-                  })()}
-                </React.Fragment>
-              )
-          )}
+                    </div>
+                  );
+                })()}
+              </React.Fragment>
+            );
+          })}
         </main>
       </div>
 
@@ -10515,25 +11197,21 @@ function MisDocumentosContent() {
         </div>
       )}
 
-      {/* Crear Filtro Modal */}
+      {/* Crear o editar filtro personalizado */}
       {showCrearFiltroModal && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)]">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+            <div className="sticky top-0 z-10 flex items-center border-b border-slate-200 bg-white px-5 py-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <Filter size={16} />
                 </div>
-                <h2 className="text-base font-600 text-slate-950">Crear filtro personalizado</h2>
+                <h2 className="text-base font-600 text-slate-950">
+                  {editingCustomFilterId
+                    ? 'Editar filtro personalizado'
+                    : 'Crear filtro personalizado'}
+                </h2>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCrearFiltroModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-950"
-                title="Cerrar"
-              >
-                <X size={15} />
-              </button>
             </div>
 
             <div className="space-y-4 px-5 py-4 [&_select]:h-9 [&_select]:rounded-md [&_select]:border-slate-200 [&_select]:px-2.5 [&_select]:py-0">
@@ -10569,7 +11247,12 @@ function MisDocumentosContent() {
               </div>
 
               <div>
-                <label className="mb-2 block text-xs font-600 text-slate-600">Ícono</label>
+                <label className="mb-2 block text-xs font-600 text-slate-600">
+                  Ícono{' '}
+                  <span className="font-normal text-slate-500">
+                    ({CUSTOM_FILTER_ICON_OPTIONS.length} opciones)
+                  </span>
+                </label>
                 {!iconPickerOpen ? (
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-lg">
@@ -10583,68 +11266,20 @@ function MisDocumentosContent() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      '📁',
-                      '⭐',
-                      '🔥',
-                      '📌',
-                      '✅',
-                      '🚨',
-                      '📋',
-                      '🗂️',
-                      '💼',
-                      '🔒',
-                      '📄',
-                      '📝',
-                      '📊',
-                      '📈',
-                      '📉',
-                      '🗃️',
-                      '🗄️',
-                      '📦',
-                      '🏷️',
-                      '🔖',
-                      '⚡',
-                      '🎯',
-                      '💡',
-                      '🔍',
-                      '🔔',
-                      '⏰',
-                      '📅',
-                      '🗓️',
-                      '✉️',
-                      '📨',
-                      '💬',
-                      '🤝',
-                      '👥',
-                      '🏢',
-                      '🌐',
-                      '🔗',
-                      '⚙️',
-                      '🛡️',
-                      '🔑',
-                      '💰',
-                      '🧾',
-                      '📜',
-                      '🏆',
-                      '🎖️',
-                      '✍️',
-                      '🖊️',
-                      '📮',
-                      '📬',
-                      '🗺️',
-                      '🧩',
-                    ].map((emoji) => (
+                  <div className="custom-filter-icon-picker grid max-h-60 grid-cols-8 gap-2 overflow-y-auto pr-1 sm:grid-cols-10">
+                    {CUSTOM_FILTER_ICON_OPTIONS.map((emoji) => (
                       <button
                         key={emoji}
+                        type="button"
+                        aria-label={`Usar ícono ${emoji}`}
+                        aria-pressed={nuevoFiltroIcono === emoji}
                         onClick={() => {
                           setNuevoFiltroIcono(emoji);
                           setIconPickerOpen(false);
                         }}
-                        className={`flex h-9 w-9 items-center justify-center rounded-md border text-lg transition-colors ${nuevoFiltroIcono === emoji ? 'border-primary bg-primary/10' : 'border-slate-200 hover:border-primary/40 hover:bg-slate-50'}`}
+                        className={`custom-filter-icon-option flex aspect-square w-full items-center justify-center rounded-md border transition-colors ${nuevoFiltroIcono === emoji ? 'border-primary bg-primary/10' : 'border-slate-200 hover:border-primary/40 hover:bg-slate-50'}`}
                       >
-                        {emoji}
+                        <span aria-hidden="true">{emoji}</span>
                       </button>
                     ))}
                   </div>
@@ -10659,45 +11294,40 @@ function MisDocumentosContent() {
                   {nuevoFiltroCriterios.length > 0 && (
                     <div className="space-y-2 mb-2">
                       {nuevoFiltroCriterios.map((criterioId, idx) => {
-                        const criterioLabels: Record<string, string> = {
-                          estado: 'Estado',
-                          prioridad: 'Prioridad',
-                          tipoDocumento: 'Tipo de documento',
-                          etiquetas: 'Etiquetas',
-                          fechaCreacion: 'Fecha de creación',
-                          fechaUltimaModificacion: 'Fecha última modificación',
-                          fechaVencimiento: 'Fecha de vencimiento',
-                          fechaCompletado: 'Fecha de completado',
-                          participantes: 'Participantes',
-                          propietario: 'Propietario',
-                          estadoParticipacion: 'Estado de mi participación',
-                        };
+                        const options = getCustomCriterionOptions(criterioId);
+                        const selectedValue = Array.isArray(nuevoFiltroFiltros[criterioId])
+                          ? nuevoFiltroFiltros[criterioId][0] || ''
+                          : nuevoFiltroFiltros[criterioId] || '';
+                        const selectedLabel =
+                          options.find((option) => option.value === selectedValue)?.label ||
+                          options[0]?.label ||
+                          'Seleccionar';
                         return (
                           <div
                             key={criterioId}
-                            draggable
-                            onDragStart={() => setDragCriterioIdx(idx)}
                             onDragOver={(e) => {
                               e.preventDefault();
                               setDragOverCriterioIdx(idx);
                             }}
-                            onDragEnd={() => {
-                              if (
-                                dragCriterioIdx !== null &&
-                                dragOverCriterioIdx !== null &&
-                                dragCriterioIdx !== dragOverCriterioIdx
-                              ) {
-                                const reordered = [...nuevoFiltroCriterios];
-                                const [moved] = reordered.splice(dragCriterioIdx, 1);
-                                reordered.splice(dragOverCriterioIdx, 0, moved);
-                                setNuevoFiltroCriterios(reordered);
-                              }
-                              setDragCriterioIdx(null);
-                              setDragOverCriterioIdx(null);
-                            }}
                             className={`flex items-start gap-2 rounded-md border bg-white p-2 transition-all ${dragOverCriterioIdx === idx ? 'border-primary bg-primary/5' : 'border-slate-200'}`}
                           >
                             <div
+                              draggable
+                              onDragStart={() => setDragCriterioIdx(idx)}
+                              onDragEnd={() => {
+                                if (
+                                  dragCriterioIdx !== null &&
+                                  dragOverCriterioIdx !== null &&
+                                  dragCriterioIdx !== dragOverCriterioIdx
+                                ) {
+                                  const reordered = [...nuevoFiltroCriterios];
+                                  const [moved] = reordered.splice(dragCriterioIdx, 1);
+                                  reordered.splice(dragOverCriterioIdx, 0, moved);
+                                  setNuevoFiltroCriterios(reordered);
+                                }
+                                setDragCriterioIdx(null);
+                                setDragOverCriterioIdx(null);
+                              }}
                               className="flex-shrink-0 mt-1 cursor-grab text-muted-foreground/50 hover:text-muted-foreground"
                               title="Arrastrar para reordenar"
                             >
@@ -10710,238 +11340,104 @@ function MisDocumentosContent() {
                                 <circle cx="15" cy="19" r="1.5" />
                               </svg>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                {criterioLabels[criterioId] || criterioId}
-                              </p>
-                              {criterioId === 'estado' && (
-                                <select
-                                  value={nuevoFiltroFiltros['estado'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      estado: e.target.value,
-                                    }))
+                            <div className="min-w-0 flex-1">
+                              <span
+                                id={`custom-filter-label-${criterioId}`}
+                                className="mb-1 block text-xs font-normal text-slate-600"
+                              >
+                                {CUSTOM_FILTER_CRITERIA.find(
+                                  (criterion) => criterion.id === criterioId
+                                )?.label || criterioId}
+                              </span>
+                              <div
+                                onBlur={(event) => {
+                                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                                    setOpenCustomCriterionValue(null);
                                   }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier estado</option>
-                                  <option value="Borrador">Borrador</option>
-                                  <option value="En progreso">En progreso</option>
-                                  <option value="En espera">En espera</option>
-                                  <option value="Completado">Completado</option>
-                                  <option value="Rechazado">Rechazado</option>
-                                  <option value="Cancelado">Cancelado</option>
-                                  <option value="Vencido">Vencido</option>
-                                </select>
-                              )}
-                              {criterioId === 'prioridad' && (
-                                <select
-                                  value={nuevoFiltroFiltros['prioridad'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      prioridad: e.target.value,
-                                    }))
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Escape') {
+                                    setOpenCustomCriterionValue(null);
                                   }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier prioridad</option>
-                                  <option value="urgente">Urgente</option>
-                                  <option value="normal">Normal</option>
-                                </select>
-                              )}
-                              {criterioId === 'tipoDocumento' && (
-                                <select
-                                  value={(nuevoFiltroFiltros['tipoDocumento'] || [])[0] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      tipoDocumento: e.target.value ? [e.target.value] : [],
-                                    }))
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  aria-label={`${CUSTOM_FILTER_CRITERIA.find((criterion) => criterion.id === criterioId)?.label || criterioId}: ${selectedLabel}`}
+                                  aria-haspopup="listbox"
+                                  aria-expanded={openCustomCriterionValue === criterioId}
+                                  aria-controls={
+                                    openCustomCriterionValue === criterioId
+                                      ? `custom-filter-options-${criterioId}`
+                                      : undefined
                                   }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier tipo</option>
-                                  {tiposDocumento.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.nombre}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {criterioId === 'etiquetas' && (
-                                <select
-                                  value={(nuevoFiltroFiltros['etiquetas'] || [])[0] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      etiquetas: e.target.value ? [e.target.value] : [],
-                                    }))
+                                  onClick={() =>
+                                    setOpenCustomCriterionValue((current) =>
+                                      current === criterioId ? null : criterioId
+                                    )
                                   }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                                  className="custom-filter-value-trigger flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-left text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                                 >
-                                  <option value="">Cualquier etiqueta</option>
-                                  {etiquetasList.map((et) => (
-                                    <option key={et.id} value={et.nombre}>
-                                      {et.nombre}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {criterioId === 'fechaCreacion' && (
-                                <select
-                                  value={nuevoFiltroFiltros['fechaCreacion'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      fechaCreacion: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier fecha</option>
-                                  <option value="today">Hoy</option>
-                                  <option value="week">Últimos 7 días</option>
-                                  <option value="month">Últimos 30 días</option>
-                                  <option value="year">Último año</option>
-                                </select>
-                              )}
-                              {criterioId === 'fechaUltimaModificacion' && (
-                                <select
-                                  value={nuevoFiltroFiltros['fechaUltimaModificacion'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      fechaUltimaModificacion: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier fecha</option>
-                                  <option value="today">Hoy</option>
-                                  <option value="week">Últimos 7 días</option>
-                                  <option value="month">Últimos 30 días</option>
-                                  <option value="year">Último año</option>
-                                </select>
-                              )}
-                              {criterioId === 'fechaVencimiento' && (
-                                <select
-                                  value={nuevoFiltroFiltros['fechaVencimiento'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      fechaVencimiento: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Todos</option>
-                                  <option value="vencido">Vencidos</option>
-                                  <option value="proximos">Por vencer (72hrs)</option>
-                                  <option value="sin_vencimiento">Sin vencimiento</option>
-                                </select>
-                              )}
-                              {criterioId === 'fechaCompletado' && (
-                                <select
-                                  value={nuevoFiltroFiltros['fechaCompletado'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      fechaCompletado: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier fecha</option>
-                                  <option value="sin_completado">Sin completado</option>
-                                  <option value="today">Hoy</option>
-                                  <option value="week">Últimos 7 días</option>
-                                  <option value="month">Últimos 30 días</option>
-                                </select>
-                              )}
-                              {criterioId === 'participantes' && (
-                                <select
-                                  value={nuevoFiltroFiltros['participantes'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      participantes: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Todos</option>
-                                  <option value="yo">Yo</option>
-                                </select>
-                              )}
-                              {criterioId === 'propietario' && (
-                                <select
-                                  value={nuevoFiltroFiltros['propietario'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      propietario: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Todos</option>
-                                  <option value="mios">Míos</option>
-                                </select>
-                              )}
-                              {criterioId === 'estado' && (
-                                <select
-                                  value={nuevoFiltroFiltros['estado'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      estado: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier estado</option>
-                                  <option value="Borrador">Borrador</option>
-                                  <option value="En progreso">En progreso</option>
-                                  <option value="En espera">En espera</option>
-                                  <option value="Completado">Completado</option>
-                                  <option value="Rechazado">Rechazado</option>
-                                  <option value="Cancelado">Cancelado</option>
-                                  <option value="Vencido">Vencido</option>
-                                </select>
-                              )}
-                              {criterioId === 'prioridad' && (
-                                <select
-                                  value={nuevoFiltroFiltros['prioridad'] || ''}
-                                  onChange={(e) =>
-                                    setNuevoFiltroFiltros((prev) => ({
-                                      ...prev,
-                                      prioridad: e.target.value,
-                                    }))
-                                  }
-                                  style={{ fontFamily: 'inherit' }}
-                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                                >
-                                  <option value="">Cualquier prioridad</option>
-                                  <option value="urgente">Urgente</option>
-                                  <option value="normal">Normal</option>
-                                </select>
-                              )}
+                                  <span className="truncate">{selectedLabel}</span>
+                                  <ChevronDown size={15} className="shrink-0 text-slate-500" />
+                                </button>
+                                {openCustomCriterionValue === criterioId && (
+                                  <div
+                                    id={`custom-filter-options-${criterioId}`}
+                                    role="listbox"
+                                    aria-labelledby={`custom-filter-label-${criterioId}`}
+                                    className="custom-filter-value-options mt-1 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-sm"
+                                  >
+                                    {options.map((option) => (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={selectedValue === option.value}
+                                        onClick={() => {
+                                          const value = option.value;
+                                          if (criterioId === 'estructura' && value === 'carpeta') {
+                                            setNuevoFiltroCriterios(['estructura']);
+                                            setNuevoFiltroFiltros({ estructura: 'carpeta' });
+                                            setShowCriterioSelector(false);
+                                          } else {
+                                            const isPerson =
+                                              criterioId === 'propietario' ||
+                                              criterioId === 'participantes';
+                                            const isMultiValue =
+                                              criterioId === 'tipoDocumento' ||
+                                              criterioId === 'etiquetas' ||
+                                              (isPerson && value !== 'mios' && value !== 'yo');
+                                            setNuevoFiltroFiltros((previous) => ({
+                                              ...previous,
+                                              [criterioId]: isMultiValue
+                                                ? value
+                                                  ? [value]
+                                                  : []
+                                                : value,
+                                            }));
+                                          }
+                                          setOpenCustomCriterionValue(null);
+                                        }}
+                                        className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50 ${selectedValue === option.value ? 'text-primary' : 'text-slate-700'}`}
+                                      >
+                                        <span>{option.label}</span>
+                                        {selectedValue === option.value && (
+                                          <Check
+                                            size={14}
+                                            className="shrink-0"
+                                            aria-hidden="true"
+                                          />
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <button
                               onClick={() => {
+                                setOpenCustomCriterionValue(null);
                                 setNuevoFiltroCriterios((prev) => prev.filter((_, i) => i !== idx));
                                 setNuevoFiltroFiltros((prev) => {
                                   const next = { ...prev };
@@ -10960,7 +11456,11 @@ function MisDocumentosContent() {
                     </div>
                   )}
 
-                  {!showCriterioSelector ? (
+                  {nuevoFiltroFiltros['estructura'] === 'carpeta' ? (
+                    <p className="px-2 text-xs text-slate-500">
+                      Las carpetas se pueden filtrar por su nombre en la vista personalizada.
+                    </p>
+                  ) : !showCriterioSelector ? (
                     <button
                       onClick={() => setShowCriterioSelector(true)}
                       className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-primary/40 px-3 text-sm font-600 text-primary transition-colors hover:bg-primary/5"
@@ -10971,7 +11471,7 @@ function MisDocumentosContent() {
                   ) : (
                     <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
                       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        <p className="text-xs font-normal text-slate-500 uppercase tracking-wide">
                           Seleccionar criterio
                         </p>
                         <button
@@ -10981,38 +11481,32 @@ function MisDocumentosContent() {
                           <X size={12} />
                         </button>
                       </div>
-                      <div className="p-1">
-                        {[
-                          { id: 'estado', label: 'Estado', emoji: '🔵' },
-                          { id: 'prioridad', label: 'Prioridad', emoji: '🚨' },
-                          { id: 'tipoDocumento', label: 'Tipo de documento', emoji: '📄' },
-                          { id: 'etiquetas', label: 'Etiquetas', emoji: '🏷️' },
-                          { id: 'fechaCreacion', label: 'Fecha de creación', emoji: '📅' },
-                          {
-                            id: 'fechaUltimaModificacion',
-                            label: 'Fecha última modificación',
-                            emoji: '🕐',
-                          },
-                          { id: 'fechaVencimiento', label: 'Fecha de vencimiento', emoji: '⏰' },
-                          { id: 'fechaCompletado', label: 'Fecha de completado', emoji: '✅' },
-                          { id: 'participantes', label: 'Participantes', emoji: '👥' },
-                          { id: 'propietario', label: 'Propietario', emoji: '👤' },
-                        ]
-                          .filter((c) => !nuevoFiltroCriterios.includes(c.id))
-                          .map((criterio) => (
+                      <div className="custom-filter-criteria-options max-h-64 overflow-y-auto p-1">
+                        {CUSTOM_FILTER_CRITERIA.filter(
+                          (c) => !nuevoFiltroCriterios.includes(c.id)
+                        ).map((criterio) => {
+                          const Icon = CUSTOM_FILTER_CRITERION_ICONS[criterio.id] || Filter;
+                          return (
                             <button
                               key={criterio.id}
                               onClick={() => {
                                 setNuevoFiltroCriterios((prev) => [...prev, criterio.id]);
                                 setShowCriterioSelector(false);
                               }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-primary/5 rounded-lg transition-colors text-left"
+                              type="button"
+                              className="group flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-normal text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
                             >
-                              <span className="text-base">{criterio.emoji}</span>
-                              {criterio.label}
+                              <Icon
+                                size={16}
+                                strokeWidth={1.8}
+                                className="shrink-0 text-slate-500 group-hover:text-primary"
+                                aria-hidden="true"
+                              />
+                              <span>{criterio.label}</span>
                             </button>
-                          ))}
-                        {nuevoFiltroCriterios.length === 10 && (
+                          );
+                        })}
+                        {nuevoFiltroCriterios.length === CUSTOM_FILTER_CRITERIA.length && (
                           <p className="text-xs text-muted-foreground text-center py-2">
                             Todos los criterios han sido agregados
                           </p>
@@ -11036,26 +11530,9 @@ function MisDocumentosContent() {
                   <span className="font-medium">{nuevoFiltroNombre || 'Sin nombre'}</span>
                   {' — '}
                   <span className="text-muted-foreground">
-                    {(() => {
-                      const count = realDocuments.filter((doc) => {
-                        if (
-                          nuevoFiltroFiltros['estado'] &&
-                          doc.estado !== nuevoFiltroFiltros['estado']
-                        )
-                          return false;
-                        if (nuevoFiltroFiltros['prioridad'] === 'urgente' && !doc.esUrgente)
-                          return false;
-                        if (nuevoFiltroFiltros['prioridad'] === 'normal' && doc.esUrgente)
-                          return false;
-                        if (
-                          nuevoFiltroFiltros['tipoDocumento']?.length > 0 &&
-                          !nuevoFiltroFiltros['tipoDocumento'].includes(doc.tipoDocumentoId || '')
-                        )
-                          return false;
-                        return true;
-                      }).length;
-                      return `${count} documento(s) coinciden`;
-                    })()}
+                    {nuevoFiltroFiltros['estructura'] === 'carpeta'
+                      ? `${carpetas.length} carpeta(s) coinciden`
+                      : `${realDocuments.filter((doc) => matchesCustomFilter(doc, nuevoFiltroFiltros)).length} documento(s) coinciden`}
                   </span>
                 </p>
               </div>
@@ -11065,53 +11542,65 @@ function MisDocumentosContent() {
 
             <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">
               <button
-                onClick={() => {
-                  setShowCrearFiltroModal(false);
-                  setNuevoFiltroNombre('');
-                  setNuevoFiltroDescripcion('');
-                  setNuevoFiltroIcono('📁');
-                  setNuevoFiltroFiltros({});
-                  setNuevoFiltroError('');
-                  setNuevoFiltroCriterios([]);
-                  setShowCriterioSelector(false);
-                  setIconPickerOpen(true);
-                }}
+                onClick={closeCustomFilterEditor}
+                disabled={savingCustomFilter}
                 className="flex h-9 items-center rounded-lg border border-slate-200 px-4 text-sm font-600 text-slate-700 transition-colors hover:bg-slate-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={async () => {
+                  if (savingCustomFilter) return;
                   const nombre = nuevoFiltroNombre.trim();
                   if (!nombre) {
                     setNuevoFiltroError('El nombre del filtro es obligatorio.');
                     return;
                   }
-                  const newFilter: CustomFilter = {
-                    id: Date.now().toString(),
+                  const existingFilter = editingCustomFilterId
+                    ? customFilters.find((filter) => filter.id === editingCustomFilterId)
+                    : undefined;
+                  if (editingCustomFilterId && !existingFilter) {
+                    setNuevoFiltroError('Este filtro ya no existe.');
+                    return;
+                  }
+                  const savedFilter: CustomFilter = {
+                    ...existingFilter,
+                    id: editingCustomFilterId || Date.now().toString(),
                     nombre,
                     descripcion: nuevoFiltroDescripcion.trim() || undefined,
                     icono: nuevoFiltroIcono,
-                    filtros: nuevoFiltroFiltros,
+                    filtros: { ...nuevoFiltroFiltros },
+                    criterios: [...nuevoFiltroCriterios],
                   };
-                  const updated = [...customFilters, newFilter];
-                  setCustomFilters(updated);
-                  await saveCustomFilters(updated);
-                  setActiveSection(`custom-${newFilter.id}`);
-                  setShowCrearFiltroModal(false);
-                  setNuevoFiltroNombre('');
-                  setNuevoFiltroDescripcion('');
-                  setNuevoFiltroIcono('📁');
-                  setNuevoFiltroFiltros({});
-                  setNuevoFiltroError('');
-                  setNuevoFiltroCriterios([]);
-                  setShowCriterioSelector(false);
-                  setIconPickerOpen(true);
-                  showToast(`Filtro "${nombre}" creado`);
+                  const updated = editingCustomFilterId
+                    ? customFilters.map((filter) =>
+                        filter.id === editingCustomFilterId ? savedFilter : filter
+                      )
+                    : [...customFilters, savedFilter];
+                  setSavingCustomFilter(true);
+                  try {
+                    if (!(await saveCustomFilters(updated))) {
+                      setNuevoFiltroError('No se pudo guardar el filtro. Intenta de nuevo.');
+                      return;
+                    }
+                    setCustomFilters(updated);
+                    setActiveSection(`custom-${savedFilter.id}`);
+                    closeCustomFilterEditor();
+                    showToast(
+                      `Filtro "${nombre}" ${editingCustomFilterId ? 'actualizado' : 'creado'}`
+                    );
+                  } finally {
+                    setSavingCustomFilter(false);
+                  }
                 }}
-                className="flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90"
+                disabled={savingCustomFilter}
+                className="flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
               >
-                Crear filtro
+                {savingCustomFilter
+                  ? 'Guardando…'
+                  : editingCustomFilterId
+                    ? 'Guardar cambios'
+                    : 'Crear filtro'}
               </button>
             </div>
           </div>

@@ -98,10 +98,13 @@ test('an active uncommitted retry can reconcile its signature method', () => {
 });
 
 test('completion API authenticates, authorizes and rate limits before service-role RPCs', () => {
-  const authentication = completionRoute.indexOf('await requireCompletionAuthentication(request)');
+  const authentication = completionRoute.indexOf('await requireDocumentIdentity(request)');
   const payloadParsing = completionRoute.indexOf('await request.json()');
+  const authorization = completionRoute.indexOf('await requireDocumentAccess(');
+  const serviceRpc = completionRoute.indexOf("service.rpc('claim_participant_completion'");
   assert.ok(authentication > -1 && payloadParsing > authentication);
-  assert.match(completionRoute, /requireDocumentAccess\(request, documentId\)/);
+  assert.ok(authorization > payloadParsing && serviceRpc > authorization);
+  assert.match(completionRoute, /requireDocumentAccess\([\s\S]*?verifiedIdentity\s*\)/);
   assert.match(completionRoute, /consumeServerRateLimit/);
   assert.match(completionRoute, /document_participant_references/);
   assert.match(completionRoute, /assertKioskDocumentScope/);

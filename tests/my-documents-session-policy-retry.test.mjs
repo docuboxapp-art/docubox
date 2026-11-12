@@ -8,7 +8,7 @@ const source = await readFile(
 );
 
 test('mis-documentos retries temporary session-policy and schema-cache failures', () => {
-  assert.match(source, /DOCUMENT_LOAD_RETRY_DELAYS_MS = \[1_000, 2_500\]/);
+  assert.match(source, /DOCUMENT_LOAD_RETRY_DELAYS_MS = \[1_200\]/);
   assert.match(source, /errorCode === 'SESSION_POLICY_UNAVAILABLE'/);
   assert.match(source, /errorCode === 'PGRST002'/);
   assert.match(source, /errorMessage\.includes\('schema cache'\)/);

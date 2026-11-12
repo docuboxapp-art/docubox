@@ -142,6 +142,46 @@ serve(async (req) => {
       );
     }
 
+    // A submitted response is useful to the form owner even when PDF generation
+    // or document promotion later fails. Keep the notification free of answers
+    // and respondent details; those remain behind the responses page permissions.
+    const ownerId = tokenRow.form_templates.created_by;
+    if (ownerId) {
+      try {
+        const preference = await supabase.from('notification_preferences')
+          .select('in_app_enabled').eq('user_id', ownerId).eq('category', 'SYSTEM').maybeSingle();
+        if (preference.error) throw preference.error;
+        if (preference.data?.in_app_enabled !== false) {
+          const name = String(tokenRow.form_templates.name || 'Formulario').replace(/[\r\n]+/g, ' ').slice(0, 100);
+          const notification = await supabase.from('notifications').insert({
+            user_id: ownerId,
+            workspace_id: responseRow.workspace_id,
+            type: 'info',
+            title: 'Nueva respuesta de formulario',
+            description: `El formulario «${name}» recibió una respuesta.`,
+            priority: 'media',
+            category: 'SYSTEM',
+            event_type: 'form.response.submitted',
+            severity: 'info',
+            entity_type: 'form_response',
+            entity_id: responseRow.id,
+            action_url: '/formularios/respuestas',
+            action_label: 'Ver respuestas',
+            idempotency_key: `form.response.submitted:${responseRow.id}:${ownerId}`,
+          }).select('id').maybeSingle();
+          if (notification.error && notification.error.code !== '23505') throw notification.error;
+          if (notification.data?.id) {
+            await Promise.all([
+              supabase.from('notification_deliveries').insert({ notification_id: notification.data.id, channel: 'in_app', status: 'delivered', provider: 'docubox', delivered_at: new Date().toISOString() }),
+              supabase.from('notification_event_log').insert({ notification_id: notification.data.id, workspace_id: responseRow.workspace_id, event_type: 'form.response.submitted', outcome: 'created' }),
+            ]);
+          }
+        }
+      } catch (notificationError) {
+        console.error('Form response notification failed:', notificationError instanceof Error ? notificationError.name : 'unknown');
+      }
+    }
+
     // 5. Mark token as used
     await supabase
       .from('form_tokens')
