@@ -13,7 +13,11 @@ type InitializeDocumentVersionInput = {
   displayName?: string | null;
   sourceVersionId?: string | null;
   requireCollaborationEntitlement?: boolean;
-  additionalDocumentMetadataSnapshot?: Array<{ name: string; dataType: string; value: string | boolean }>;
+  additionalDocumentMetadataSnapshot?: Array<{
+    name: string;
+    dataType: string;
+    value: string | boolean;
+  }>;
   additionalDocumentMetadataSnapshotHash?: string | null;
   requestedVersionId?: string | null;
 };
@@ -87,10 +91,12 @@ export async function initializeCollaborationDocumentVersion({
         display_name: displayName,
         source_version_id: sourceVersionId,
         schema_version: 1,
-        ...(additionalDocumentMetadataSnapshot.length > 0 ? {
-          additional_document_metadata_snapshot: additionalDocumentMetadataSnapshot,
-          additional_document_metadata_snapshot_sha256: additionalDocumentMetadataSnapshotHash,
-        } : {}),
+        ...(additionalDocumentMetadataSnapshot.length > 0
+          ? {
+              additional_document_metadata_snapshot: additionalDocumentMetadataSnapshot,
+              additional_document_metadata_snapshot_sha256: additionalDocumentMetadataSnapshotHash,
+            }
+          : {}),
       },
     })
     .select('id')

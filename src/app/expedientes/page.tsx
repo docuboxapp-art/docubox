@@ -283,7 +283,7 @@ export default function ExpedientesPage() {
     selectedStatus: 'all' | 'sealed' = 'all',
     mode: 'view' | 'edit' = 'view'
   ) => {
-    if(mode==='view'){router.push(`/expedientes/consultar?tipo=${encodeURIComponent(caseType)}${selectedStatus==='sealed'?'&estado=sealed':''}`);return;}
+    if(mode==='view'){router.push(selectedStatus==='sealed' ? `/expedientes/completados?tipo=${encodeURIComponent(caseType)}` : `/mis-documentos?pestana=expedientes&tipo=${encodeURIComponent(caseType)}`);return;}
     setOpenedType(caseType);
     setDialogStatus(selectedStatus);
     setCaseListMode(mode);
@@ -425,7 +425,7 @@ export default function ExpedientesPage() {
           title="Expedientes"
           description="Gestiona expedientes digitales verificables en tu espacio de trabajo."
           action={
-            <div className="flex flex-wrap gap-2"><button onClick={()=>router.push('/expedientes/consultar')} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm"><Eye size={16}/>Consultar expedientes</button><button onClick={()=>router.push('/expedientes/lanzar')} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-white"><Send size={16}/>Lanzar expediente</button>
+            <div className="module-page-actions flex flex-wrap gap-2"><button onClick={()=>router.push('/expedientes/lanzar')} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-white"><Send size={16}/>Lanzar expediente</button>
             <button
               onClick={() => router.push('/expedientes/nuevo')}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-primary-foreground shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition hover:bg-primary/90"
@@ -683,7 +683,7 @@ export default function ExpedientesPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1220px] table-fixed text-sm">
+                <table className="responsive-data-table w-full min-w-[1220px] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 text-left dark:border-border dark:bg-muted/40">
                       <Heading className="w-[20%]">Expediente</Heading>
@@ -703,7 +703,7 @@ export default function ExpedientesPage() {
                         key={template.id}
                         className="transition hover:bg-slate-50/70 dark:hover:bg-muted/30"
                       >
-                        <td className="px-4 py-3">
+                        <td data-label="Expediente" className="px-4 py-3">
                           <div className="flex min-w-0 items-center gap-3">
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-primary">
                               <FolderKanban size={17} />
@@ -720,16 +720,16 @@ export default function ExpedientesPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-xs font-medium text-slate-700 dark:text-foreground">
+                        <td data-label="Tipo de expediente" className="px-4 py-3 text-xs font-medium text-slate-700 dark:text-foreground">
                           {template.type}
                         </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-slate-600 dark:text-muted-foreground">
+                        <td data-label="Descripción" className="px-4 py-3 text-xs leading-5 text-slate-600 dark:text-muted-foreground">
                           {template.description}
                         </td>
-                        <td className="px-4 py-3 text-xs tabular-nums text-slate-700 dark:text-foreground">
+                        <td data-label="Requisitos" className="px-4 py-3 text-xs tabular-nums text-slate-700 dark:text-foreground">
                           {template.requirementCount} {template.requirementCount === 1 ? 'requisito' : 'requisitos'}
                         </td>
-                        <td className="px-4 py-3">
+                        <td data-label="Completados" className="px-4 py-3">
                           <button
                             type="button"
                             onClick={() => openCases(template.id, 'sealed')}
@@ -743,12 +743,12 @@ export default function ExpedientesPage() {
                             </span>
                           </button>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-600 dark:text-muted-foreground">
+                        <td data-label="Última actividad" className="px-4 py-3 text-xs text-slate-600 dark:text-muted-foreground">
                           {template.lastActivity
                             ? formatDate(template.lastActivity)
                             : 'Sin actividad'}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td data-label="Acciones" className="px-4 py-3 text-right">
                           <div className="inline-flex items-center gap-1">
                             <button
                               type="button"

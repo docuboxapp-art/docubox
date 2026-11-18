@@ -23,8 +23,14 @@ export const offboardingAssetLabels: Array<[keyof OffboardingAssets, string]> = 
 ];
 
 const transferableKeys: Array<keyof OffboardingAssets> = [
-  'documents', 'case_files', 'tasks', 'shared_resources_owned',
-  'shared_resources_custodied', 'teams_led', 'cost_centers', 'certificate_permissions',
+  'documents',
+  'case_files',
+  'tasks',
+  'shared_resources_owned',
+  'shared_resources_custodied',
+  'teams_led',
+  'cost_centers',
+  'certificate_permissions',
 ];
 
 export function transferableAssetTotal(assets: OffboardingAssets = {}) {
@@ -32,7 +38,10 @@ export function transferableAssetTotal(assets: OffboardingAssets = {}) {
 }
 
 export function offboardingAssetTotal(assets: OffboardingAssets = {}) {
-  return offboardingAssetLabels.reduce((total, [key]) => total + Math.max(0, Number(assets[key] || 0)), 0);
+  return offboardingAssetLabels.reduce(
+    (total, [key]) => total + Math.max(0, Number(assets[key] || 0)),
+    0
+  );
 }
 
 export function validateOffboardingSelection(input: {
@@ -44,9 +53,11 @@ export function validateOffboardingSelection(input: {
 }) {
   if (!input.memberId) return 'Selecciona el miembro que será dado de baja.';
   if (input.memberRole === 'owner') return 'Primero transfiere la propiedad de la organización.';
-  if ((input.transferableAssets || 0) > 0 && !input.successorId) return 'Selecciona un sucesor para los activos.';
+  if ((input.transferableAssets || 0) > 0 && !input.successorId)
+    return 'Selecciona un sucesor para los activos.';
   if (input.memberId === input.successorId) return 'El sucesor debe ser una persona distinta.';
-  if ((input.confirmation || '').trim().toUpperCase() !== 'DAR DE BAJA') return 'Escribe DAR DE BAJA para confirmar.';
+  if ((input.confirmation || '').trim().toUpperCase() !== 'DAR DE BAJA')
+    return 'Escribe DAR DE BAJA para confirmar.';
   return '';
 }
 

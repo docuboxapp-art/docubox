@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-const middleware = await read('../src/middleware.ts');
+const middleware = await read('../src/proxy.ts');
 const participationsRoute = await read('../src/app/api/documentos/mis-participaciones/route.ts');
 const ownerRoute = await read('../src/app/api/documentos/listar/route.ts');
 const documentsPage = await read('../src/app/mis-documentos/page.tsx');

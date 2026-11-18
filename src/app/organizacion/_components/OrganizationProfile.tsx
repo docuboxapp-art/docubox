@@ -86,8 +86,10 @@ function Status({ status }: { status?: string }) {
 }
 
 export default function OrganizationProfile() {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, refreshWorkspaces } = useWorkspace();
   const { session } = useAuth();
+  const workspaceId = activeWorkspace?.id;
+  const accessToken = session?.access_token;
   const supabase = useMemo(() => createClient(), []);
   const [tab, setTab] = useState<Tab>('general');
   const [profile, setProfile] = useState<Row>({ fiscal_address: {}, legal_representative: {} });
@@ -110,51 +112,61 @@ export default function OrganizationProfile() {
   const canDownloadKyb = elevated || permissions.includes('kyb.download');
 
   const load = useCallback(async () => {
-    if (!activeWorkspace?.id || !session?.access_token) return;
+    if (!workspaceId || !accessToken) return;
     setLoading(true);
     setError('');
-    const [workspace, permissionResult] = await Promise.all([
-      supabase
-        .from('workspaces')
-        .select(
-          'id,name,legal_name,trade_name,rfc,legal_person_type,tax_regime,industry,website,contact_email,contact_phone,timezone,locale,currency,fiscal_address,legal_representative,verification_status,kyb_status,verification_updated_at'
-        )
-        .eq('id', activeWorkspace.id)
-        .single(),
-      supabase.rpc('get_my_organization_permissions', { ws_id: activeWorkspace.id }),
-    ]);
-    if (workspace.error) setError(workspace.error.message);
-    else setProfile(workspace.data || {});
-    const keys = (permissionResult.data || []).map((item: Row) => item.permission_key);
-    setPermissions(keys);
-    if (elevated || keys.includes('kyb.read')) {
-      const response = await fetch(
-        `/api/organizacion/profile?workspace_id=${encodeURIComponent(activeWorkspace.id)}`,
-        { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (response.ok) {
-        setEvidence(payload.evidence || []);
-        setHistory(payload.history || []);
+    try {
+      const [workspace, permissionResult] = await Promise.all([
+        supabase
+          .from('workspaces')
+          .select(
+            'id,name,legal_name,trade_name,rfc,legal_person_type,tax_regime,industry,website,contact_email,contact_phone,timezone,locale,currency,fiscal_address,legal_representative,verification_status,kyb_status,verification_updated_at'
+          )
+          .eq('id', workspaceId)
+          .single(),
+        supabase.rpc('get_my_organization_permissions', { ws_id: workspaceId }),
+      ]);
+      if (workspace.error) throw workspace.error;
+      if (permissionResult.error) throw permissionResult.error;
+      setProfile(workspace.data || {});
+      const keys = (permissionResult.data || []).map((item: Row) => item.permission_key);
+      setPermissions(keys);
+      if (elevated || keys.includes('kyb.read')) {
+        const response = await fetch(
+          `/api/organizacion/profile?workspace_id=${encodeURIComponent(workspaceId)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(payload.error || 'No se pudo cargar el expediente de la organización.');
+        if (response.ok) {
+          setEvidence(payload.evidence || []);
+          setHistory(payload.history || []);
+        }
       }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'No se pudo cargar el perfil de la organización.'
+      );
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [activeWorkspace?.id, elevated, session?.access_token, supabase]);
+  }, [workspaceId, elevated, accessToken, supabase]);
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
 
   const apiSave = async (action: string, values: Row, reauthToken?: string) => {
-    if (!activeWorkspace?.id || !session?.access_token) return false;
+    if (!workspaceId || !accessToken) return false;
     const response = await fetch('/api/organizacion/profile', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
         ...(reauthToken ? { 'X-Organization-Reauth': reauthToken } : {}),
       },
-      body: JSON.stringify({ workspace_id: activeWorkspace.id, action, values }),
+      body: JSON.stringify({ workspace_id: workspaceId, action, values }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -181,6 +193,7 @@ export default function OrganizationProfile() {
         setMessage('Los cambios se guardaron correctamente.');
         setPendingSave(null);
         setPassword('');
+        await refreshWorkspaces();
         await load();
       }
     } catch (cause: any) {
@@ -224,7 +237,7 @@ export default function OrganizationProfile() {
 
   const reauthenticate = async (event: FormEvent) => {
     event.preventDefault();
-    if (!pendingSave || !activeWorkspace?.id || !session?.access_token) return;
+    if (!pendingSave || !workspaceId || !accessToken) return;
     setSaving(true);
     setError('');
     try {
@@ -232,10 +245,10 @@ export default function OrganizationProfile() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           password,
           scopes: ['organization.profile.update'],
         }),
@@ -251,18 +264,18 @@ export default function OrganizationProfile() {
 
   const uploadEvidence = async (event: FormEvent) => {
     event.preventDefault();
-    if (!file || !activeWorkspace?.id || !session?.access_token) return;
+    if (!file || !workspaceId || !accessToken) return;
     setSaving(true);
     setError('');
     setMessage('');
     const body = new FormData();
-    body.append('workspace_id', activeWorkspace.id);
+    body.append('workspace_id', workspaceId);
     body.append('document_type', documentType);
     body.append('file', file);
     try {
       const response = await fetch('/api/organizacion/profile', {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
         body,
       });
       const payload = await response.json().catch(() => ({}));
@@ -278,11 +291,11 @@ export default function OrganizationProfile() {
   };
 
   const downloadEvidence = async (id: string) => {
-    if (!activeWorkspace?.id || !session?.access_token) return;
+    if (!workspaceId || !accessToken) return;
     setError('');
     const response = await fetch(
-      `/api/organizacion/profile?workspace_id=${encodeURIComponent(activeWorkspace.id)}&evidence_id=${encodeURIComponent(id)}`,
-      { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' }
+      `/api/organizacion/profile?workspace_id=${encodeURIComponent(workspaceId)}&evidence_id=${encodeURIComponent(id)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
     );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -298,7 +311,11 @@ export default function OrganizationProfile() {
     next: string
   ) =>
     setProfile((current) => ({ ...current, [group]: { ...(current[group] || {}), [key]: next } }));
-  const notices = error ? <BottomNotice message={error} tone="critical" /> : message ? <BottomNotice message={message} tone="success" /> : null;
+  const notices = error ? (
+    <BottomNotice message={error} tone="critical" />
+  ) : message ? (
+    <BottomNotice message={message} tone="success" />
+  ) : null;
 
   return (
     <div className="mx-auto max-w-[1280px] space-y-5">

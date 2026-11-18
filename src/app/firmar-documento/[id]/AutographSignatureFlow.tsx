@@ -361,7 +361,7 @@ function SignatureOtpInput({
     : 'border-slate-200 bg-white text-slate-950 focus:border-primary focus:ring-primary/20';
 
   return (
-    <div className="flex items-center justify-center gap-2" onPaste={handlePaste}>
+    <div className="signature-otp flex items-center justify-center gap-2" onPaste={handlePaste}>
       {digits.map((digit, index) => (
         <input
           key={index}
@@ -3209,7 +3209,7 @@ function MobileSignatureModal({
   const seconds = secondsLeft % 60;
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
+      className="signature-mobile-session fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Firmar desde el móvil"
@@ -4167,7 +4167,7 @@ export default function AutographSignatureFlow({
           className={`${padExpanded ? 'max-h-[calc(100dvh-2rem)] w-full max-w-5xl overflow-y-auto shadow-2xl' : 'w-full overflow-hidden'} rounded-xl border ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}
         >
           <div
-            className={`px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'border-gray-700 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
+            className={`signature-pad-header px-4 py-2.5 border-b flex items-center justify-between ${isDark ? 'border-gray-700 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
           >
             <div className="flex min-w-0 items-center gap-2">
               <PenLine size={14} className="text-primary" />
@@ -4206,7 +4206,7 @@ export default function AutographSignatureFlow({
             </div>
           </div>
           <div className="p-4 space-y-3">
-            <div className="flex gap-3">
+            <div className="signature-pad-workspace flex gap-3">
               {/* Canvas */}
               <div
                 className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden flex-1"
@@ -4232,7 +4232,7 @@ export default function AutographSignatureFlow({
               </div>
               {/* Side controls */}
               <div
-                className={`flex flex-col gap-3 py-1 px-2 rounded-xl border ${isDark ? 'border-gray-600 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
+                className={`signature-pad-controls flex flex-col gap-3 py-1 px-2 rounded-xl border ${isDark ? 'border-gray-600 bg-gray-750' : 'border-slate-200 bg-slate-50'}`}
               >
                 {/* Stroke thickness */}
                 <div className="flex flex-col items-center gap-1.5">
@@ -4299,6 +4299,8 @@ export default function AutographSignatureFlow({
                     type="button"
                     onClick={() => setPenColor('#0a0a0f')}
                     title="Negro"
+                    aria-label="Color negro"
+                    aria-pressed={penColor === '#0a0a0f'}
                     className={`w-7 h-7 rounded-full transition-all ${penColor === '#0a0a0f' ? 'ring-2 ring-offset-2 ring-slate-500 scale-110' : 'hover:scale-105'}`}
                     style={{ backgroundColor: '#0a0a0f' }}
                   />
@@ -4306,6 +4308,8 @@ export default function AutographSignatureFlow({
                     type="button"
                     onClick={() => setPenColor('#1d4ed8')}
                     title="Azul"
+                    aria-label="Color azul"
+                    aria-pressed={penColor === '#1d4ed8'}
                     className={`w-7 h-7 rounded-full transition-all ${penColor === '#1d4ed8' ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : 'hover:scale-105'}`}
                     style={{ backgroundColor: '#1d4ed8' }}
                   />
@@ -4313,6 +4317,8 @@ export default function AutographSignatureFlow({
                     type="button"
                     onClick={() => setPenColor('#dc2626')}
                     title="Rojo"
+                    aria-label="Color rojo"
+                    aria-pressed={penColor === '#dc2626'}
                     className={`w-7 h-7 rounded-full transition-all ${penColor === '#dc2626' ? 'ring-2 ring-offset-2 ring-red-500 scale-110' : 'hover:scale-105'}`}
                     style={{ backgroundColor: '#dc2626' }}
                   />
@@ -4331,7 +4337,7 @@ export default function AutographSignatureFlow({
                 {sendError}
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="signature-pad-actions flex gap-2">
               <button
                 type="button"
                 onClick={handlePadClear}
@@ -4512,7 +4518,7 @@ export default function AutographSignatureFlow({
             type="button"
             onClick={handleOtpConfirm}
             disabled={otpCode.trim().length !== 6}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Check size={14} />
             Verificar

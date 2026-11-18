@@ -1,31 +1,41 @@
 import { randomUUID } from 'crypto';
+import { assertCollaborationReference } from '@/lib/collaboration/references.server';
 import { z } from 'zod';
-import { authenticateOrganizationRequest, organizationApiFailure } from '@/lib/organization/server';
+import {
+  authenticateOrganizationRequest,
+  organizationApiFailure,
+  OrganizationApiError,
+} from '@/lib/organization/server';
 import { normalizeCollaborationAccess } from '@/lib/collaboration/domain';
-import { authorizeCollaborationRequest, recordCollaborationAudit } from '@/lib/collaboration/server';
+import {
+  authorizeCollaborationRequest,
+  recordCollaborationAudit,
+} from '@/lib/collaboration/server';
 
 export const runtime = 'nodejs';
 
 const settingsSchema = z.object({
   workspace_id: z.string().uuid(),
   action: z.literal('update_settings'),
-  settings: z.object({
-    status: z.enum(['pending', 'configured', 'read_only', 'disabled']).optional(),
-    primary_admin_member_id: z.string().uuid().nullable().optional(),
-    backup_admin_member_id: z.string().uuid().nullable().optional(),
-    default_comment_visibility: z.enum(['private', 'internal', 'shared', 'formal']).optional(),
-    allow_external_comments: z.boolean().optional(),
-    allow_external_downloads: z.boolean().optional(),
-    watermark_external_files: z.boolean().optional(),
-    default_due_days: z.number().int().min(1).max(365).optional(),
-    default_sla_hours: z.number().int().min(1).max(8760).optional(),
-    retention_days: z.number().int().min(30).max(36500).optional(),
-    timezone: z.string().trim().min(1).max(120).optional(),
-    notification_preferences: z.record(z.string(), z.unknown()).optional(),
-    quiet_hours: z.record(z.string(), z.unknown()).optional(),
-    enabled_unit_ids: z.array(z.string().uuid()).max(500).optional(),
-    onboarding_completed_at: z.string().datetime().nullable().optional(),
-  }).strict(),
+  settings: z
+    .object({
+      status: z.enum(['pending', 'configured', 'read_only', 'disabled']).optional(),
+      primary_admin_member_id: z.string().uuid().nullable().optional(),
+      backup_admin_member_id: z.string().uuid().nullable().optional(),
+      default_comment_visibility: z.enum(['private', 'internal', 'shared', 'formal']).optional(),
+      allow_external_comments: z.boolean().optional(),
+      allow_external_downloads: z.boolean().optional(),
+      watermark_external_files: z.boolean().optional(),
+      default_due_days: z.number().int().min(1).max(365).optional(),
+      default_sla_hours: z.number().int().min(1).max(8760).optional(),
+      retention_days: z.number().int().min(30).max(36500).optional(),
+      timezone: z.string().trim().min(1).max(120).optional(),
+      notification_preferences: z.record(z.string(), z.unknown()).optional(),
+      quiet_hours: z.record(z.string(), z.unknown()).optional(),
+      enabled_unit_ids: z.array(z.string().uuid()).max(500).optional(),
+      onboarding_completed_at: z.string().datetime().nullable().optional(),
+    })
+    .strict(),
 });
 
 const trialSchema = z.object({
@@ -82,8 +92,26 @@ export async function POST(request: Request) {
       request,
       input.workspace_id,
       'collaboration.manage_settings',
-      true,
+      true
     );
+    for (const id of [
+      input.settings.primary_admin_member_id,
+      input.settings.backup_admin_member_id,
+    ])
+      if (id)
+        await assertCollaborationReference(service, input.workspace_id, 'workspace_members', id);
+    for (const id of input.settings.enabled_unit_ids || [])
+      await assertCollaborationReference(service, input.workspace_id, 'organization_units', id);
+    if (input.settings.timezone)
+      try {
+        new Intl.DateTimeFormat('es-MX', { timeZone: input.settings.timezone }).format();
+      } catch {
+        throw new OrganizationApiError(
+          422,
+          'timezone_invalid',
+          'Selecciona una zona horaria válida.'
+        );
+      }
     const result = await service
       .from('collaboration_settings')
       .update({ ...input.settings, updated_at: new Date().toISOString() })

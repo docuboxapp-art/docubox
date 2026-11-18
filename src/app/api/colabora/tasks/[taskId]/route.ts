@@ -1,3 +1,4 @@
+import { assertCollaborationReference } from '@/lib/collaboration/references.server';
 import { z } from 'zod';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
@@ -56,7 +57,11 @@ export async function GET(request: Request, context: { params: Promise<{ taskId:
     const { taskId } = await context.params;
     const url = new URL(request.url);
     const workspaceId = url.searchParams.get('workspace_id') || '';
-    const { service } = await authorizeCollaborationRequest(request, workspaceId, 'tasks.view');
+    const { userClient: service } = await authorizeCollaborationRequest(
+      request,
+      workspaceId,
+      'tasks.view'
+    );
     const [task, checklist, comments, attachments, history, dependencies, collaborators] =
       await Promise.all([
         service
@@ -140,12 +145,41 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
     const body = await request.json();
     if (body?.action === 'comment') {
       const input = commentSchema.parse(body);
-      const { service, user } = await authorizeCollaborationRequest(
+      const { service, user, userClient } = await authorizeCollaborationRequest(
         request,
         input.workspace_id,
         'tasks.edit',
-        true
+        true,
+        { type: 'task', id: taskId }
       );
+      await assertCollaborationReference(userClient, input.workspace_id, 'tareas', taskId);
+      await Promise.all(
+        input.recipient_ids.map((id) =>
+          assertCollaborationReference(
+            service,
+            input.workspace_id,
+            'workspace_members',
+            id,
+            'user_id'
+          )
+        )
+      );
+      if (input.parent_id) {
+        const parent = await userClient
+          .from('task_comments')
+          .select('id')
+          .eq('workspace_id', input.workspace_id)
+          .eq('tarea_id', taskId)
+          .eq('id', input.parent_id)
+          .maybeSingle();
+        if (parent.error) throw parent.error;
+        if (!parent.data)
+          throw new OrganizationApiError(
+            404,
+            'comment_not_found',
+            'El comentario no está disponible en esta tarea.'
+          );
+      }
       const profile = await service
         .from('user_profiles')
         .select('full_name')
@@ -181,13 +215,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
 
     if (body?.action === 'add_checklist' || body?.action === 'toggle_checklist') {
       const input = checklistSchema.parse(body);
-      const { service, user } = await authorizeCollaborationRequest(
+      const { service, user, userClient } = await authorizeCollaborationRequest(
         request,
         input.workspace_id,
         'tasks.edit',
-        true
+        true,
+        { type: 'task', id: taskId }
       );
-      const task = await service
+      const task = await userClient
         .from('tareas')
         .select('id,title')
         .eq('workspace_id', input.workspace_id)
@@ -259,13 +294,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
           : input.action === 'reassign'
             ? 'tasks.assign'
             : 'tasks.edit';
-    const { service, user } = await authorizeCollaborationRequest(
+    const { service, user, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       permission,
-      true
+      true,
+      { type: 'task', id: taskId }
     );
-    const current = await service
+    const current = await userClient
       .from('tareas')
       .select('id,title,estado,is_blocked,assigned_to,created_by')
       .eq('id', taskId)
@@ -315,18 +351,39 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       update.cancelled_at = new Date().toISOString();
       update.blocked_reason = input.reason || null;
     }
+    if (input.assigned_to)
+      await assertCollaborationReference(
+        service,
+        input.workspace_id,
+        'workspace_members',
+        input.assigned_to,
+        'user_id'
+      );
+    if (
+      ['completada', 'cancelada', 'rechazada'].includes(current.data.estado) &&
+      input.action !== 'reopen'
+    )
+      throw new OrganizationApiError(409, 'task_closed', 'Reabre la tarea antes de modificarla.');
+    if (
+      input.action === 'reopen' &&
+      !['completada', 'cancelada', 'rechazada'].includes(current.data.estado)
+    )
+      throw new OrganizationApiError(409, 'invalid_transition', 'La tarea ya está abierta.');
+    if (input.action === 'unblock' && !current.data.is_blocked)
+      throw new OrganizationApiError(409, 'invalid_transition', 'La tarea no está bloqueada.');
     if (input.assigned_to !== undefined) update.assigned_to = input.assigned_to;
     if (input.due_date !== undefined) update.due_date = input.due_date;
     if (input.prioridad) update.prioridad = input.prioridad;
 
-    const result = await service
-      .from('tareas')
-      .update(update)
-      .eq('id', taskId)
-      .eq('workspace_id', input.workspace_id)
-      .eq('optimistic_version', input.optimistic_version)
-      .select('*')
-      .maybeSingle();
+    const result = await service.rpc('colabora_mutate_task', {
+      ws: input.workspace_id,
+      task_id: taskId,
+      actor: user.id,
+      action: input.action,
+      expected_version: input.optimistic_version,
+      changes: update,
+      reason: input.reason || null,
+    });
     if (result.error) throw result.error;
     if (!result.data)
       throw new OrganizationApiError(
@@ -334,19 +391,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
         'version_conflict',
         'La tarea cambio en otra sesion. Actualiza y vuelve a intentarlo.'
       );
-    const profile = await service
-      .from('user_profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .maybeSingle();
-    await service.from('task_history').insert({
-      tarea_id: taskId,
-      workspace_id: input.workspace_id,
-      action: `Tarea: ${input.action}`,
-      actor_id: user.id,
-      actor_name: profile.data?.full_name || user.email || 'Usuario',
-      metadata: { reason: input.reason || null },
-    });
     await recordCollaborationAudit(service, {
       workspaceId: input.workspace_id,
       actorUserId: user.id,

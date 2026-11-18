@@ -1,8 +1,11 @@
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
+import { organizationApiFailure } from '@/lib/organization/server';
+import { createNotificationServer } from '@/lib/notificationsInApp.server';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { Resend } from 'resend';
 import { wrapDocuboxEmail } from '@/lib/emailFooter';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hasCurrentCollaborationEntitlement } from '@/lib/collaboration/entitlements-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,22 +31,18 @@ function otpHash(token: string, code: string) {
   return sha(`${token}:${code}:${pepper}`);
 }
 
-function clientIp(request: Request) {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    null
-  );
-}
-
 function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    "'": '&#39;',
-    '"': '&quot;',
-  })[character] || character);
+  return value.replace(
+    /[&<>'"]/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;',
+      })[character] || character
+  );
 }
 
 async function requestFromToken(service: ReturnType<typeof createServiceClient>, token: string) {
@@ -62,6 +61,14 @@ async function requestFromToken(service: ReturnType<typeof createServiceClient>,
   ) {
     return null;
   }
+  if (
+    !(await hasCurrentCollaborationEntitlement(
+      service,
+      documentRequest.workspace_id,
+      'collaboration_core'
+    ))
+  )
+    return null;
   return documentRequest;
 }
 
@@ -108,12 +115,16 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       const [itemsResult, filesResult] = await Promise.all([
         service
           .from('collaboration_request_items')
-          .select('id,item_type,title,description,required,status,position,rejection_reason,validation_status')
+          .select(
+            'id,item_type,title,description,required,status,position,rejection_reason,validation_status,form_template_id,form_response_id,document_id'
+          )
           .eq('request_id', documentRequest.id)
           .order('position'),
         service
           .from('collaboration_request_files')
-          .select('id,request_item_id,original_name,mime_type,byte_size,sha256,malware_scan_status,version,received_at')
+          .select(
+            'id,request_item_id,original_name,mime_type,byte_size,sha256,malware_scan_status,version,received_at'
+          )
           .eq('workspace_id', documentRequest.workspace_id)
           .order('version', { ascending: false }),
       ]);
@@ -159,139 +170,93 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         );
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      const challenge = await service
-        .from('collaboration_request_external_sessions')
-        .insert({
-          workspace_id: documentRequest.workspace_id,
-          request_id: documentRequest.id,
-          session_token_hash: sha(randomBytes(32).toString('base64url')),
-          otp_hash: otpHash(token, code),
-          otp_expires_at: expiresAt,
-          expires_at: expiresAt,
-          ip_address: clientIp(request),
-          user_agent: request.headers.get('user-agent'),
-        })
-        .select('id')
-        .single();
+      const challenge = await service.rpc('colabora_issue_request_otp', {
+        request_hash: sha(token),
+        code_hash: otpHash(token, code),
+        new_session_hash: sha(randomBytes(32).toString('base64url')),
+      });
       if (challenge.error) throw challenge.error;
-
       const resend = new Resend(resendKey);
       const sent = await resend.emails.send({
         from: process.env.RESEND_FROM_EMAIL || 'Docubox <noreply@docubox.mx>',
         to: documentRequest.recipient_email,
         subject: `Codigo para ${documentRequest.folio}`,
-        html: wrapDocuboxEmail(`<h2>Solicitud documental Docubox</h2><p>Hola, ${escapeHtml(documentRequest.recipient_name)}. Usa este código para consultar y completar <strong>${escapeHtml(documentRequest.title)}</strong>.</p><div style="margin:24px 0;padding:20px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px;font-size:34px;font-weight:700;letter-spacing:9px;color:#1E6BFF">${code}</div><p style="font-size:12px;color:#71717a">El código vence en 10 minutos. No lo compartas.</p>`, 'Recibiste este correo porque solicitaste acceso a una solicitud documental mediante Docubox.'),
+        html: wrapDocuboxEmail(
+          `<h2>Solicitud documental Docubox</h2><p>Hola, ${escapeHtml(documentRequest.recipient_name)}. Usa este código para consultar y completar <strong>${escapeHtml(documentRequest.title)}</strong>.</p><div style="margin:24px 0;padding:20px;text-align:center;background:#f5f7ff;border:1px solid #dbe3ff;border-radius:8px;font-size:34px;font-weight:700;letter-spacing:9px;color:#1E6BFF">${code}</div><p style="font-size:12px;color:#71717a">El código vence en 10 minutos. No lo compartas.</p>`,
+          'Recibiste este correo porque solicitaste acceso a una solicitud documental mediante Docubox.'
+        ),
       });
       if (sent.error) {
         await service
           .from('collaboration_request_external_sessions')
           .delete()
-          .eq('id', challenge.data.id);
+          .eq('id', challenge.data);
         throw sent.error;
       }
-      return Response.json({ challenge_id: challenge.data.id, expires_at: expiresAt });
+      return Response.json({ challenge_id: challenge.data, expires_at: expiresAt });
     }
 
     if (input.action === 'submit') {
-      const session = await validSession(
-        service,
-        documentRequest.id,
-        request.headers.get('x-colabora-session') || ''
-      );
-      if (!session)
-        return Response.json({ error: 'La sesion vencio.' }, { status: 401 });
-      const items = await service
-        .from('collaboration_request_items')
-        .select('id,required,status')
-        .eq('request_id', documentRequest.id);
-      if (items.error) throw items.error;
-      const incomplete = (items.data || []).filter(
-        (item) => item.required && !['uploaded', 'in_review', 'approved', 'waived'].includes(item.status)
-      );
-      if (incomplete.length)
+      if (
+        !(await hasCurrentCollaborationEntitlement(
+          service,
+          documentRequest.workspace_id,
+          'collaboration_core',
+          true
+        ))
+      )
         return Response.json(
-          { error: 'Completa todos los requisitos obligatorios antes de enviar.' },
-          { status: 409 }
+          { error: 'La organización no tiene habilitadas nuevas entregas.' },
+          { status: 403 }
         );
-      const now = new Date().toISOString();
-      const requestUpdate = await service
-        .from('collaboration_document_requests')
-        .update({ status: 'in_review' })
-        .eq('id', documentRequest.id)
-        .in('status', ['sent', 'in_progress']);
-      if (requestUpdate.error) throw requestUpdate.error;
-      const itemUpdate = await service
-        .from('collaboration_request_items')
-        .update({ status: 'in_review' })
-        .eq('request_id', documentRequest.id)
-        .eq('status', 'uploaded');
-      if (itemUpdate.error) throw itemUpdate.error;
-      await service.from('collaboration_activity_events').insert({
-        workspace_id: documentRequest.workspace_id,
-        event_type: 'request.submitted',
-        resource_type: 'document_request',
-        resource_id: documentRequest.id,
-        summary: 'La persona invitada envio la solicitud a revision.',
-        visibility: 'internal',
-        metadata: { external_session_id: session.id, submitted_at: now },
+      const submitted = await service.rpc('colabora_submit_request', {
+        request_hash: sha(token),
+        session_hash: sha(request.headers.get('x-colabora-session') || ''),
       });
-      return Response.json({ success: true, status: 'in_review' });
-    }
-
-    const challenge = await service
-      .from('collaboration_request_external_sessions')
-      .select('*')
-      .eq('id', input.challenge_id)
-      .eq('request_id', documentRequest.id)
-      .is('otp_consumed_at', null)
-      .is('revoked_at', null)
-      .maybeSingle();
-    if (challenge.error) throw challenge.error;
-    if (
-      !challenge.data ||
-      !challenge.data.otp_hash ||
-      !challenge.data.otp_expires_at ||
-      new Date(challenge.data.otp_expires_at).getTime() <= Date.now()
-    )
-      return Response.json({ error: 'El codigo expiro. Solicita uno nuevo.' }, { status: 400 });
-    if (challenge.data.failed_attempts >= 5)
-      return Response.json({ error: 'Se alcanzo el limite de intentos.' }, { status: 429 });
-
-    const expected = Buffer.from(challenge.data.otp_hash, 'hex');
-    const received = Buffer.from(otpHash(token, input.code), 'hex');
-    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-      await service
-        .from('collaboration_request_external_sessions')
-        .update({ failed_attempts: challenge.data.failed_attempts + 1 })
-        .eq('id', challenge.data.id);
-      return Response.json({ error: 'El codigo no es valido.' }, { status: 400 });
+      if (submitted.error) throw submitted.error;
+      if (submitted.data.reviewer_id)
+        try {
+          await createNotificationServer({
+            userId: submitted.data.reviewer_id,
+            type: 'request',
+            eventType: 'collaboration.request.submitted',
+            title: 'Solicitud lista para revisar',
+            description: 'El destinatario completó los requisitos y envió su solicitud a revisión.',
+            actionUrl: `/colabora/solicitudes/${submitted.data.id}`,
+            actionLabel: 'Revisar solicitud',
+            deduplicationKey: `collaboration.request.submitted:${submitted.data.id}:${submitted.data.version}`,
+            metadata: { workspace_id: submitted.data.workspace_id, request_id: submitted.data.id },
+          });
+        } catch {
+          console.error('[colabora] request_notification_unavailable');
+        }
+      return Response.json({ success: true, status: submitted.data.status });
     }
 
     const sessionToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    const updated = await service
-      .from('collaboration_request_external_sessions')
-      .update({
-        session_token_hash: sha(sessionToken),
-        otp_consumed_at: new Date().toISOString(),
-        expires_at: expiresAt,
-        last_seen_at: new Date().toISOString(),
-      })
-      .eq('id', challenge.data.id);
-    if (updated.error) throw updated.error;
-    await service
-      .from('collaboration_document_requests')
-      .update({ status: 'in_progress' })
-      .eq('id', documentRequest.id)
-      .eq('status', 'sent');
-    return Response.json({ session_token: sessionToken, expires_at: expiresAt });
+    const verified = await service.rpc('colabora_verify_request_otp', {
+      request_hash: sha(token),
+      challenge_id: input.challenge_id,
+      received_hash: otpHash(token, input.code),
+      new_session_hash: sha(sessionToken),
+    });
+    if (verified.error) throw verified.error;
+    if (verified.data.status !== 200) {
+      const messages: Record<string, string> = {
+        otp_expired: 'El código expiró. Solicita uno nuevo.',
+        otp_invalid: 'El código no es válido.',
+        otp_attempts_exceeded: 'Se alcanzó el límite de intentos.',
+        request_expired: 'La solicitud venció o fue cancelada.',
+      };
+      return Response.json(
+        { error: messages[verified.data.code] || 'No se pudo verificar el código.' },
+        { status: verified.data.status }
+      );
+    }
+    return Response.json({ session_token: sessionToken, expires_at: verified.data.expires_at });
   } catch (error) {
-    const message =
-      error instanceof z.ZodError
-        ? 'Solicitud invalida.'
-        : error instanceof Error && error.message === 'otp_service_unavailable'
-          ? 'El servicio OTP no esta configurado.'
-          : 'No se pudo completar el acceso.';
-    return Response.json({ error: message }, { status: 500 });
+    if (error instanceof Error && error.message === 'otp_service_unavailable')
+      return Response.json({ error: 'El servicio OTP no está configurado.' }, { status: 503 });
+    return organizationApiFailure(error);
   }
 }

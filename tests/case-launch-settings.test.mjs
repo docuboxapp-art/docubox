@@ -158,3 +158,10 @@ test('shared dispatcher uses distinct frozen deliveries and idempotency keys for
   assert.doesNotMatch(calls[1].body.text, /https?:\/\//);
   assert.match(calls[1].body.text, /ABCDEFGH/);
 });
+
+test('launch urgency is explicit, survives normalization, and rejects truthy non-booleans', () => {
+  assert.equal(normalize({ ...defaults, urgent: true }).urgent, true);
+  assert.equal(normalize({ ...defaults, urgent: false }).urgent, false);
+  assert.equal(normalize(defaults).urgent, undefined);
+  assert.throws(() => normalize({ ...defaults, urgent: 'true' }));
+});

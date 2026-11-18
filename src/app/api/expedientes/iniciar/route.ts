@@ -137,6 +137,23 @@ export async function POST(request: NextRequest) {
         'No se pudo confirmar el lanzamiento.',
         503
       );
+    // The configured-launch fingerprint includes urgency, so retries cannot change it.
+    // Persist the priority before dispatching invitations (also on a recovered retry).
+    if (settings.urgent !== undefined) {
+      const priority = await service
+        .from('case_files')
+        .update({ priority: settings.urgent ? 'urgent' : 'normal' })
+        .eq('id', id)
+        .eq('created_by', actor.id)
+        .select('id')
+        .single();
+      if (priority.error || !priority.data)
+        throw new CaseRuntimeError(
+          'CASE_OPERATION_FAILED',
+          'No se pudo guardar la prioridad. Reintenta el lanzamiento.',
+          503
+        );
+    }
     // The case and outbox are already durable. A partial send must never masquerade as failed creation.
     if (settings.scheduledAt)
       return NextResponse.json(

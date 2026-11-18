@@ -1,3 +1,4 @@
+import { notifyOrganizationSecurityEvent } from '@/lib/organization/security-alerts.server';
 import { randomUUID } from 'crypto';
 import {
   authorizeOrganizationRequest,
@@ -122,11 +123,12 @@ export async function GET(request: Request, { params }: RouteContext) {
       .from('organization_roles')
       .select('id,name,description,system_key,is_system')
       .eq('workspace_id', workspaceId)
+      .eq('status', 'active')
       .order('is_system', { ascending: false })
       .order('name');
     const availableUnitsPromise = service
       .from('organization_units')
-      .select('id,name,description,parent_id,status')
+      .select('id,name,description,parent_id,status,leader_member_id,deputy_member_id')
       .eq('workspace_id', workspaceId)
       .eq('status', 'active')
       .order('name');
@@ -400,6 +402,13 @@ export async function POST(request: Request, { params }: RouteContext) {
       throw new OrganizationApiError(400, 'invalid_action', 'Acción inválida.');
     }
 
+    if (action === 'set_roles')
+      await notifyOrganizationSecurityEvent(createServiceClient(), {
+        event: 'privilege.escalation',
+        eventId: randomUUID(),
+        workspaceId,
+        actorUserId,
+      });
     const target = await createServiceClient()
       .from('workspace_members')
       .select('user_id,workspaces(name)')

@@ -16,13 +16,13 @@ const inputSchema = z.object({
 export async function PATCH(request: Request) {
   try {
     const input = inputSchema.parse(await request.json());
-    const { service, user } = await authorizeCollaborationRequest(
+    const { service, user, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       'collaboration.view_dashboard',
       true
     );
-    let query = service
+    let query = userClient
       .from('collaboration_activity_events')
       .select('id,read_by')
       .eq('workspace_id', input.workspace_id)

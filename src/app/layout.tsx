@@ -2,6 +2,8 @@ import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import '../styles/tailwind.css';
+import '../styles/responsive.css';
+import '../styles/responsive-documents.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';

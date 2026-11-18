@@ -6,6 +6,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createServiceClient } from '@/lib/supabase/server';
 import { requireDocumentIdentity } from '@/lib/security/document-access';
+import { fetchWithPasswordSignInTimeout } from '@/lib/supabase/password-auth-fetch';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 import { parseStoredCaseTemplate, type StoredCaseTemplate } from './template-builder';
 import { resolvedCaseWorkflow } from './workflow';
 import { caseEvidenceProgress } from './runtime-progress';
@@ -140,6 +142,7 @@ export async function caseIdentity(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: { fetch: fetchWithPasswordSignInTimeout },
       cookies: {
         getAll: () => jar.getAll(),
         setAll: (values) =>
@@ -147,7 +150,20 @@ export async function caseIdentity(request: NextRequest) {
       },
     }
   );
-  const { data, error } = await client.auth.getUser();
+  const { data, error } = await client.auth.getUser().catch((cause: unknown) => ({
+    data: { user: null },
+    error: cause,
+  }));
+  if (
+    error &&
+    record(error).name !== 'AuthSessionMissingError' &&
+    !isDefinitivelyInvalidAuthToken(error)
+  )
+    throw new CaseRuntimeError(
+      'CASE_AUTH_UNAVAILABLE',
+      'No se pudo comprobar la sesión. Vuelve a intentarlo en unos momentos.',
+      503
+    );
   if (error || !data.user)
     throw new CaseRuntimeError('CASE_AUTH_REQUIRED', 'Inicia sesión para continuar.', 401);
   return data.user;

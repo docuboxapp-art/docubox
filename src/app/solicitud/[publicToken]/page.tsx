@@ -18,6 +18,9 @@ import AppLogo from '@/components/ui/AppLogo';
 type RequestItem = {
   id: string;
   item_type: string;
+  form_template_id?: string | null;
+  form_response_id?: string | null;
+  document_id?: string | null;
   title: string;
   description: string | null;
   required: boolean;
@@ -96,8 +99,14 @@ export default function PublicDocumentRequestPage({
   }, [session, token]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void Promise.resolve().then(load);
+    if (!session) return;
+    const onFocus = () => {
+      void load();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load, session]);
 
   const requestOtp = async () => {
     setWorking('otp');
@@ -140,6 +149,29 @@ export default function PublicDocumentRequestPage({
     }
   };
 
+  const openRequirement = async (item: RequestItem) => {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    setWorking(item.id);
+    setError('');
+    try {
+      const response = await fetch(
+        `/api/public/colabora/requests/${token}/items/${item.id}/action`,
+        { method: 'POST', headers: { 'x-colabora-session': session }, cache: 'no-store' }
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo abrir el requisito.');
+      if (!/^\/(?:form|portal-formulario|firmar-documento)\//.test(payload.url))
+        throw new Error('El enlace no está disponible.');
+      if (popup) popup.location.replace(payload.url);
+      else window.location.assign(payload.url);
+    } catch (cause) {
+      popup?.close();
+      setError(cause instanceof Error ? cause.message : 'No se pudo abrir el requisito.');
+    } finally {
+      setWorking('');
+    }
+  };
   const uploadFile = async (itemId: string, file: File | null) => {
     if (!file) return;
     setWorking(itemId);
@@ -275,8 +307,16 @@ export default function PublicDocumentRequestPage({
                   <div className="mb-5 flex items-end justify-between gap-4">
                     <div>
                       <h2 className="text-lg font-medium">Requisitos</h2>
+                      <button
+                        type="button"
+                        onClick={() => void load()}
+                        className="mt-2 text-xs font-medium text-[#1E6BFF]"
+                      >
+                        Actualizar avance
+                      </button>
                       <p className="mt-1 text-sm text-[#52525b]">
-                        Los archivos se reciben de forma privada y quedan sujetos a revision.
+                        Carga los documentos y completa los formularios o firmas vinculados. Las
+                        entregas quedan sujetas a revisión.
                       </p>
                     </div>
                     <span className="text-xs text-[#52525b]">
@@ -329,25 +369,50 @@ export default function PublicDocumentRequestPage({
                                 </p>
                               )}
                             </div>
-                            {!locked && !['approved', 'waived'].includes(item.status) && (
-                              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-[#dce3ef] px-3 text-xs font-medium text-[#1E6BFF] hover:bg-blue-50">
-                                {working === item.id ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Upload size={14} />
-                                )}
-                                {latest ? 'Reemplazar' : 'Cargar'}
-                                <input
-                                  type="file"
-                                  accept="application/pdf,image/jpeg,image/png"
-                                  className="sr-only"
+                            {!['approved', 'waived', 'expired'].includes(item.status) &&
+                              ['form', 'signature'].includes(item.item_type) &&
+                              !['completed', 'cancelled', 'expired'].includes(
+                                data.request.status
+                              ) && (
+                                <button
+                                  type="button"
+                                  onClick={() => openRequirement(item)}
                                   disabled={working === item.id}
-                                  onChange={(event) =>
-                                    uploadFile(item.id, event.target.files?.[0] || null)
-                                  }
-                                />
-                              </label>
-                            )}
+                                  className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-[#dce3ef] px-3 text-xs font-medium text-[#1E6BFF]"
+                                >
+                                  {working === item.id ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <FileText size={14} />
+                                  )}{' '}
+                                  {item.item_type === 'form'
+                                    ? item.form_response_id
+                                      ? 'Ver respuesta o continuar firma'
+                                      : 'Responder formulario'
+                                    : 'Abrir documento para firma'}
+                                </button>
+                              )}
+                            {!locked &&
+                              ['document', 'identity'].includes(item.item_type) &&
+                              !['approved', 'waived'].includes(item.status) && (
+                                <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-[#dce3ef] px-3 text-xs font-medium text-[#1E6BFF] hover:bg-blue-50">
+                                  {working === item.id ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Upload size={14} />
+                                  )}
+                                  {latest ? 'Reemplazar' : 'Cargar'}
+                                  <input
+                                    type="file"
+                                    accept="application/pdf,image/jpeg,image/png"
+                                    className="sr-only"
+                                    disabled={working === item.id}
+                                    onChange={(event) =>
+                                      uploadFile(item.id, event.target.files?.[0] || null)
+                                    }
+                                  />
+                                </label>
+                              )}
                           </div>
                         </div>
                       );
@@ -355,7 +420,10 @@ export default function PublicDocumentRequestPage({
                   </div>
                   {locked ? (
                     <div className="mt-5 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                      <CheckCircle2 size={19} /> La solicitud fue enviada y esta en revision.
+                      <CheckCircle2 size={19} />{' '}
+                      {data.request.status === 'completed'
+                        ? 'La solicitud fue revisada y completada.'
+                        : 'La solicitud fue enviada y está en revisión.'}
                     </div>
                   ) : (
                     <button

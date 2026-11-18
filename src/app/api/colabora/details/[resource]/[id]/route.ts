@@ -1,3 +1,7 @@
+import { collaborationRequestItemSchema } from '@/lib/collaboration/request-items';
+import { assertOrganizationResourceAccess } from '@/lib/organization/resource-access.server';
+import { sendCollaborationRoomInvitation } from '@/lib/collaboration/invitations.server';
+import { prepareCollaborationRequestItems } from '@/lib/collaboration/request-items.server';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
@@ -47,7 +51,18 @@ const definitions = {
 
 const requestActionSchema = z.object({
   workspace_id: z.string().uuid(),
-  action: z.enum(['approve_item', 'reject_item', 'request_replacement', 'waive_item', 'cancel']),
+  action: z.enum([
+    'approve_item',
+    'reject_item',
+    'request_replacement',
+    'waive_item',
+    'complete',
+    'cancel',
+    'add_item',
+    'edit_item',
+    'remove_item',
+  ]),
+  item: collaborationRequestItemSchema.optional(),
   item_id: z.string().uuid().optional(),
   reason: z.string().trim().max(2000).nullable().optional(),
 });
@@ -102,6 +117,8 @@ const roomActionSchema = z.discriminatedUnion('action', [
     name: z.string().trim().min(2).max(160),
     email: z.string().trim().email().max(320),
     allow_download: z.boolean().default(false),
+    allow_comment: z.boolean().default(false),
+    send_invitation: z.boolean().default(true),
   }),
   z.object({
     workspace_id: z.string().uuid(),
@@ -203,7 +220,7 @@ export async function GET(
     if (!definition)
       throw new OrganizationApiError(404, 'resource_not_found', 'El recurso no existe.');
     const workspaceId = new URL(request.url).searchParams.get('workspace_id') || '';
-    const { service, access } = await authorizeCollaborationRequest(
+    const { userClient: service, access } = await authorizeCollaborationRequest(
       request,
       workspaceId,
       definition.permission
@@ -333,7 +350,9 @@ export async function GET(
     } else if (resource === 'requests') {
       const items = await service
         .from('collaboration_request_items')
-        .select('*,collaboration_request_files(*)')
+        .select(
+          '*,collaboration_request_files(*),form_response:form_response_id(id,status,submitted_at,document_id)'
+        )
         .eq('workspace_id', workspaceId)
         .eq('request_id', id)
         .order('position');
@@ -354,7 +373,7 @@ export async function GET(
           .order('position'),
         service
           .from('collaboration_external_events')
-          .select('id,event_type,summary,occurred_at,guest_id')
+          .select('id,event_type,metadata,occurred_at,guest_id')
           .eq('workspace_id', workspaceId)
           .eq('room_id', id)
           .order('occurred_at', { ascending: false })
@@ -364,7 +383,14 @@ export async function GET(
       related = {
         guests: guests.data || [],
         resources: resources.data || [],
-        events: events.data || [],
+        events: (events.data || []).map((event) => ({
+          id: event.id,
+          occurred_at: event.occurred_at,
+          summary:
+            event.event_type === 'guest.comment'
+              ? String(event.metadata?.body || '')
+              : String(event.event_type).replaceAll('_', ' ').replaceAll('.', ' · '),
+        })),
       };
     } else if (resource === 'automations') {
       const [versions, runs] = await Promise.all([
@@ -408,13 +434,14 @@ async function updateSpace(request: Request, id: string, body: unknown) {
     : ['close', 'archive'].includes(input.action)
       ? 'collaboration_spaces.archive'
       : 'collaboration_spaces.create';
-  const { service, user } = await authorizeCollaborationRequest(
+  const { service, user, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     permission,
-    true
+    true,
+    { type: 'space', id }
   );
-  const space = await service
+  const space = await userClient
     .from('collaboration_spaces')
     .select('id,status,owner_id,settings,closed_at')
     .eq('workspace_id', input.workspace_id)
@@ -487,6 +514,19 @@ async function updateSpace(request: Request, id: string, body: unknown) {
       .not('status', 'in', '(completed,cancelled)');
     if (updated.error) throw updated.error;
   } else if (input.action === 'add_resource') {
+    const kind = (
+      {
+        document: 'document',
+        document_version: 'version',
+        case_file: 'case_file',
+        form: 'form',
+        template: 'template',
+      } as const
+    )[input.resource_type];
+    await assertOrganizationResourceAccess(userClient, input.workspace_id, permission, {
+      type: kind,
+      id: input.resource_id,
+    });
     const resourceDefinitions = {
       document: { table: 'documentos', label: 'nombre' },
       case_file: { table: 'case_files', label: 'title' },
@@ -601,16 +641,17 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     : input.action === 'update_security'
       ? 'rooms.manage_security'
       : 'rooms.create';
-  const { service, user, access } = await authorizeCollaborationRequest(
+  const { service, user, access, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     permission,
-    true
+    true,
+    { type: 'room', id }
   );
   requireCollaborationEntitlement(access, 'collaboration_external_rooms', true, {
     proFeature: true,
   });
-  const room = await service
+  const room = await userClient
     .from('collaboration_rooms')
     .select('*')
     .eq('workspace_id', input.workspace_id)
@@ -622,6 +663,7 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     throw new OrganizationApiError(409, 'room_is_closed', 'La sala ya no admite cambios.');
 
   let credentials: { path: string; expires_at: string } | null = null;
+  let invitation: { status: 'sent' | 'failed' } | null = null;
   if (input.action === 'add_guest') {
     const token = randomBytes(32).toString('base64url');
     const expiresAt =
@@ -630,7 +672,7 @@ async function updateRoom(request: Request, id: string, body: unknown) {
       .from('collaboration_room_guests')
       .select('id')
       .eq('room_id', id)
-      .ilike('email', input.email)
+      .eq('email', input.email.toLowerCase())
       .maybeSingle();
     if (existing.error) throw existing.error;
     const values = {
@@ -641,7 +683,12 @@ async function updateRoom(request: Request, id: string, body: unknown) {
       status: 'pending',
       token_hash: sha(token),
       token_expires_at: expiresAt,
-      permissions: { view: true, download: input.allow_download, upload: false, comment: false },
+      permissions: {
+        view: true,
+        download: input.allow_download,
+        upload: false,
+        comment: input.allow_comment,
+      },
       nda_accepted_at: null,
       revoked_at: null,
       invited_by: user.id,
@@ -652,6 +699,21 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     const saved = await mutation;
     if (saved.error) throw saved.error;
     credentials = { path: `/sala/${token}`, expires_at: expiresAt };
+    if (existing.data) {
+      const revoked = await service
+        .from('collaboration_external_sessions')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('guest_id', existing.data.id)
+        .is('revoked_at', null);
+      if (revoked.error) throw revoked.error;
+    }
+    if (input.send_invitation)
+      invitation = await sendCollaborationRoomInvitation(
+        service,
+        room.data,
+        { name: input.name, email: input.email.toLowerCase() },
+        token
+      );
   } else if (input.action === 'revoke_guest') {
     const revokedAt = new Date().toISOString();
     const guest = await service
@@ -673,6 +735,10 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     if (sessions.error) throw sessions.error;
   } else if (input.action === 'add_resource') {
     let canonicalName = input.display_name || null;
+    await assertOrganizationResourceAccess(userClient, input.workspace_id, permission, {
+      type: input.resource_type === 'document' ? 'document' : 'version',
+      id: input.resource_id,
+    });
     if (input.resource_type === 'document') {
       const document = await service
         .from('documentos')
@@ -756,19 +822,23 @@ async function updateRoom(request: Request, id: string, body: unknown) {
     summary: `Se ejecuto la accion ${input.action} sobre una sala externa.`,
     payload: { ...input, one_time_token: undefined },
   });
-  return Response.json({ success: true, one_time_credentials: credentials });
+  return Response.json(
+    { success: true, one_time_credentials: credentials, invitation },
+    { headers: { 'Cache-Control': 'private, no-store' } }
+  );
 }
 
 async function updateAutomation(request: Request, id: string, body: unknown) {
   const input = automationActionSchema.parse(body);
-  const { service, user, access } = await authorizeCollaborationRequest(
+  const { service, user, access, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     'automations.manage',
-    true
+    true,
+    { type: 'automation', id }
   );
   requireCollaborationEntitlement(access, 'collaboration_automations', true, { proFeature: true });
-  const automation = await service
+  const automation = await userClient
     .from('collaboration_automations')
     .select('*')
     .eq('workspace_id', input.workspace_id)
@@ -1042,11 +1112,12 @@ async function updateAutomation(request: Request, id: string, body: unknown) {
 
 async function updateNegotiation(request: Request, id: string, body: unknown) {
   const input = negotiationActionSchema.parse(body);
-  const { service, user, access } = await authorizeCollaborationRequest(
+  const { service, user, access, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     'reviews.create',
-    true
+    true,
+    { type: 'negotiation', id }
   );
   requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
     proFeature: true,
@@ -1056,6 +1127,19 @@ async function updateNegotiation(request: Request, id: string, body: unknown) {
       400,
       'resolution_required',
       'Documenta la resolucion antes de marcar el acuerdo.'
+    );
+  const visible = await userClient
+    .from('collaboration_negotiation_items')
+    .select('id')
+    .eq('workspace_id', input.workspace_id)
+    .eq('id', id)
+    .maybeSingle();
+  if (visible.error) throw visible.error;
+  if (!visible.data)
+    throw new OrganizationApiError(
+      404,
+      'negotiation_not_found',
+      'El asunto no está en tu alcance.'
     );
   const updated = await service
     .from('collaboration_negotiation_items')
@@ -1086,16 +1170,17 @@ async function updateNegotiation(request: Request, id: string, body: unknown) {
 
 async function updateCommittee(request: Request, id: string, body: unknown) {
   const input = committeeActionSchema.parse(body);
-  const { service, user, access } = await authorizeCollaborationRequest(
+  const { service, user, access, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     'collaboration_spaces.create',
-    true
+    true,
+    { type: 'committee', id }
   );
   requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
     proFeature: true,
   });
-  const committee = await service
+  const committee = await userClient
     .from('collaboration_committees')
     .select('*')
     .eq('workspace_id', input.workspace_id)
@@ -1183,16 +1268,17 @@ async function updateCommittee(request: Request, id: string, body: unknown) {
 
 async function updateClosing(request: Request, id: string, body: unknown) {
   const input = closingActionSchema.parse(body);
-  const { service, user, access } = await authorizeCollaborationRequest(
+  const { service, user, access, userClient } = await authorizeCollaborationRequest(
     request,
     input.workspace_id,
     'collaboration_spaces.create',
-    true
+    true,
+    { type: 'closing', id }
   );
   requireCollaborationEntitlement(access, 'collaboration_advanced_workflows', true, {
     proFeature: true,
   });
-  const closing = await service
+  const closing = await userClient
     .from('collaboration_closing_rooms')
     .select('*')
     .eq('workspace_id', input.workspace_id)
@@ -1296,16 +1382,19 @@ export async function PATCH(
         'Este recurso no admite cambios aqui.'
       );
     const input = requestActionSchema.parse(body);
-    const permission = input.action === 'cancel' ? 'requests.create' : 'requests.review_items';
-    const { service, user } = await authorizeCollaborationRequest(
+    const permission = ['cancel', 'add_item', 'edit_item', 'remove_item'].includes(input.action)
+      ? 'requests.create'
+      : 'requests.review_items';
+    const { service, user, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       permission,
-      true
+      true,
+      { type: 'request', id }
     );
-    const requestResult = await service
+    const requestResult = await userClient
       .from('collaboration_document_requests')
-      .select('id,status')
+      .select('id,status,recipient_email')
       .eq('workspace_id', input.workspace_id)
       .eq('id', id)
       .maybeSingle();
@@ -1313,7 +1402,42 @@ export async function PATCH(
     if (!requestResult.data)
       throw new OrganizationApiError(404, 'request_not_found', 'La solicitud no existe.');
 
-    let canonicalDocumentId: string | null = null;
+    if (['cancelled', 'expired', 'completed'].includes(requestResult.data.status))
+      throw new OrganizationApiError(409, 'request_locked', 'Esta solicitud ya está cerrada.');
+    const canonicalDocumentId: string | null = null;
+    if (['add_item', 'edit_item', 'remove_item'].includes(input.action)) {
+      const item =
+        input.action === 'remove_item'
+          ? {}
+          : (
+              await prepareCollaborationRequestItems(
+                service,
+                input.workspace_id,
+                requestResult.data.recipient_email,
+                [collaborationRequestItemSchema.parse(input.item)]
+              )
+            )[0];
+      if ('form_template_id' in item && item.form_template_id)
+        await assertOrganizationResourceAccess(userClient, input.workspace_id, 'requests.create', {
+          type: 'form',
+          id: String(item.form_template_id),
+        });
+      if ('document_id' in item && item.document_id)
+        await assertOrganizationResourceAccess(userClient, input.workspace_id, 'requests.create', {
+          type: 'document',
+          id: String(item.document_id),
+        });
+      const result = await service.rpc('colabora_change_request_item', {
+        ws: input.workspace_id,
+        actor: user.id,
+        request_id: id,
+        operation: input.action,
+        item_id: input.item_id || null,
+        item_values: item,
+      });
+      if (result.error) throw result.error;
+      return Response.json({ success: true, id: result.data });
+    }
     if (input.action === 'cancel') {
       if (!input.reason)
         throw new OrganizationApiError(400, 'reason_required', 'Indica el motivo de cancelacion.');
@@ -1328,112 +1452,18 @@ export async function PATCH(
         .not('status', 'in', '(completed,cancelled)');
       if (update.error) throw update.error;
     } else {
-      if (!input.item_id)
-        throw new OrganizationApiError(400, 'item_required', 'Selecciona un requisito.');
-      if (
-        ['reject_item', 'request_replacement', 'waive_item'].includes(input.action) &&
-        !input.reason
-      )
-        throw new OrganizationApiError(400, 'reason_required', 'Indica un motivo accionable.');
-      const item = await service
-        .from('collaboration_request_items')
-        .select('id,status,required')
-        .eq('workspace_id', input.workspace_id)
-        .eq('request_id', id)
-        .eq('id', input.item_id)
-        .maybeSingle();
-      if (item.error) throw item.error;
-      if (!item.data)
-        throw new OrganizationApiError(404, 'item_not_found', 'El requisito no existe.');
-
-      if (input.action === 'approve_item') {
-        const latestFile = await service
-          .from('collaboration_request_files')
-          .select('id,malware_scan_status,canonical_document_id')
-          .eq('request_item_id', input.item_id)
-          .order('version', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (latestFile.error) throw latestFile.error;
-        if (!latestFile.data)
-          throw new OrganizationApiError(
-            409,
-            'file_required',
-            'El requisito no tiene un archivo recibido.'
-          );
-        if (latestFile.data.malware_scan_status !== 'clean')
-          throw new OrganizationApiError(
-            409,
-            'file_security_scan_pending',
-            'El archivo aun no supera el analisis de seguridad y no puede aprobarse.'
-          );
-        if (latestFile.data.canonical_document_id) {
-          canonicalDocumentId = latestFile.data.canonical_document_id;
-        } else {
-          const incorporation = await service.rpc('incorporate_collaboration_request_file', {
-            p_file_id: latestFile.data.id,
-            p_workspace_id: input.workspace_id,
-            p_actor_id: user.id,
-          });
-          if (incorporation.error) throw incorporation.error;
-          canonicalDocumentId = incorporation.data;
-        }
-      }
-
-      const now = new Date().toISOString();
-      const valuesByAction: Record<string, Record<string, unknown>> = {
-        approve_item: {
-          status: 'approved',
-          validation_status: 'valid',
-          rejection_reason: null,
-          reviewed_by: user.id,
-          reviewed_at: now,
-        },
-        reject_item: {
-          status: 'rejected',
-          validation_status: 'invalid',
-          rejection_reason: input.reason,
-          reviewed_by: user.id,
-          reviewed_at: now,
-        },
-        request_replacement: {
-          status: 'replacement_requested',
-          validation_status: 'invalid',
-          rejection_reason: input.reason,
-          reviewed_by: user.id,
-          reviewed_at: now,
-        },
-        waive_item: {
-          status: 'waived',
-          waiver_reason: input.reason,
-          waived_by: user.id,
-          reviewed_by: user.id,
-          reviewed_at: now,
-        },
-      };
-      const update = await service
-        .from('collaboration_request_items')
-        .update(valuesByAction[input.action])
-        .eq('id', input.item_id);
-      if (update.error) throw update.error;
-
-      const requiredItems = await service
-        .from('collaboration_request_items')
-        .select('required,status')
-        .eq('request_id', id);
-      if (requiredItems.error) throw requiredItems.error;
-      const complete = (requiredItems.data || []).every(
-        (candidate) => !candidate.required || ['approved', 'waived'].includes(candidate.status)
-      );
-      const needsCorrection = ['reject_item', 'request_replacement'].includes(input.action);
-      const requestUpdate = await service
-        .from('collaboration_document_requests')
-        .update({
-          status: complete ? 'completed' : needsCorrection ? 'in_progress' : 'in_review',
-          completed_at: complete ? now : null,
-        })
-        .eq('id', id);
-      if (requestUpdate.error) throw requestUpdate.error;
+      if (input.action !== 'complete' && !input.item_id)
+        throw new OrganizationApiError(422, 'item_required', 'Selecciona un requisito.');
+      const reviewed = await service.rpc('colabora_review_request_item', {
+        ws: input.workspace_id,
+        actor: user.id,
+        request_id: id,
+        operation: input.action,
+        item_id: input.item_id || null,
+        reason: input.reason || null,
+      });
+      if (reviewed.error) throw reviewed.error;
+      return Response.json({ success: true, ...reviewed.data });
     }
 
     await recordCollaborationAudit(service, {

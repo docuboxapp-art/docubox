@@ -1,4 +1,5 @@
 'use client';
+import type { ReactNode } from 'react';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -45,7 +46,11 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import OrganizationPageHeader from './OrganizationPageHeader';
 import { OrganizationRetentionPolicies } from '@/components/organization/OrganizationRetentionPolicies';
+import OrganizationRecordActions from './OrganizationRecordActions';
+import OrganizationCertificateAccess from './OrganizationCertificateAccess';
+import OrganizationDomainVerification from './OrganizationDomainVerification';
 import { OrganizationDelegationPolicy } from '@/components/organization/OrganizationDelegationPolicy';
 
 export type AdvancedSection =
@@ -201,6 +206,10 @@ function humanize(value?: string | null) {
     denied: 'Denegado',
     partial: 'Parcial',
     verified: 'Verificado',
+    draft: 'Borrador',
+    archived: 'Archivado',
+    trialing: 'Periodo de prueba',
+    inactive: 'Inactivo',
     metadata_only: 'Solo metadatos',
     local_temporary: 'Local temporal',
     not_configured: 'No configurado',
@@ -233,16 +242,14 @@ function Status({ value }: { value?: string | null }) {
   );
 }
 
-function Header({ section, actions }: { section: AdvancedSection; actions?: React.ReactNode }) {
-  const meta = sectionMeta[section];
+function Header({ section, actions }: { section: AdvancedSection; actions?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h2 className="text-2xl font-medium text-foreground">{meta.title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{meta.description}</p>
-      </div>
+    <OrganizationPageHeader
+      title={sectionMeta[section].title}
+      description={sectionMeta[section].description}
+    >
       {actions}
-    </div>
+    </OrganizationPageHeader>
   );
 }
 
@@ -292,7 +299,11 @@ function Empty({
 }
 
 function Notice({ error, success }: { error: string; success: string }) {
-  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
+  return error ? (
+    <BottomNotice message={error} tone="critical" />
+  ) : success ? (
+    <BottomNotice message={success} tone="success" />
+  ) : null;
 }
 
 function Toggle({
@@ -338,7 +349,7 @@ function Modal({
   onClose,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
   onClose: () => void;
 }) {
   return (
@@ -373,9 +384,12 @@ export default function OrganizationAdvancedAdministration({
   const supabase = useMemo(() => createClient(), []);
   const { activeWorkspace } = useWorkspace();
   const { user, session } = useAuth();
+  const workspaceId = activeWorkspace?.id;
+  const accessToken = session?.access_token;
   const [permissions, setPermissions] = useState<string[]>([]);
   const [tab, setTab] = useState('');
   const [loading, setLoading] = useState(true);
+  const [alertCutoff, setAlertCutoff] = useState(() => Date.now() + 45 * 86400000);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -402,12 +416,12 @@ export default function OrganizationAdvancedAdministration({
   const canManage = Boolean(access.manage && (elevated || permissions.includes(access.manage)));
 
   const api = useCallback(
-    async (path: string, init?: RequestInit) => {
+    async (path: string, init?: NonNullable<Parameters<typeof fetch>[1]>) => {
       const response = await fetch(path, {
         ...init,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
+          Authorization: `Bearer ${accessToken || ''}`,
           ...(init?.headers || {}),
         },
       });
@@ -419,16 +433,18 @@ export default function OrganizationAdvancedAdministration({
       }
       return payload;
     },
-    [session?.access_token]
+    [accessToken]
   );
 
   const load = useCallback(async () => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
+    setAlertCutoff(Date.now() + 45 * 86400000);
     setLoading(true);
     setError('');
-    const id = activeWorkspace.id;
+    const id = workspaceId;
     try {
       const permissionResult = await supabase.rpc('get_my_organization_permissions', { ws_id: id });
+      if (permissionResult.error) throw permissionResult.error;
       const keys = (permissionResult.data || []).map((item: Row) => item.permission_key);
       setPermissions(keys);
       if (!elevated && !keys.includes(permissionFor[section].read)) {
@@ -458,7 +474,8 @@ export default function OrganizationAdvancedAdministration({
             .in('integration_type', ['sso', 'scim'])
             .order('display_name'),
         ]);
-        if (ws.error) throw ws.error;
+        for (const result of [ws, sessions, networks, alerts, integrations])
+          if (result.error) throw result.error;
         setWorkspace(ws.data || {});
         setRows(sessions.data || []);
         setExtra(networks.data || []);
@@ -478,7 +495,8 @@ export default function OrganizationAdvancedAdministration({
             .eq('workspace_id', id)
             .order('created_at', { ascending: false }),
         ]);
-        if (certificates.error) throw certificates.error;
+        for (const result of [certificates, cryptoOverview, permissionsResult])
+          if (result.error) throw result.error;
         setRows(certificates.data || []);
         setExtra(permissionsResult.data || []);
         setOverview(cryptoOverview.data || {});
@@ -498,7 +516,7 @@ export default function OrganizationAdvancedAdministration({
             .order('created_at', { ascending: false })
             .limit(100),
         ]);
-        if (integrations.error) throw integrations.error;
+        for (const result of [integrations, deliveries]) if (result.error) throw result.error;
         setRows(integrations.data || []);
         setExtra(keys.data || []);
         setThird(webhooks.data || []);
@@ -517,12 +535,12 @@ export default function OrganizationAdvancedAdministration({
             .eq('workspace_id', id)
             .order('created_at', { ascending: false }),
         ]);
-        if (ws.error) throw ws.error;
+        for (const result of [ws, templates, domains]) if (result.error) throw result.error;
         setWorkspace(ws.data || {});
         setRows(templates.data || []);
         setExtra(domains.data || []);
       } else if (section === 'plan-consumo') {
-        const [subscription, usage, centers, addons] = await Promise.all([
+        const [subscription, usage, centers, addons, billing] = await Promise.all([
           supabase
             .from('subscriptions')
             .select('*,subscription_plans(name,slug,documents_included,features)')
@@ -544,13 +562,15 @@ export default function OrganizationAdvancedAdministration({
             .select('*,addon_products(name,product_key)')
             .eq('workspace_id', id)
             .order('created_at', { ascending: false }),
+          api(`/api/organizacion/billing?workspace_id=${encodeURIComponent(id)}`),
         ]);
         if (subscription.error) throw subscription.error;
-        if (addons.error) throw addons.error;
+        for (const result of [usage, centers, addons]) if (result.error) throw result.error;
         setWorkspace(subscription.data || {});
         setRows(usage.data || []);
         setExtra(centers.data || []);
         setAddonSubscriptions(addons.data || []);
+        setOverview({ billing_history: billing.history || [] });
       } else {
         const result = await supabase
           .from('organization_audit_events')
@@ -566,14 +586,20 @@ export default function OrganizationAdvancedAdministration({
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace?.id, api, elevated, section, supabase]);
+  }, [workspaceId, api, elevated, section, supabase]);
 
   useEffect(() => {
-    setTab('');
-    setModal('');
-    setRevealedSecret('');
-    load();
-  }, [load]);
+    void Promise.resolve().then(() => {
+      setTab(
+        section === 'seguridad' && new URLSearchParams(window.location.search).get('tab') === 'sso'
+          ? 'sso'
+          : ''
+      );
+      setModal('');
+      setRevealedSecret('');
+      return load();
+    });
+  }, [load, section]);
 
   const audit = async (
     eventType: string,
@@ -582,9 +608,9 @@ export default function OrganizationAdvancedAdministration({
     summary: string,
     payload: Row = {}
   ) => {
-    if (!activeWorkspace?.id || !user?.id) return;
+    if (!workspaceId || !user?.id) return;
     await supabase.from('organization_audit_events').insert({
-      workspace_id: activeWorkspace.id,
+      workspace_id: workspaceId,
       actor_user_id: user.id,
       event_type: eventType,
       resource_type: resourceType,
@@ -613,7 +639,7 @@ export default function OrganizationAdvancedAdministration({
 
   const confirmSensitiveAction = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !pendingSensitiveAction || !reauthPassword) return;
+    if (!workspaceId || !pendingSensitiveAction || !reauthPassword) return;
     setSaving(true);
     setReauthError('');
     setError('');
@@ -622,7 +648,7 @@ export default function OrganizationAdvancedAdministration({
       const confirmation = await api('/api/organizacion/reauthenticate', {
         method: 'POST',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           password: reauthPassword,
           scopes: [pendingSensitiveAction.scope],
         }),
@@ -632,9 +658,9 @@ export default function OrganizationAdvancedAdministration({
         headers: { 'X-Organization-Reauth': confirmation.token },
         body: JSON.stringify(
           pendingSensitiveAction.endpoint
-            ? { workspace_id: activeWorkspace.id, ...pendingSensitiveAction.payload }
+            ? { workspace_id: workspaceId, ...pendingSensitiveAction.payload }
             : {
-                workspace_id: activeWorkspace.id,
+                workspace_id: workspaceId,
                 action: pendingSensitiveAction.action,
                 ...pendingSensitiveAction.payload,
               }
@@ -661,7 +687,7 @@ export default function OrganizationAdvancedAdministration({
     column: 'security_settings' | 'branding_settings',
     value: Row
   ) => {
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     if (column === 'security_settings') {
       requestSensitiveAction({
         action: 'save_security_settings',
@@ -678,7 +704,7 @@ export default function OrganizationAdvancedAdministration({
       await api('/api/organizacion/branding', {
         method: 'POST',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'save_settings',
           settings: value,
         }),
@@ -693,7 +719,7 @@ export default function OrganizationAdvancedAdministration({
 
   const submitSecurityResource = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !user?.id || !canManage) return;
+    if (!workspaceId || !user?.id || !canManage) return;
     if (modal === 'network') {
       requestSensitiveAction({
         action: 'save_network',
@@ -729,7 +755,7 @@ export default function OrganizationAdvancedAdministration({
   };
 
   const revokeSession = async (sessionId: string) => {
-    if (!activeWorkspace?.id || !canManage || !confirm('¿Revocar esta sesión?')) return;
+    if (!workspaceId || !canManage || !confirm('¿Revocar esta sesión?')) return;
     requestSensitiveAction({
       action: 'revoke_session',
       scope: 'security.manage',
@@ -740,7 +766,7 @@ export default function OrganizationAdvancedAdministration({
 
   const submitCertificate = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !user?.id || !canManage) return;
+    if (!workspaceId || !user?.id || !canManage) return;
     requestSensitiveAction({
       action: 'create_certificate',
       scope: 'certificates.manage',
@@ -751,7 +777,7 @@ export default function OrganizationAdvancedAdministration({
 
   const submitBrandResource = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !user?.id || !canManage) return;
+    if (!workspaceId || !user?.id || !canManage) return;
     setSaving(true);
     setError('');
     try {
@@ -763,7 +789,7 @@ export default function OrganizationAdvancedAdministration({
         await api('/api/organizacion/branding', {
           method: 'POST',
           body: JSON.stringify({
-            workspace_id: activeWorkspace.id,
+            workspace_id: workspaceId,
             action: 'create_template',
             template: {
               template_key: key,
@@ -783,7 +809,7 @@ export default function OrganizationAdvancedAdministration({
         await api('/api/organizacion/branding', {
           method: 'POST',
           body: JSON.stringify({
-            workspace_id: activeWorkspace.id,
+            workspace_id: workspaceId,
             action: 'create_domain',
             domain: {
               domain,
@@ -804,7 +830,7 @@ export default function OrganizationAdvancedAdministration({
 
   const submitIntegrationSecret = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     const endpoint =
       modal === 'api-key' ? '/api/organizacion/api-keys' : '/api/organizacion/webhooks';
     const payload =
@@ -833,7 +859,7 @@ export default function OrganizationAdvancedAdministration({
   };
 
   const configureSso = () => {
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     requestSensitiveAction({
       action: 'integration_request',
       scope: 'integrations.manage',
@@ -851,19 +877,19 @@ export default function OrganizationAdvancedAdministration({
   };
 
   const beginSsoTest = async (integration: Row) => {
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     setSaving(true);
     setError('');
     try {
       const result = await api('/api/organizacion/sso', {
         method: 'POST',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'begin_test',
           integration_id: integration.id,
         }),
       });
-      const redirectTo = `${window.location.origin}/auth/sso/callback?test=${encodeURIComponent(result.test_token)}&next=${encodeURIComponent('/organizacion?section=seguridad&tab=sso')}`;
+      const redirectTo = `${window.location.origin}/auth/sso/callback?test=${encodeURIComponent(result.test_token)}&next=${encodeURIComponent('/organizacion/seguridad?tab=sso')}`;
       const started = await supabase.auth.signInWithSSO({
         providerId: result.provider_id,
         options: { redirectTo },
@@ -877,7 +903,7 @@ export default function OrganizationAdvancedAdministration({
   };
 
   const actOnSecret = async (kind: 'api-key' | 'webhook', id: string, action: string) => {
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     if (
       (action === 'revoke' || action === 'rotate') &&
       !confirm(`¿Confirmas ${action === 'revoke' ? 'la revocación' : 'la rotación'}?`)
@@ -896,14 +922,14 @@ export default function OrganizationAdvancedAdministration({
 
   const submitCostCenter = async (event: FormEvent) => {
     event.preventDefault();
-    if (!activeWorkspace?.id || !canManage) return;
+    if (!workspaceId || !canManage) return;
     setSaving(true);
     setError('');
     try {
       await api('/api/organizacion/billing', {
         method: 'POST',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'create_cost_center',
           cost_center: {
             code: String(form.code || '')
@@ -926,14 +952,14 @@ export default function OrganizationAdvancedAdministration({
   };
 
   const downloadAudit = async () => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
-      const params = new URLSearchParams({ workspace_id: activeWorkspace.id, format: 'csv' });
+      const params = new URLSearchParams({ workspace_id: workspaceId, format: 'csv' });
       if (auditQuery.trim()) params.set('q', auditQuery.trim());
       const response = await fetch(`/api/organizacion/audit-export?${params}`, {
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        headers: { Authorization: `Bearer ${accessToken || ''}` },
         cache: 'no-store',
       });
       const payload = response.ok ? await response.blob() : await response.json().catch(() => ({}));
@@ -1294,6 +1320,7 @@ export default function OrganizationAdvancedAdministration({
                         </p>
                       </div>
                       <Status value={item.status} />
+                      <OrganizationRecordActions resource="networks" id={item.id} onSaved={load} />
                       <span className="text-sm capitalize text-muted-foreground">
                         {item.mode === 'allow' ? 'Permitida' : 'Bloqueada'}
                       </span>
@@ -1477,6 +1504,7 @@ export default function OrganizationAdvancedAdministration({
                           {item.event_key} · {(item.channels || []).join(', ')}
                         </p>
                       </div>
+                      <OrganizationRecordActions resource="alerts" id={item.id} onSaved={load} />
                       <Status value={item.enabled ? 'active' : 'disabled'} />
                       <span className="text-sm capitalize text-muted-foreground">
                         {humanize(item.severity)}
@@ -1494,11 +1522,11 @@ export default function OrganizationAdvancedAdministration({
             </section>
           </div>
         )}
-        {!loading && currentTab === 'retention' && activeWorkspace?.id && (
-          <OrganizationRetentionPolicies workspaceId={activeWorkspace.id} canManage={canManage} />
+        {!loading && currentTab === 'retention' && workspaceId && (
+          <OrganizationRetentionPolicies workspaceId={workspaceId} canManage={canManage} />
         )}
-        {!loading && currentTab === 'delegation' && activeWorkspace?.id && (
-          <OrganizationDelegationPolicy workspaceId={activeWorkspace.id} canManage={canManage} />
+        {!loading && currentTab === 'delegation' && workspaceId && (
+          <OrganizationDelegationPolicy workspaceId={workspaceId} canManage={canManage} />
         )}
         {(modal === 'network' || modal === 'alert') && (
           <Modal
@@ -1619,6 +1647,7 @@ export default function OrganizationAdvancedAdministration({
           onChange={setTab}
           items={[
             ['certificates', 'Certificados'],
+            ['permissions', 'Permisos de uso'],
             ['services', 'Servicios de sellado'],
             ['history', 'Historial de uso'],
             ['alerts', 'Alertas'],
@@ -1680,6 +1709,9 @@ export default function OrganizationAdvancedAdministration({
               />
             )}
           </section>
+        )}
+        {!loading && currentTab === 'permissions' && (
+          <OrganizationCertificateAccess workspaceId={activeWorkspace!.id} />
         )}
         {!loading && currentTab === 'services' && (
           <div className="grid gap-5 md:grid-cols-3">
@@ -1746,8 +1778,7 @@ export default function OrganizationAdvancedAdministration({
               (item) =>
                 item.status === 'expiring' ||
                 item.status === 'expired' ||
-                (item.valid_until &&
-                  new Date(item.valid_until) <= new Date(Date.now() + 45 * 86400000))
+                (item.valid_until && new Date(item.valid_until) <= new Date(alertCutoff))
             ).length ? (
               <div className="divide-y divide-border">
                 {rows
@@ -1755,8 +1786,7 @@ export default function OrganizationAdvancedAdministration({
                     (item) =>
                       item.status === 'expiring' ||
                       item.status === 'expired' ||
-                      (item.valid_until &&
-                        new Date(item.valid_until) <= new Date(Date.now() + 45 * 86400000))
+                      (item.valid_until && new Date(item.valid_until) <= new Date(alertCutoff))
                   )
                   .map((item) => (
                     <div key={item.id} className="flex items-center gap-4 px-5 py-4">
@@ -1935,6 +1965,11 @@ export default function OrganizationAdvancedAdministration({
                       </p>
                     </div>
                     <Status value={item.status} />
+                    <OrganizationRecordActions
+                      resource="integrations"
+                      id={item.id}
+                      onSaved={load}
+                    />
                   </div>
                 ))}
               </div>
@@ -2486,6 +2521,7 @@ export default function OrganizationAdvancedAdministration({
                       </p>
                     </div>
                     <Status value={item.status} />
+                    <OrganizationRecordActions resource="templates" id={item.id} onSaved={load} />
                   </div>
                 ))}
               </div>
@@ -2513,6 +2549,8 @@ export default function OrganizationAdvancedAdministration({
                       </p>
                     </div>
                     <Status value={item.dns_status} />
+                    <OrganizationDomainVerification id={item.id} onSaved={load} />
+                    <OrganizationRecordActions resource="domains" id={item.id} onSaved={load} />
                   </div>
                 ))}
               </div>
@@ -2546,11 +2584,16 @@ export default function OrganizationAdvancedAdministration({
                     Clave
                     <input
                       required
-                      placeholder="signature.invitation"
+                      placeholder="organization.invitation"
                       value={form.template_key || ''}
                       onChange={(e) => setForm({ ...form, template_key: e.target.value })}
                       className="mt-1.5 h-10 w-full rounded-md border border-border px-3 font-mono"
                     />
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Usa organization.invitation para las invitaciones de miembros. Variables:{' '}
+                      {'{{organization_name}}'}, {'{{recipient_name}}'}, {'{{inviter_name}}'},{' '}
+                      {'{{action_url}}'}, {'{{expires_at}}'} y {'{{message}}'}.
+                    </p>
                   </label>
                   <label className="block text-sm">
                     Asunto
@@ -2785,7 +2828,14 @@ export default function OrganizationAdvancedAdministration({
                         </td>
                         <td className="px-4 py-4">{item.alert_threshold_percent}%</td>
                         <td className="px-5 py-4">
-                          <Status value={item.status} />
+                          <div className="flex items-center gap-2">
+                            <Status value={item.status} />
+                            <OrganizationRecordActions
+                              resource="centers"
+                              id={item.id}
+                              onSaved={load}
+                            />
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2802,12 +2852,48 @@ export default function OrganizationAdvancedAdministration({
           </section>
         )}
         {!loading && currentTab === 'billing' && (
-          <section className="rounded-lg border border-border bg-background">
-            <Empty
-              icon={CreditCard}
-              title="Módulo económico no conectado"
-              text="Las facturas y métodos de pago aparecerán cuando el proveedor económico esté configurado."
-            />
+          <section className="rounded-lg border border-border bg-background overflow-hidden">
+            <div className="px-5 py-4 border-b border-border">
+              <h3 className="font-medium">Historial del plan</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Movimientos registrados para la suscripción de esta organización.
+              </p>
+            </div>
+            {(overview.billing_history || []).length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="p-4 text-left">Fecha</th>
+                      <th className="p-4 text-left">Plan</th>
+                      <th className="p-4 text-left">Movimiento</th>
+                      <th className="p-4 text-right">Importe registrado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {overview.billing_history.map((entry: Row) => (
+                      <tr key={entry.id}>
+                        <td className="p-4">{formatDate(entry.created_at)}</td>
+                        <td className="p-4">{entry.plan_name}</td>
+                        <td className="p-4">{humanize(entry.event_type)}</td>
+                        <td className="p-4 text-right">
+                          {new Intl.NumberFormat('es-MX', {
+                            style: 'currency',
+                            currency: 'MXN',
+                          }).format(Number(entry.amount || 0))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty
+                icon={CreditCard}
+                title="Sin movimientos registrados"
+                text="El historial aparecerá aquí cuando se registre un cambio en la suscripción. Las facturas fiscales dependen del proveedor de facturación."
+              />
+            )}
           </section>
         )}
         {!loading && currentTab === 'limits' && (

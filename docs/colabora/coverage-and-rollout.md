@@ -1,5 +1,10 @@
 # Docubox Colabora - cobertura y salida controlada
 
+> Actualización del 17 de noviembre de 2026: las nuevas conexiones de formularios y solicitudes
+> están implementadas y verificadas localmente. Su migración está pendiente por falta de acceso
+> SQL operativo a Supabase; no se deben considerar habilitadas ni verificadas en producción.
+> Consulta el inventario para el alcance, las pruebas reproducibles y los pendientes remotos.
+
 ## Cobertura de pantallas
 
 La especificacion enumera `COL-00` a `COL-18`: son 19 experiencias funcionales. Los 20 puntos del documento son criterios de aceptacion, no 20 rutas independientes.
@@ -28,6 +33,10 @@ La especificacion enumera `COL-00` a `COL-18`: son 19 experiencias funcionales. 
 | COL-18  | COLABORA PRO   | LucIA                      | asistente global existente con gating de Colabora                           | Integrada, sin asistente duplicado               |
 
 ## Orden de salida recomendado
+
+La [segunda fase de implementación](../organization/completion-second-phase.md) añade tareas paginadas, acciones masivas, revalidación de workers y exportaciones CSV/PDF/XLSX. Las nuevas migraciones todavía no están activadas en Supabase.
+
+La primera fase de alcances de roles ya tiene código y pruebas aisladas, pero sigue pendiente su activación SQL. Consultar [cobertura, evidencia y pendientes](../organization/resource-scopes-first-phase.md) antes de desplegar. Las migraciones nuevas deben aplicarse y comprobarse antes que el código que depende de ellas.
 
 1. Mantener las migraciones aplicadas en Supabase y ejecutar los contratos SQL en cada nueva entrega.
 2. Mantener el worker diario de Vercel Cron y, antes de habilitar automatizaciones sensibles al

@@ -8,6 +8,7 @@ export const caseSignatureLabels = {
 export type CaseSignatureType = keyof typeof caseSignatureLabels;
 export type CaseLaunchSettings = {
   accessMode: 'private' | 'public';
+  urgent?: boolean;
   signatureType: CaseSignatureType;
   requireLiveness: boolean;
   expirationHours: number;
@@ -27,6 +28,8 @@ export function normalizeCaseLaunchSettings(raw: unknown, now = Date.now()): Cas
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
     throw new Error('Revisa la configuración del lanzamiento.');
   const v = raw as Record<string, unknown>;
+  if (v.urgent !== undefined && typeof v.urgent !== 'boolean')
+    throw new Error('Revisa la opción de urgente.');
   if (!['private', 'public'].includes(String(v.accessMode)))
     throw new Error('Selecciona el tipo de acceso.');
   if (!Object.hasOwn(caseSignatureLabels, String(v.signatureType)))
@@ -51,6 +54,7 @@ export function normalizeCaseLaunchSettings(raw: unknown, now = Date.now()): Cas
   )
     throw new Error('Selecciona una fecha futura válida, dentro del próximo año.');
   return {
+    ...(v.urgent !== undefined ? { urgent: v.urgent === true } : {}),
     accessMode: v.accessMode as CaseLaunchSettings['accessMode'],
     signatureType: v.signatureType as CaseSignatureType,
     requireLiveness: v.accessMode === 'public' || v.requireLiveness,

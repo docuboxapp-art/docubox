@@ -16,6 +16,10 @@ import { appendDocumentOperationalEvent } from '@/lib/documents/operational-even
 import { emitDomainEvent } from '@/lib/notifications/service';
 import { queueWebhookDeliveriesForEvent } from './webhook-dispatcher';
 import {
+  authorizeOrganizationWorkerAction,
+  OrganizationWorkerAccessError,
+} from './worker-authorization';
+import {
   WORKFLOW_NOTIFICATION_CHANNELS,
   WORKFLOW_NOTIFICATION_RECIPIENTS,
 } from './workflow-definition';
@@ -201,6 +205,18 @@ export async function processOrganizationWorkflowExecutionSteps(
     summary.scanned += 1;
     let event: CanonicalEvent | null = null;
     try {
+      await authorizeOrganizationWorkerAction(service, {
+        sourceId: step.workflow_id,
+        sourceType: 'workflow',
+        workspaceId: step.workspace_id,
+        actionType:
+          step.step_type === 'webhook'
+            ? 'webhook'
+            : step.step_type === 'notification'
+              ? 'notify'
+              : 'activity',
+        documentId: step.subject_type === 'document' ? step.subject_id : null,
+      });
       let evidence: Record<string, unknown> = {};
       if (step.step_type === 'condition') {
         let decision = step.branch_decision;
@@ -272,11 +288,18 @@ export async function processOrganizationWorkflowExecutionSteps(
       summary.succeeded += 1;
     } catch (cause) {
       const shouldRetry =
-        retryableWorkflowError(cause) && Number(step.attempt_count || 1) < MAX_ATTEMPTS;
+        (cause instanceof OrganizationWorkerAccessError
+          ? cause.retryable
+          : retryableWorkflowError(cause)) && Number(step.attempt_count || 1) < MAX_ATTEMPTS;
       await finishStep(service, step, {
         result: shouldRetry ? 'retry' : 'failed',
         eventId: event?.id,
-        errorCode: cause instanceof Error ? cause.message.slice(0, 120) : 'WORKFLOW_STEP_FAILED',
+        errorCode:
+          cause instanceof OrganizationWorkerAccessError
+            ? cause.code
+            : cause instanceof Error
+              ? cause.message.slice(0, 120)
+              : 'WORKFLOW_STEP_FAILED',
       });
       if (shouldRetry) summary.retrying += 1;
       else summary.failed += 1;

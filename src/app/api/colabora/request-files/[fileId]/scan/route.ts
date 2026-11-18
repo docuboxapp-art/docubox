@@ -27,7 +27,8 @@ export async function POST(request: Request, context: { params: Promise<{ fileId
       request,
       input.workspace_id,
       'requests.review_items',
-      true
+      true,
+      { type: 'request_file', id: fileId }
     );
     const scannerUrl = process.env.COLABORA_MALWARE_SCAN_URL;
     const scannerToken = process.env.COLABORA_MALWARE_SCAN_TOKEN;

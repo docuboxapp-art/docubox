@@ -18,21 +18,73 @@ export interface GridColumnConfig {
 }
 
 export const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'numeroDocumento', label: 'Número de documento', visible: true },
-  { id: 'folioInterno', label: 'Folio interno documento', visible: false },
-  { id: 'estado', label: 'Estado', visible: true },
-  { id: 'estadoParticipacion', label: 'Estado de mi participación', visible: false },
-  { id: 'etiquetas', label: 'Etiquetas', visible: true },
-  { id: 'tamano', label: 'Tamaño', visible: true },
-  { id: 'ultimaModificacion', label: 'Última modificación', visible: true },
   { id: 'propietario', label: 'Propietario', visible: true },
-  { id: 'fechaCreacion', label: 'Fecha de creación', visible: false },
-  { id: 'fechaCompletado', label: 'Fecha de completado', visible: false },
+  { id: 'estado', label: 'Estado', visible: true },
+  { id: 'estadoParticipacion', label: 'Estado de mi participación', visible: true },
+  { id: 'fechaCreacion', label: 'Fecha de creación', visible: true },
+  { id: 'fechaCompletado', label: 'Fecha de completado', visible: true },
+  { id: 'numeroDocumento', label: 'Número de documento', visible: false },
+  { id: 'folioInterno', label: 'Folio interno documento', visible: false },
+  { id: 'etiquetas', label: 'Etiquetas', visible: false },
+  { id: 'tamano', label: 'Tamaño', visible: false },
+  { id: 'ultimaModificacion', label: 'Última modificación', visible: false },
   { id: 'tipoDocumento', label: 'Tipo de documento', visible: false },
   { id: 'fechaVencimiento', label: 'Fecha de vencimiento', visible: false },
   { id: 'rutaGuardado', label: 'Ruta de guardado', visible: false },
   { id: 'prioridad', label: 'Prioridad', visible: false },
 ];
+
+const LEGACY_COLUMN_ORDER = [
+  'numeroDocumento',
+  'folioInterno',
+  'estado',
+  'estadoParticipacion',
+  'etiquetas',
+  'tamano',
+  'ultimaModificacion',
+  'propietario',
+  'fechaCreacion',
+  'fechaCompletado',
+  'tipoDocumento',
+  'fechaVencimiento',
+  'rutaGuardado',
+  'prioridad',
+];
+const LEGACY_VISIBLE_COLUMNS = new Set([
+  'numeroDocumento',
+  'estado',
+  'etiquetas',
+  'tamano',
+  'ultimaModificacion',
+  'propietario',
+]);
+
+/** Upgrade untouched defaults for existing accounts while keeping intentional customizations. */
+export function normalizeDocumentColumns(raw: unknown): ColumnConfig[] {
+  const rows = Array.isArray(raw) ? raw : [];
+  const legacy =
+    rows.length === LEGACY_COLUMN_ORDER.length &&
+    rows.every(
+      (row, index) =>
+        row?.id === LEGACY_COLUMN_ORDER[index] && row.visible === LEGACY_VISIBLE_COLUMNS.has(row.id)
+    );
+  if (!rows.length || legacy) return DEFAULT_COLUMNS.map((column) => ({ ...column }));
+  const seen = new Set<string>();
+  const columns: ColumnConfig[] = [];
+  for (const row of rows) {
+    const known = DEFAULT_COLUMNS.find((column) => column.id === row?.id);
+    if (!known || seen.has(known.id)) continue;
+    seen.add(known.id);
+    columns.push({
+      ...known,
+      visible: typeof row.visible === 'boolean' ? row.visible : known.visible,
+    });
+  }
+  return [
+    ...columns,
+    ...DEFAULT_COLUMNS.filter((column) => !seen.has(column.id)).map((column) => ({ ...column })),
+  ];
+}
 
 export const DEFAULT_GRID_COLUMNS: GridColumnConfig[] = [
   { id: 'estado', label: 'Estado', selected: true, order: 1 },

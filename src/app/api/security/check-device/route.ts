@@ -1,9 +1,14 @@
+import { notifyOrganizationSecurityEvent } from '@/lib/organization/security-alerts.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendNewDeviceLoginEmail } from '@/lib/emailNotifications';
 import { createAnonClient } from '@/lib/supabase/server';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
-import { approximateLoginLocation, clientIp, shouldAlertForLocation } from '@/lib/security/login-location';
+import {
+  approximateLoginLocation,
+  clientIp,
+  shouldAlertForLocation,
+} from '@/lib/security/login-location';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -165,8 +170,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldAlert) {
-      const deviceTypeLabel = parsed.deviceType === 'mobile' ? 'Móvil' :
-        parsed.deviceType === 'tablet' ? 'Tablet' : 'Escritorio';
+      const deviceTypeLabel =
+        parsed.deviceType === 'mobile'
+          ? 'Móvil'
+          : parsed.deviceType === 'tablet'
+            ? 'Tablet'
+            : 'Escritorio';
       if (profile?.email || authData.user.email) {
         try {
           await sendNewDeviceLoginEmail({
@@ -206,6 +215,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (shouldAlert)
+      await notifyOrganizationSecurityEvent(supabaseAdmin, {
+        event: 'auth.anomaly',
+        eventId: `${authData.user.id}:${fingerprint}:${new Date().toISOString().slice(0, 10)}`,
+        affectedUserId: authData.user.id,
+      });
     return NextResponse.json({
       success: true,
       isNewDevice: !existingDevice && !isFirstDevice,

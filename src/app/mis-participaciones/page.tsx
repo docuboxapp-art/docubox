@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
+import ActivityHub, { ActivityLoading } from '@/components/activity/ActivityHub';
+import ActivityTypeTabs from '@/components/activity/ActivityTypeTabs';
 import { ActivitySummary, type ActivitySummaryMetric } from '@/components/documents/ActivitySummary';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -9,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { DocumentPriorityBadge } from '@/components/documents/DocumentPriorityBadge';
 import { operationalPriorityRank } from '@/lib/documents/priority';
+import { signatureMethodList, signatureMethodLabel } from '@/lib/documents/signature-methods';
 
 import {
   Search,
@@ -585,7 +588,7 @@ function ParticipationDetails({ req }: { req: MyParticipation }) {
           )}
           {req.myTipoFirma?.length ? (
             <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">
-              {req.myTipoFirma.join(', ')}
+              {signatureMethodList(req.myTipoFirma).map(signatureMethodLabel).join(', ')}
             </span>
           ) : null}
           {req.camposSolicitados?.length ? (
@@ -1803,7 +1806,7 @@ function DayCalendar({
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function MisParticipacionesPage() {
+function DocumentParticipationsPage() {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const { user } = useAuth();
@@ -2082,16 +2085,7 @@ export default function MisParticipacionesPage() {
   }, [user?.id, fetchParticipaciones]);
 
   if (loadingData) {
-    return (
-      <AppLayout noPadding>
-        <div className="-mx-4 -my-4 flex min-h-[calc(100vh-4rem)] items-center justify-center bg-[#f6f8fb] px-4 md:-my-6">
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200/90 bg-white px-8 py-7 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <p className="text-sm text-slate-500">Cargando participaciones...</p>
-          </div>
-        </div>
-      </AppLayout>
-    );
+    return <ActivityLoading mode="received" />;
   }
 
   return (
@@ -2105,10 +2099,12 @@ export default function MisParticipacionesPage() {
                 Mis participaciones
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Consulta y atiende los documentos en los que participas.
+                Consulta y atiende tus documentos, formularios y expedientes.
               </p>
             </div>
           </div>
+
+          <ActivityTypeTabs mode="received" active="documentos" />
 
           {/* Data error banner */}
           {dataError && (
@@ -2591,4 +2587,8 @@ export default function MisParticipacionesPage() {
       </div>
     </AppLayout>
   );
+}
+
+export default function MisParticipacionesPage() {
+  return <ActivityHub mode="received" documents={DocumentParticipationsPage} />;
 }

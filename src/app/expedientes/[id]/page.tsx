@@ -207,10 +207,10 @@ export default function ExpedienteDetailPage() {
             </p>
             <button
               type="button"
-              onClick={() => router.push('/expedientes')}
+              onClick={() => router.push('/mis-documentos?pestana=expedientes')}
               className="mt-5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white"
             >
-              Volver a expedientes
+              Volver a mis expedientes
             </button>
           </div>
         </CaseWorkspace>
@@ -222,10 +222,10 @@ export default function ExpedienteDetailPage() {
     <AppLayout noPadding>
       <CaseWorkspace>
         <button
-          onClick={() => router.push('/expedientes')}
+          onClick={() => router.push('/mis-documentos?pestana=expedientes')}
           className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-primary"
         >
-          <ArrowLeft size={14} /> Expedientes
+          <ArrowLeft size={14} /> Mis expedientes
         </button>
         <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/30 dark:border-border dark:bg-card md:p-5">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">

@@ -1,0 +1,524 @@
+.document-viewer-shell {
+  height: calc(100dvh - 104px);
+  min-height: 0;
+}
+.document-viewer-shell.with-sidebar {
+  height: calc(100dvh - 64px);
+}
+.viewer-document-tab,
+.viewer-return-to-document,
+.signing-mobile-views {
+  display: none;
+}
+.document-preview-scroll {
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.document-preview-scroll > div {
+  flex-shrink: 0;
+}
+.signing-document-sheet {
+  flex-shrink: 0;
+  margin-inline: auto;
+}
+.signature-otp {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  max-width: 320px;
+  margin-inline: auto;
+}
+.signature-otp input {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Keep the signing controls consistent, including dialogs rendered inside it. */
+.document-signing-shell :where(button),
+.document-signing-complete :where(button),
+.viewer-document-header :where(button),
+.viewer-fullscreen-modal :where(button) {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.document-signing-shell :where(button:focus-visible),
+.document-signing-complete :where(button:focus-visible) {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+}
+.document-signing-shell :where(button:disabled) {
+  cursor: not-allowed;
+}
+.signature-mobile-session > div {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.signature-pad-controls button[aria-label^='Color'] {
+  width: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mobile-document-signature button {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.mobile-signature-tools {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+}
+.mobile-signature-tools > div {
+  display: none;
+}
+.mobile-signature-tools button {
+  min-width: 44px;
+}
+.mobile-signature-tools button[style] {
+  border-radius: 50%;
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .mobile-document-signature .mobile-signature-tools {
+    display: grid;
+    grid-template-columns: repeat(2, 44px);
+    align-content: center;
+  }
+}
+
+@media (max-width: 1279px) {
+  .document-signing-shell :where(button),
+  .document-signing-complete :where(button) {
+    min-height: 44px;
+  }
+  .signature-pad-header,
+  .signature-pad-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .signature-pad-header > div:last-child {
+    margin-left: auto;
+  }
+  .signature-pad-header button,
+  .signature-pad-controls button {
+    min-width: 44px;
+  }
+  .document-signing-shell > header button {
+    min-width: 44px;
+  }
+  .document-signing-shell > header nav button {
+    min-height: 44px;
+  }
+  .document-signing-shell button[aria-label$='contraseña de e.firma'] {
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    right: 0;
+  }
+  .signature-pad-actions > button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .document-signing-shell > section > div > div:first-child {
+    flex-wrap: wrap;
+  }
+  .document-signing-shell > section h1 {
+    min-width: 0;
+    flex-shrink: 1;
+    overflow-wrap: anywhere;
+  }
+  .document-viewer-shell .document-viewer-tabs > button[data-mobile-active='false'],
+  .document-viewer-shell .viewer-document-tab[aria-pressed='false'] {
+    background: transparent;
+    color: #64748b;
+    border-color: transparent;
+  }
+  .document-viewer-shell
+    .document-viewer-tabs
+    > button[data-mobile-active='false']
+    > span:first-child:not(.document-viewer-tab-label) {
+    display: none;
+  }
+  .document-viewer-shell .viewer-document-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .document-viewer-shell .viewer-document-header > div:first-child {
+    flex-basis: 100%;
+  }
+  .document-viewer-shell .viewer-document-header > div:last-child {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .document-viewer-shell .viewer-document-header button {
+    min-height: 44px;
+  }
+  .document-viewer-shell .viewer-sections {
+    display: contents;
+  }
+  .document-viewer-shell .document-viewer-tabs {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 30;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 68px;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-inline: 0;
+    border-bottom: 1px solid hsl(var(--border));
+    padding: 6px 8px;
+    scrollbar-width: thin;
+  }
+  .document-viewer-shell .document-viewer-tabs > button {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 5px;
+    width: auto;
+    min-width: 76px;
+    max-width: none;
+    height: 52px;
+    padding-inline: 8px;
+  }
+  .document-viewer-shell .document-viewer-tabs .document-viewer-tab-label {
+    display: block;
+    width: auto;
+    font-size: 11px !important;
+    line-height: 14px !important;
+  }
+  .document-viewer-shell .document-viewer-tabs > button > span:first-child {
+    inset: auto 8px -3px;
+    height: 2px;
+    width: auto;
+  }
+  .document-viewer-shell .document-viewer-tabs > div {
+    height: 28px;
+    width: 1px;
+    margin-inline: 4px;
+  }
+  .document-viewer-shell .document-viewer-panel {
+    position: absolute !important;
+    inset: 68px 0 0 !important;
+    z-index: 20 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    border-left: 0;
+  }
+  .document-viewer-shell .document-viewer-panel:not(.is-mobile-open) {
+    display: none;
+  }
+  .viewer-return-to-document {
+    display: flex;
+    min-height: 44px;
+  }
+  .document-viewer-shell .viewer-preview-tools {
+    top: 80px;
+    left: 12px;
+    right: 12px;
+  }
+  .document-viewer-shell .viewer-preview-scroll {
+    padding-top: 136px !important;
+    padding-bottom: 116px !important;
+  }
+  .viewer-pagination {
+    width: max-content;
+    max-width: calc(100% - 24px);
+  }
+  .viewer-pagination > div {
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 16px;
+  }
+  .viewer-pagination button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  .viewer-pagination input {
+    min-height: 36px;
+    font-size: 16px;
+  }
+  .viewer-fullscreen-modal > div:last-child {
+    height: auto;
+    min-height: 64px;
+    padding-block: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .viewer-fullscreen-modal > div:first-child {
+    gap: 12px;
+  }
+  .viewer-fullscreen-modal > div:first-child > span {
+    min-width: 0;
+  }
+  .viewer-fullscreen-modal > div:first-child > button {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+  .document-preview-scroll > div {
+    margin-inline: auto;
+  }
+  .document-preview-scroll {
+    justify-content: flex-start;
+  }
+  .viewer-preview-scroll > div {
+    width: max-content;
+    min-width: 100%;
+  }
+  .signing-mobile-views {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  .signing-mobile-views button {
+    display: flex;
+    min-height: 44px;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 10px;
+    font-size: 14px;
+    color: hsl(var(--muted-foreground));
+  }
+  .signing-mobile-views button[aria-pressed='true'] {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    font-weight: 500;
+  }
+  .document-signing-shell .signing-pdf-pane {
+    display: none;
+  }
+  .document-signing-shell .signing-process-pane {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+  .document-signing-shell[data-mobile-view='document'] .signing-pdf-pane {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+  .document-signing-shell[data-mobile-view='document'] .signing-process-pane {
+    display: none;
+  }
+  .document-signing-shell [data-doc-sheet-firmar] {
+    flex-shrink: 0;
+    margin-inline: auto;
+  }
+  .document-signing-shell .signing-pdf-pane [class*='absolute inset-0'] {
+    justify-content: flex-start;
+    padding-bottom: 136px;
+  }
+  .signing-pdf-pagination {
+    width: max-content;
+    max-width: calc(100% - 24px);
+    bottom: 12px;
+  }
+  .signing-pdf-pagination > div {
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 16px;
+  }
+  .signing-pdf-pagination button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .signing-action-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .signing-action-bar button {
+    min-height: 44px;
+  }
+  .signing-document-modal-toolbar {
+    position: static;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+    background: hsl(var(--card));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+  .signing-document-modal-toolbar > span {
+    max-width: 100%;
+    flex-basis: 100%;
+  }
+  .signing-document-modal-toolbar > div {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+  }
+  .signing-document-modal-toolbar button {
+    min-height: 44px;
+  }
+  .signing-document-modal .document-preview-scroll > div {
+    width: max-content;
+    padding: 16px;
+  }
+  .document-signing-complete > div {
+    flex-direction: column;
+    overflow: visible;
+  }
+  .document-signing-complete > div > div:first-child {
+    display: flex;
+    width: 100%;
+    height: 55dvh;
+    min-height: 320px;
+    flex: none;
+  }
+  .document-signing-complete > div > div:last-child {
+    width: 100%;
+    flex: none;
+  }
+  .document-signing-complete > div > div:last-child > div:first-child {
+    overflow: visible;
+  }
+  .document-signing-shell
+    :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .document-viewer-shell {
+    height: calc(100dvh - 64px);
+  }
+}
+
+@media (max-width: 420px) {
+  .signature-pad-workspace {
+    flex-direction: column;
+  }
+  .signature-pad-controls {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .signature-pad-controls > div {
+    flex-direction: row;
+  }
+  .signature-pad-controls > div:nth-child(2) {
+    display: none;
+  }
+  .signing-action-bar button {
+    padding-inline: 10px;
+    font-size: 14px;
+  }
+  .signing-document-modal-toolbar > div > div {
+    padding-inline: 6px;
+  }
+  .viewer-document-header h1 {
+    font-size: 15px;
+  }
+}
+
+/* Compact phone controls; tablet and desktop keep their existing sizing. */
+@media (max-width: 639px) {
+  .document-signing-shell :where(button),
+  .document-signing-complete :where(button),
+  .mobile-document-signature button,
+  .document-viewer-shell .viewer-document-header button,
+  .viewer-fullscreen-modal button {
+    min-height: 36px;
+    border-radius: 6px;
+    padding-block: 6px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  .document-signing-shell > header button,
+  .document-signing-shell > header nav button,
+  .signature-pad-header button,
+  .signature-pad-controls button,
+  .document-signing-shell button[aria-label$='contraseña de e.firma'] {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .document-signing-shell > header nav button {
+    height: 36px;
+  }
+  .signing-mobile-views {
+    gap: 6px;
+    padding-block: 6px;
+  }
+  .signing-mobile-views button,
+  .signing-action-bar button,
+  .signing-document-modal-toolbar button {
+    min-height: 36px;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+  .signing-action-bar {
+    gap: 6px;
+    padding-block: 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .signing-action-bar > div {
+    gap: 6px;
+  }
+  .signing-pdf-pagination button,
+  .viewer-pagination button {
+    min-width: 32px;
+    min-height: 32px;
+    padding-block: 4px;
+    font-size: 12px;
+  }
+  .signature-pad-header {
+    padding: 8px 12px;
+  }
+  .signature-pad-controls button[aria-label^='Color'],
+  .mobile-signature-tools button[style] {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+  .mobile-signature-tools,
+  .mobile-document-signature .mobile-signature-tools {
+    grid-template-columns: repeat(3, 36px);
+    gap: 8px;
+  }
+  .mobile-signature-tools button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .document-viewer-shell .viewer-document-header {
+    padding: 8px 12px;
+    gap: 6px;
+  }
+  .document-viewer-shell .viewer-document-header button {
+    padding-inline: 10px;
+  }
+  .document-viewer-shell .document-viewer-tabs {
+    height: 58px;
+    padding: 5px 6px;
+  }
+  .document-viewer-shell .document-viewer-tabs > button {
+    min-width: 64px;
+    height: 44px;
+    gap: 3px;
+    padding-inline: 6px;
+  }
+  .document-viewer-shell .document-viewer-panel {
+    inset: 58px 0 0 !important;
+  }
+  .viewer-return-to-document {
+    min-height: 36px;
+    padding-block: 6px;
+    font-size: 13px;
+  }
+  .document-viewer-shell .viewer-preview-tools {
+    top: 68px;
+  }
+  .document-viewer-shell .viewer-preview-scroll {
+    padding-top: 120px !important;
+    padding-bottom: 96px !important;
+  }
+}

@@ -63,6 +63,7 @@ import {
   DEFAULT_FILTERS,
   DEFAULT_GRID_COLUMNS,
   DEFAULT_CF_COLUMNS,
+  normalizeDocumentColumns,
   type ColumnConfig,
   type FilterVisibilityConfig,
   type GridColumnConfig,
@@ -83,6 +84,11 @@ import {
   visibleFoldersForDocuments,
 } from './components/folder-filter';
 import AppLayout from '@/components/AppLayout';
+import ResponsiveSidebar from '@/components/ResponsiveSidebar';
+import WorkspaceTabs from '@/components/workspaces/WorkspaceTabs';
+import WorkspacePageHeader from '@/components/workspaces/WorkspacePageHeader';
+import { CUSTOM_FILTER_ICON_OPTIONS } from '@/lib/filters/custom-filter-icons';
+import { useAppModules } from '@/contexts/AppModulesContext';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { DocumentPriorityBadge } from '@/components/documents/DocumentPriorityBadge';
 import { getTrashCountdown } from '@/lib/documents/trash-countdown';
@@ -95,6 +101,7 @@ import {
 const PersonalizarVistaModal = dynamic(() => import('./components/PersonalizarVistaModal'), {
   ssr: false,
 });
+const WorkspaceCases = dynamic(() => import('../expedientes/components/CaseBrowser'));
 
 const DOCUMENT_LOAD_RETRY_DELAYS_MS = [1_200];
 
@@ -806,88 +813,7 @@ const OWNED_PARTICIPANT_STATUS_OPTIONS = [
   { value: 'participacion_vencida', label: 'Participación vencida', dot: 'bg-red-800' },
 ] as const;
 
-const CUSTOM_FILTER_ICON_OPTIONS = [
-  '📁',
-  '⭐',
-  '🔥',
-  '📌',
-  '✅',
-  '🚨',
-  '📋',
-  '🗂️',
-  '💼',
-  '🔒',
-  '📄',
-  '📝',
-  '📊',
-  '📈',
-  '📉',
-  '🗃️',
-  '🗄️',
-  '📦',
-  '🏷️',
-  '🔖',
-  '⚡',
-  '🎯',
-  '💡',
-  '🔍',
-  '🔔',
-  '⏰',
-  '📅',
-  '🗓️',
-  '✉️',
-  '📨',
-  '💬',
-  '🤝',
-  '👥',
-  '🏢',
-  '🌐',
-  '🔗',
-  '⚙️',
-  '🛡️',
-  '🔑',
-  '💰',
-  '🧾',
-  '📜',
-  '🏆',
-  '🎖️',
-  '✍️',
-  '🖊️',
-  '📮',
-  '📬',
-  '🗺️',
-  '🧩',
-  '📂',
-  '📑',
-  '🗒️',
-  '📚',
-  '📘',
-  '🪪',
-  '👤',
-  '📍',
-  '🧭',
-  '🧰',
-  '⚖️',
-  '🏛️',
-  '🏠',
-  '🏭',
-  '🏦',
-  '🏥',
-  '🚚',
-  '🛒',
-  '💳',
-  '🪙',
-  '📱',
-  '💻',
-  '🖨️',
-  '📷',
-  '🎓',
-  '🧮',
-  '🧪',
-  '🩺',
-  '🗳️',
-  '🔐',
-] as const;
+
 
 interface GrupoTipoDocumento {
   id: string;
@@ -2370,6 +2296,7 @@ function MisDocumentosContent() {
   const [porVencerSearch, setPorVencerSearch] = useState('');
   const [porVencerViewMode, setPorVencerViewMode] = useState<'list' | 'grid'>('list');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [miEspacioSortDropdownOpen, setMiEspacioSortDropdownOpen] = useState(false);
   const miEspacioSortDropdownRef = React.useRef<HTMLDivElement>(null);
   const [selectedEtiqueta, setSelectedEtiqueta] = useState<string | null>(null);
@@ -4279,11 +4206,7 @@ function MisDocumentosContent() {
 
       if (!error && data) {
         if (Array.isArray(data.columns_config) && data.columns_config.length > 0) {
-          // Merge stored order/visibility with defaults (add any missing columns)
-          const stored: ColumnConfig[] = data.columns_config;
-          const storedIds = stored.map((c: ColumnConfig) => c.id);
-          const missing = DEFAULT_COLUMNS.filter((c) => !storedIds.includes(c.id));
-          setColumnConfig([...stored, ...missing]);
+          setColumnConfig(normalizeDocumentColumns(data.columns_config));
         }
         if (Array.isArray(data.filters_config) && data.filters_config.length > 0) {
           const stored: FilterVisibilityConfig[] = data.filters_config;
@@ -7116,33 +7039,23 @@ function MisDocumentosContent() {
     };
     return (
       <>
-        <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-600 text-slate-950">Mi Espacio</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Espacio de trabajo de{' '}
-              <span className="font-600 text-slate-700">
-                {isPersonalWorkspace ? personalUserFullName : workspaceDisplayName}
-              </span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowCarpetaModal(true)}
-              className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
-            >
-              <FolderPlus size={16} className="text-primary" />
-              Crear Carpeta
-            </button>
-            <button
-              onClick={() => router.push('/crear-documento')}
-              className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
-            >
-              <FilePlus size={16} />
-              Crear Documento
-            </button>
-          </div>
-        </div>
+        <WorkspacePageHeader title="Documentos">
+          <button
+            onClick={() => setShowCarpetaModal(true)}
+            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+          >
+            <FolderPlus size={16} className="text-primary" />
+            Crear Carpeta
+          </button>
+          <button
+            onClick={() => router.push('/crear-documento')}
+            className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
+          >
+            <FilePlus size={16} />
+            Crear Documento
+          </button>
+        </WorkspacePageHeader>
+        <WorkspaceTabs active="documentos" />
         {folderBreadcrumb.length > 0 && (
           <div className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
             <button
@@ -7367,9 +7280,17 @@ function MisDocumentosContent() {
           </div>
 
           {/* Filter bar row */}
+          {visibleFilters.length > 0 && <button
+            type="button"
+            aria-expanded={mobileFiltersOpen}
+            aria-controls="document-filter-controls"
+            onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
+            className="flex min-h-11 w-full items-center justify-between border-t border-slate-100 px-3 text-sm text-slate-600 lg:hidden"
+          ><span className="flex items-center gap-2"><Filter size={16} />Filtros de documentos</span><ChevronDown size={15} className={mobileFiltersOpen ? 'rotate-180' : ''} /></button>}
           {visibleFilters.length > 0 && (
             <div
-              className="mis-documentos-filters flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5"
+              id="document-filter-controls"
+              className={`mis-documentos-filters ${mobileFiltersOpen ? 'flex' : 'hidden lg:flex'} flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5`}
               ref={filterDropdownRef}
             >
               {visibleFilters.map((f) => {
@@ -7917,10 +7838,11 @@ function MisDocumentosContent() {
   return (
     <AppLayout noPadding>
       <div
-        className={`flex bg-[#f6f8fb] ${isFullscreen ? 'fixed inset-0 z-[100]' : '-mx-4 -my-4 min-h-[calc(100vh-104px)] md:-my-6'}`}
+        className={`workspace-layout flex bg-[#f6f8fb] ${isFullscreen ? 'fixed inset-0 z-[100]' : '-mx-4 -my-4 min-h-[calc(100dvh-104px)] md:-my-6'}`}
       >
         {/* Left sidebar */}
-        <aside
+        <ResponsiveSidebar
+          label="Carpetas y filtros de documentos"
           className={`flex w-60 flex-shrink-0 flex-col border-r border-slate-200/90 bg-white 2xl:w-64 ${isFullscreen ? 'hidden' : ''}`}
         >
           <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-3">
@@ -8086,10 +8008,11 @@ function MisDocumentosContent() {
               <span className="text-left flex-1 truncate">Crear filtro</span>
             </button>
           </div>
-        </aside>
+        </ResponsiveSidebar>
 
         {/* Main content */}
-        <main className="flex-1 overflow-auto px-4 pb-4 pt-4 sm:px-5 md:pb-5 lg:px-6 xl:px-7">
+        <main className="min-w-0 flex-1 overflow-auto px-4 pb-4 pt-4 sm:px-5 md:pb-5 lg:px-6 xl:px-7">
+          {activeSection !== 'mi-espacio' && <WorkspaceTabs active="documentos" />}
           {activeSection === 'mi-espacio' && renderMiEspacioContent()}
 
           {activeSection === 'favoritos' && (
@@ -11953,7 +11876,17 @@ function MisDocumentosContent() {
 export default function MisDocumentosPage() {
   return (
     <Suspense fallback={null}>
-      <MisDocumentosContent />
+      <WorkspaceContent />
     </Suspense>
   );
+}
+
+function WorkspaceContent() {
+  const params = useSearchParams();
+  const { activeWorkspace } = useWorkspace();
+  const { isModuleActive, loading } = useAppModules();
+  if (params.get('pestana') === 'expedientes' && loading) return <p className="p-8 text-sm text-slate-500">Cargando Mi Espacio…</p>;
+  return params.get('pestana') === 'expedientes' && isModuleActive('expedientes')
+    ? <WorkspaceCases key={`${activeWorkspace?.id}:${params.toString()}`} />
+    : <MisDocumentosContent />;
 }

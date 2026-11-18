@@ -9,8 +9,13 @@ import { isPhaseEFeatureEnabled, PHASE_E_FEATURES } from '@/lib/phase-e/feature-
 export const runtime = 'nodejs';
 
 function normalizeDomain(value: unknown) {
-  const domain = String(value || '').trim().toLowerCase().replace(/^@/, '');
-  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)
+  const domain = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, '');
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(
+    domain
+  )
     ? domain
     : '';
 }
@@ -29,13 +34,27 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: 'SSO no esta habilitado.' }, { status: 503 });
     }
     if (action === 'configure') {
-      await requireOrganizationReauthentication(request, workspaceId, user.id, 'integrations.manage');
+      await requireOrganizationReauthentication(
+        request,
+        workspaceId,
+        user.id,
+        'integrations.manage'
+      );
       const protocol = body.protocol === 'oidc' ? 'oidc' : 'saml';
       const providerId = String(body.provider_id || '').trim();
       const domain = normalizeDomain(body.domain);
       const displayName = String(body.display_name || '').trim();
-      if (!providerId || providerId.length > 200 || !domain || !displayName || displayName.length > 120) {
-        return Response.json({ success: false, error: 'Completa proveedor, dominio y nombre.' }, { status: 400 });
+      if (
+        !providerId ||
+        providerId.length > 200 ||
+        !domain ||
+        !displayName ||
+        displayName.length > 120
+      ) {
+        return Response.json(
+          { success: false, error: 'Completa proveedor, dominio y nombre.' },
+          { status: 400 }
+        );
       }
       const saved = await service
         .from('organization_integrations')
@@ -89,7 +108,10 @@ export async function POST(request: Request) {
       const providerId = String(configuration?.provider_id || '');
       const domain = normalizeDomain(configuration?.domain);
       if (!integration.data || !providerId || !domain) {
-        return Response.json({ success: false, error: 'El proveedor SSO no esta configurado.' }, { status: 409 });
+        return Response.json(
+          { success: false, error: 'El proveedor SSO no esta configurado.' },
+          { status: 409 }
+        );
       }
       const token = randomBytes(32).toString('base64url');
       const created = await service.from('organization_sso_test_sessions').insert({

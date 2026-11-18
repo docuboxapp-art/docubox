@@ -1003,7 +1003,7 @@ export default function PlantillasGalleryPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <table className="w-full min-w-[980px] table-fixed text-sm">
+                  <table className="responsive-data-table w-full min-w-[980px] table-fixed text-sm">
                     <thead className="border-b border-slate-200 bg-slate-50/80">
                       <tr>
                         <th className="w-[36%] px-3 py-3 text-left text-xs font-medium text-slate-500">
@@ -1036,7 +1036,7 @@ export default function PlantillasGalleryPage() {
                         const description = getPlantillaDesc(template).trim();
                         return (
                           <tr key={template.id} className="transition-colors hover:bg-slate-50/70">
-                            <td className="px-3 py-3">
+                            <td data-label="Plantilla" className="px-3 py-3">
                               <div className="flex min-w-0 items-center gap-3">
                                 <TemplateDocumentPreview plantilla={template} compact />
                                 <div className="min-w-0">
@@ -1056,12 +1056,12 @@ export default function PlantillasGalleryPage() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 py-3">
+                            <td data-label="Tipo de documento" className="px-3 py-3">
                               <span className="block truncate text-xs text-slate-600">
                                 {template.tipo_documento?.nombre || 'Sin clasificar'}
                               </span>
                             </td>
-                            <td className="px-3 py-3">
+                            <td data-label="Estado" className="px-3 py-3">
                               <span
                                 className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${statusCfg.color}`}
                               >
@@ -1069,13 +1069,13 @@ export default function PlantillasGalleryPage() {
                                 {statusCfg.label}
                               </span>
                             </td>
-                            <td className="px-3 py-3 text-xs text-slate-600">
+                            <td data-label="Campos" className="px-3 py-3 text-xs text-slate-600">
                               {getPlantillaFields(template).length}
                             </td>
-                            <td className="px-3 py-3 text-xs text-slate-500">
+                            <td data-label="Actualizada" className="px-3 py-3 text-xs text-slate-500">
                               {formatDate(template.updated_at)}
                             </td>
-                            <td className="px-3 py-3">
+                            <td data-label="Acciones" className="px-3 py-3">
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"

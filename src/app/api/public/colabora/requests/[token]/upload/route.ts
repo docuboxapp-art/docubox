@@ -1,5 +1,7 @@
+import { organizationApiFailure } from '@/lib/organization/server';
 import { createHash, randomUUID } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hasCurrentCollaborationEntitlement } from '@/lib/collaboration/entitlements-server';
 
 export const runtime = 'nodejs';
 
@@ -8,7 +10,12 @@ const ALLOWED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
 function safeName(name: string) {
-  return name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) || 'archivo';
+  return (
+    name
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(-120) || 'archivo'
+  );
 }
 
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
@@ -17,8 +24,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   try {
     const { token } = await context.params;
     const sessionToken = request.headers.get('x-colabora-session') || '';
-    if (!sessionToken)
-      return Response.json({ error: 'La sesion es requerida.' }, { status: 401 });
+    if (!sessionToken) return Response.json({ error: 'La sesion es requerida.' }, { status: 401 });
 
     const requestResult = await service
       .from('collaboration_document_requests')
@@ -34,6 +40,18 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         new Date(documentRequest.access_expires_at).getTime() <= Date.now())
     )
       return Response.json({ error: 'La solicitud no acepta nuevas cargas.' }, { status: 410 });
+    if (
+      !(await hasCurrentCollaborationEntitlement(
+        service,
+        documentRequest.workspace_id,
+        'collaboration_core',
+        true
+      ))
+    )
+      return Response.json(
+        { error: 'La organización no tiene habilitadas nuevas entregas.' },
+        { status: 403 }
+      );
 
     const sessionResult = await service
       .from('collaboration_request_external_sessions')
@@ -46,7 +64,10 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       .maybeSingle();
     if (sessionResult.error) throw sessionResult.error;
     if (!sessionResult.data)
-      return Response.json({ error: 'La sesion vencio. Vuelve a verificar tu correo.' }, { status: 401 });
+      return Response.json(
+        { error: 'La sesion vencio. Vuelve a verificar tu correo.' },
+        { status: 401 }
+      );
 
     const formData = await request.formData();
     const itemId = String(formData.get('item_id') || '');
@@ -60,7 +81,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
 
     const itemResult = await service
       .from('collaboration_request_items')
-      .select('id,status')
+      .select('id,status,item_type')
       .eq('workspace_id', documentRequest.workspace_id)
       .eq('request_id', documentRequest.id)
       .eq('id', itemId)
@@ -69,14 +90,11 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (!itemResult.data || ['approved', 'waived'].includes(itemResult.data.status))
       return Response.json({ error: 'Este requisito ya no admite archivos.' }, { status: 409 });
 
-    const previous = await service
-      .from('collaboration_request_files')
-      .select('id,version')
-      .eq('request_item_id', itemId)
-      .order('version', { ascending: false })
-      .limit(1);
-    if (previous.error) throw previous.error;
-    const version = (previous.data?.[0]?.version || 0) + 1;
+    if (!['document', 'identity'].includes(itemResult.data.item_type))
+      return Response.json(
+        { error: 'Este requisito se completa mediante su formulario o proceso de firma.' },
+        { status: 422 }
+      );
     const bytes = Buffer.from(await file.arrayBuffer());
     uploadedPath = `collaboration-requests/${documentRequest.workspace_id}/${documentRequest.id}/${itemId}/${randomUUID()}-${safeName(file.name)}`;
     const upload = await service.storage.from('documents').upload(uploadedPath, bytes, {
@@ -86,47 +104,26 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     });
     if (upload.error) throw upload.error;
 
-    const inserted = await service
-      .from('collaboration_request_files')
-      .insert({
-        workspace_id: documentRequest.workspace_id,
-        request_item_id: itemId,
+    const inserted = await service.rpc('colabora_receive_request_file', {
+      request_hash: sha(token),
+      session_hash: sha(sessionToken),
+      item_id: itemId,
+      file_values: {
         original_name: file.name,
         storage_path: uploadedPath,
         mime_type: file.type,
         byte_size: file.size,
         sha256: sha(bytes),
-        malware_scan_status: 'pending',
-        version,
-        replaced_file_id: previous.data?.[0]?.id || null,
-        uploaded_by_external_session_id: sessionResult.data.id,
-      })
-      .select('id,original_name,mime_type,byte_size,sha256,malware_scan_status,version,received_at')
-      .single();
-    if (inserted.error) throw inserted.error;
-    const itemUpdate = await service
-      .from('collaboration_request_items')
-      .update({ status: 'uploaded', validation_status: 'pending', rejection_reason: null })
-      .eq('id', itemId);
-    if (itemUpdate.error) throw itemUpdate.error;
-    await service
-      .from('collaboration_document_requests')
-      .update({ status: 'in_progress' })
-      .eq('id', documentRequest.id)
-      .in('status', ['sent', 'in_progress']);
-    await service.from('collaboration_activity_events').insert({
-      workspace_id: documentRequest.workspace_id,
-      event_type: 'request.file_received',
-      resource_type: 'document_request',
-      resource_id: documentRequest.id,
-      summary: `Se recibio un archivo para la solicitud documental.`,
-      visibility: 'internal',
-      metadata: { request_item_id: itemId, file_id: inserted.data.id, version },
+      },
     });
-    return Response.json({ success: true, data: inserted.data }, { status: 201 });
-  } catch {
+    if (inserted.error) throw inserted.error;
+    uploadedPath = '';
+    return Response.json(
+      { success: true, data: inserted.data },
+      { status: 201, headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch (error) {
     if (uploadedPath) await service.storage.from('documents').remove([uploadedPath]);
-    return Response.json({ error: 'No se pudo recibir el archivo.' }, { status: 500 });
+    return organizationApiFailure(error);
   }
 }
-

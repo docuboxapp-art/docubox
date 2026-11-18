@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   Archive,
@@ -20,9 +21,12 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import OrganizationPageHeader from './OrganizationPageHeader';
 import OrganizationWorkflowBuilder from '@/components/organization/OrganizationWorkflowBuilder';
 import type { WorkflowBuilderCapabilities } from '@/components/organization/OrganizationWorkflowBuilder';
 import { OrganizationCustodyInbox } from '@/components/organization/OrganizationCustodyInbox';
+import OrganizationRecordActions from './OrganizationRecordActions';
+import { organizationValueLabels } from '@/lib/organization/catalog';
 
 export type GovernanceSection =
   'directorio' | 'facultades' | 'flujos' | 'politicas-firma' | 'recursos';
@@ -102,20 +106,20 @@ function Status({ value }: { value?: string }) {
   );
 }
 
-function Header({ section, action }: { section: GovernanceSection; action?: React.ReactNode }) {
+function Header({ section, action }: { section: GovernanceSection; action?: ReactNode }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-      <div>
-        <h2 className="text-xl font-medium text-foreground">{sectionMeta[section][0]}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{sectionMeta[section][1]}</p>
-      </div>
+    <OrganizationPageHeader title={sectionMeta[section][0]} description={sectionMeta[section][1]}>
       {action}
-    </div>
+    </OrganizationPageHeader>
   );
 }
 
 function Notices({ error, success }: { error: string; success: string }) {
-  return error ? <BottomNotice message={error} tone="critical" /> : success ? <BottomNotice message={success} tone="success" /> : null;
+  return error ? (
+    <BottomNotice message={error} tone="critical" />
+  ) : success ? (
+    <BottomNotice message={success} tone="success" />
+  ) : null;
 }
 
 function Empty({ title, text }: { title: string; text: string }) {
@@ -139,6 +143,7 @@ function DefaultGovernanceControl({
   canManage: boolean;
 }) {
   const { session } = useAuth();
+  const accessToken = session?.access_token;
   const [currentId, setCurrentId] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -150,12 +155,12 @@ function DefaultGovernanceControl({
   const title = kind === 'workflow' ? 'Flujo predeterminado' : 'Política predeterminada';
 
   const request = useCallback(
-    async (path: string, init?: RequestInit) => {
+    async (path: string, init?: NonNullable<Parameters<typeof fetch>[1]>) => {
       const response = await fetch(path, {
         ...init,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
+          Authorization: `Bearer ${accessToken || ''}`,
           ...(init?.headers || {}),
         },
       });
@@ -163,12 +168,12 @@ function DefaultGovernanceControl({
       if (!response.ok) throw new Error(payload.error || 'No se pudo guardar la configuración.');
       return payload;
     },
-    [session?.access_token]
+    [accessToken]
   );
 
   useEffect(() => {
-    if (!session?.access_token) return;
-    request(`/api/organizacion/governance-defaults?workspace_id=${workspaceId}`)
+    if (!accessToken) return;
+    request(`/api/organizacion/governance-defaults?workspace_id=${workspaceId}&kind=${kind}`)
       .then((payload) => {
         const value =
           kind === 'workflow'
@@ -178,7 +183,7 @@ function DefaultGovernanceControl({
         setSelectedId(value || '');
       })
       .catch((cause) => setError(cause.message));
-  }, [kind, request, session?.access_token, workspaceId]);
+  }, [kind, request, accessToken, workspaceId]);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -342,7 +347,7 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
   }, [supabase, workspaceId]);
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
 
   const createPerson = async (event: FormEvent) => {
@@ -570,7 +575,7 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
                       </p>
                     </td>
                     <td className="px-4 py-3.5 capitalize">
-                      {String(item.relationship_type || 'sin relación').replaceAll('_', ' ')}
+                      {organizationValueLabels[item.relationship_type] || 'Sin relación'}
                     </td>
                     <td className="px-4 py-3.5">
                       <p>{item.job_title || '—'}</p>
@@ -583,13 +588,21 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
                     </td>
                     <td className="px-4 py-3.5 whitespace-nowrap">{dateLabel(item.valid_until)}</td>
                     <td className="px-4 py-3.5">
-                      <Link
-                        href={`/organizacion/directorio/${item.id}`}
-                        aria-label={`Ver ${item.full_name}`}
-                        className="w-8 h-8 grid place-items-center rounded-md border border-border text-primary hover:bg-primary/5"
-                      >
-                        <ArrowRight size={15} />
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <OrganizationRecordActions
+                          resource="directory"
+                          id={item.id}
+                          onSaved={load}
+                          label={`Editar ${item.full_name}`}
+                        />
+                        <Link
+                          href={`/organizacion/directorio/${item.id}`}
+                          aria-label={`Ver ${item.full_name}`}
+                          className="w-8 h-8 grid place-items-center rounded-md border border-border text-primary hover:bg-primary/5"
+                        >
+                          <ArrowRight size={15} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -650,7 +663,7 @@ function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     setLoading(false);
   }, [supabase, workspaceId]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   const create = async (event: FormEvent) => {
     event.preventDefault();
@@ -704,30 +717,6 @@ function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     setShowForm(false);
     setSuccess('Facultad enviada a validación interna.');
     await load();
-  };
-  const setStatus = async (item: Row, status: string) => {
-    if (!canManage) return;
-    setError('');
-    const result = await supabase
-      .from('organization_authorities')
-      .update({
-        status,
-        ...(status === 'active'
-          ? { approved_by: userId, approved_at: new Date().toISOString() }
-          : {}),
-      })
-      .eq('id', item.id)
-      .eq('workspace_id', workspaceId);
-    if (result.error) setError(result.error.message);
-    else {
-      await audit(
-        `authority.${status}`,
-        'organization_authority',
-        item.id,
-        `Facultad actualizada a ${status}`
-      );
-      await load();
-    }
   };
   return (
     <div className="max-w-[1400px] mx-auto space-y-5">
@@ -970,22 +959,31 @@ function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
                         <Status value={item.status} />
                       </td>
                       <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                        {canManage && item.status === 'pending_validation' && (
-                          <button
-                            onClick={() => setStatus(item, 'active')}
-                            className="text-primary text-sm"
-                          >
-                            Activar
-                          </button>
-                        )}
-                        {canManage && item.status === 'active' && (
-                          <button
-                            onClick={() => setStatus(item, 'revoked')}
-                            className="text-red-600 text-sm"
-                          >
-                            Revocar
-                          </button>
-                        )}
+                        <div className="inline-flex items-center gap-3">
+                          <OrganizationRecordActions
+                            resource="authorities"
+                            id={item.id}
+                            onSaved={load}
+                          />
+                          {canManage && item.status === 'pending_validation' && (
+                            <OrganizationRecordActions
+                              resource="authorities"
+                              id={item.id}
+                              onSaved={load}
+                              actionLabel="Activar"
+                              initialStatus="active"
+                            />
+                          )}
+                          {canManage && item.status === 'active' && (
+                            <OrganizationRecordActions
+                              resource="authorities"
+                              id={item.id}
+                              onSaved={load}
+                              actionLabel="Revocar"
+                              initialStatus="revoked"
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1065,7 +1063,7 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
     setLoading(false);
   }, [accessToken, supabase, workspaceId]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   const addStep = () => {
     if (!form.step_label?.trim()) return;
@@ -1486,7 +1484,7 @@ function PoliciesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     setLoading(false);
   }, [supabase, workspaceId]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   const toggle = (key: 'methods' | 'evidence', value: string) =>
     setForm((current) => ({
@@ -1701,6 +1699,7 @@ function PoliciesView({ workspaceId, userId, canManage, audit }: ViewProps) {
                     {(item.requirements?.evidence || []).length} evidencias
                   </p>
                 </div>
+                <OrganizationRecordActions resource="policies" id={item.id} onSaved={load} />
                 {canManage && (
                   <div className="flex gap-3 text-sm">
                     {item.status === 'draft' && (
@@ -1785,7 +1784,7 @@ function ResourcesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     setLoading(false);
   }, [supabase, workspaceId, canManage]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   const sourceChanged = (value: string) => {
     const candidate = candidates.find(
@@ -2051,6 +2050,11 @@ function ResourcesView({ workspaceId, userId, canManage, audit }: ViewProps) {
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="inline-flex items-center gap-3">
+                        <OrganizationRecordActions
+                          resource="resources"
+                          id={item.id}
+                          onSaved={load}
+                        />
                         {canManage && !['published', 'archived'].includes(item.status) && (
                           <button
                             onClick={() => lifecycle('publish_organization_shared_resource', item)}
@@ -2116,16 +2120,17 @@ type ViewProps = {
 
 export default function OrganizationGovernance({ section }: { section: GovernanceSection }) {
   const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
   const { user } = useAuth();
   const supabase = useMemo(() => createClient(), []);
   const [permissions, setPermissions] = useState<string[]>([]);
   useEffect(() => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     supabase
-      .rpc('get_my_organization_permissions', { ws_id: activeWorkspace.id })
+      .rpc('get_my_organization_permissions', { ws_id: workspaceId })
       .then(({ data }) => setPermissions((data || []).map((item: Row) => item.permission_key)));
-  }, [activeWorkspace?.id, supabase]);
-  if (!activeWorkspace?.id || !user?.id)
+  }, [workspaceId, supabase]);
+  if (!workspaceId || !user?.id)
     return (
       <div className="py-20 text-center text-sm text-muted-foreground">
         Cargando gobierno organizacional...
@@ -2141,7 +2146,7 @@ export default function OrganizationGovernance({ section }: { section: Governanc
     summary: string
   ) => {
     await supabase.from('organization_audit_events').insert({
-      workspace_id: activeWorkspace.id,
+      workspace_id: workspaceId,
       actor_user_id: user.id,
       event_type: eventType,
       resource_type: resourceType,
@@ -2149,7 +2154,7 @@ export default function OrganizationGovernance({ section }: { section: Governanc
       summary,
     });
   };
-  const props = { workspaceId: activeWorkspace.id, userId: user.id, canManage, audit };
+  const props = { workspaceId: workspaceId, userId: user.id, canManage, audit };
   if (section === 'directorio') return <DirectoryView {...props} />;
   if (section === 'facultades') return <AuthoritiesView {...props} />;
   if (section === 'flujos') return <WorkflowsView {...props} />;

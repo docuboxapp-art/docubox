@@ -1,5 +1,6 @@
 import { organizationApiFailure } from '@/lib/organization/server';
 import { authorizeCollaborationRequest } from '@/lib/collaboration/server';
+import { canUseCollaboration } from '@/lib/collaboration/domain';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +15,10 @@ type CalendarRow = Record<string, unknown> & {
 
 export async function GET(request: Request) {
   try {
-    const workspaceId = new URL(request.url).searchParams.get('workspace_id') || '';
-    const { service } = await authorizeCollaborationRequest(
+    const url = new URL(request.url);
+    const workspaceId = url.searchParams.get('workspace_id') || '';
+    const status = url.searchParams.get('status');
+    const { userClient: service, access } = await authorizeCollaborationRequest(
       request,
       workspaceId,
       'collaboration_spaces.view'
@@ -25,21 +28,27 @@ export async function GET(request: Request) {
         .from('collaboration_milestones')
         .select('id,title,description,status,starts_at,due_at,space_id,owner_id')
         .eq('workspace_id', workspaceId),
-      service
-        .from('tareas')
-        .select('id,title,description,estado,due_date,collaboration_space_id,assigned_to')
-        .eq('workspace_id', workspaceId)
-        .not('due_date', 'is', null),
-      service
-        .from('collaboration_review_rounds')
-        .select('id,title,status,due_at,document_id,requested_by')
-        .eq('workspace_id', workspaceId)
-        .not('due_at', 'is', null),
-      service
-        .from('collaboration_document_requests')
-        .select('id,title,status,due_at,space_id,responsible_user_id')
-        .eq('workspace_id', workspaceId)
-        .not('due_at', 'is', null),
+      canUseCollaboration(access, 'tasks.view')
+        ? service
+            .from('tareas')
+            .select('id,title,description,estado,due_date,collaboration_space_id,assigned_to')
+            .eq('workspace_id', workspaceId)
+            .not('due_date', 'is', null)
+        : Promise.resolve({ data: [], error: null }),
+      canUseCollaboration(access, 'reviews.view')
+        ? service
+            .from('collaboration_review_rounds')
+            .select('id,title,status,due_at,document_id,requested_by')
+            .eq('workspace_id', workspaceId)
+            .not('due_at', 'is', null)
+        : Promise.resolve({ data: [], error: null }),
+      canUseCollaboration(access, 'requests.view')
+        ? service
+            .from('collaboration_document_requests')
+            .select('id,title,status,due_at,space_id,responsible_user_id')
+            .eq('workspace_id', workspaceId)
+            .not('due_at', 'is', null)
+        : Promise.resolve({ data: [], error: null }),
     ]);
     for (const result of [milestones, tasks, reviews, requests]) {
       if (result.error) throw result.error;
@@ -77,7 +86,10 @@ export async function GET(request: Request) {
       if (!b.due_at) return -1;
       return new Date(a.due_at).getTime() - new Date(b.due_at).getTime();
     });
-    return Response.json({ success: true, data: rows.slice(0, 500) });
+    return Response.json({
+      success: true,
+      data: rows.filter((row) => !status || row.status === status).slice(0, 500),
+    });
   } catch (error) {
     return organizationApiFailure(error);
   }

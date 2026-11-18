@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
+import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 
 type AccessLevel = 'view' | 'download' | 'evidence';
 const levels = new Set<AccessLevel>(['view', 'download', 'evidence']);
@@ -11,8 +12,17 @@ async function authorize(request: NextRequest, documentId: string) {
   const authorization = request.headers.get('authorization');
   const token = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   if (!token) return { response: NextResponse.json({ error: 'Debes iniciar sesión.' }, { status: 401 }) };
-  const { data, error: authError } = await createAnonClient().auth.getUser(token);
+  const { data, error: authError } = await createAnonClient().auth.getUser(token).catch(() => ({
+    data: { user: null },
+    error: { status: 503 },
+  }));
   const user = data.user;
+  if (authError && !isDefinitivelyInvalidAuthToken(authError)) {
+    return { response: NextResponse.json(
+      { error: 'No fue posible verificar la sesión en este momento. Vuelve a intentarlo.' },
+      { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+    ) };
+  }
   if (authError || !user?.email) {
     return { response: NextResponse.json({ error: 'La sesión no es válida.' }, { status: 401 }) };
   }

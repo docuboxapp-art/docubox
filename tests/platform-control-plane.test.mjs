@@ -16,7 +16,7 @@ const navigation = read('src/lib/platform-admin/navigation.ts');
 const authorization = read('src/lib/platform-admin/authorization.ts');
 const foundation = read('supabase/migrations/20260831214500_platform_control_plane_foundation.sql');
 const core = read('supabase/migrations/20260901013553_core_superadmin_permissions_and_actions.sql');
-const middleware = read('src/middleware.ts');
+const middleware = read('src/proxy.ts');
 
 test('platform staff and permissions are separate from tenant roles', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.platform_staff/);

@@ -3,123 +3,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Activity,
-  BadgeCheck,
-  Building2,
-  ChevronRight,
-  FileKey2,
-  Fingerprint,
-  IdCard,
-  Landmark,
-  Library,
-  Network,
-  Palette,
-  ReceiptText,
-  ScrollText,
-  ShieldCheck,
-  ShieldAlert,
-  Users,
-  UsersRound,
-  Workflow,
-} from 'lucide-react';
+import { ArrowUpRight, Building2, ChevronRight, ShieldAlert } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { organizationSections } from '@/lib/organization/sections';
+import OrganizationNavigation from './OrganizationNavigation';
+import { OrganizationAccessProvider } from './OrganizationAccessContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
 import {
   canAccessOrganizationSection,
   filterOrganizationNavigation,
+  organizationRouteMatches,
 } from '@/lib/organization/navigation';
 
-const navigation = [
-  { href: '/organizacion', label: 'Resumen', icon: Building2, permission: 'organization.read' },
-  {
-    href: '/organizacion/perfil',
-    label: 'Perfil de la organización',
-    icon: Landmark,
-    permission: 'organization.read',
-  },
-  { href: '/organizacion/miembros', label: 'Miembros', icon: Users, permission: 'members.read' },
-  {
-    href: '/organizacion/continuidad',
-    label: 'Continuidad',
-    icon: ShieldAlert,
-    permission: 'members.offboard',
-  },
-  {
-    href: '/organizacion/equipos',
-    label: 'Equipos y áreas',
-    icon: UsersRound,
-    permission: 'teams.read',
-  },
-  {
-    href: '/organizacion/roles',
-    label: 'Roles y permisos',
-    icon: ShieldCheck,
-    permission: 'roles.read',
-  },
-  {
-    href: '/organizacion/directorio',
-    label: 'Directorio',
-    icon: IdCard,
-    permission: 'directory.read',
-  },
-  {
-    href: '/organizacion/facultades',
-    label: 'Facultades',
-    icon: BadgeCheck,
-    permission: 'authorities.read',
-  },
-  {
-    href: '/organizacion/flujos',
-    label: 'Flujos de aprobación',
-    icon: Workflow,
-    permission: 'workflows.read',
-  },
-  {
-    href: '/organizacion/politicas-firma',
-    label: 'Políticas de firma',
-    icon: FileKey2,
-    permission: 'signature_policies.read',
-  },
-  {
-    href: '/organizacion/recursos',
-    label: 'Plantillas y recursos',
-    icon: Library,
-    permission: 'resources.read',
-  },
-  {
-    href: '/organizacion/seguridad',
-    label: 'Seguridad',
-    icon: Fingerprint,
-    permission: 'security.read',
-  },
-  {
-    href: '/organizacion/certificados',
-    label: 'Certificados',
-    icon: ScrollText,
-    permission: 'certificates.read',
-  },
-  {
-    href: '/organizacion/integraciones',
-    label: 'Integraciones',
-    icon: Network,
-    permission: 'integrations.read',
-  },
-  {
-    href: '/organizacion/marca-comunicaciones',
-    label: 'Marca y comunicaciones',
-    icon: Palette,
-    permission: 'branding.read',
-  },
-  {
-    href: '/organizacion/plan-consumo',
-    label: 'Plan y consumo',
-    icon: ReceiptText,
-    permission: 'billing.read',
-  },
-  { href: '/organizacion/auditoria', label: 'Auditoría', icon: Activity, permission: 'audit.read' },
-];
+const navigation = organizationSections;
 
 export default function OrganizationShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -127,32 +24,57 @@ export default function OrganizationShell({ children }: { children: ReactNode })
   const supabase = useMemo(() => createClient(), []);
   const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [permissionScope, setPermissionScope] = useState('');
+  const [permissionError, setPermissionError] = useState(false);
+  const [permissionRetry, setPermissionRetry] = useState(0);
 
   useEffect(() => {
     if (!activeWorkspace?.id || activeWorkspace.workspaceType !== 'business') {
-      setPermissionKeys([]);
-      setPermissionsLoaded(false);
       return;
     }
     if (activeWorkspace.role === 'owner' || activeWorkspace.role === 'admin') {
-      setPermissionsLoaded(true);
       return;
     }
     let active = true;
-    setPermissionsLoaded(false);
-    supabase
-      .rpc('get_my_organization_permissions', { ws_id: activeWorkspace.id })
-      .then(({ data, error }) => {
-        if (!active) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    Promise.resolve()
+      .then(() => {
+        if (!active) return null;
+        setPermissionsLoaded(false);
+        setPermissionError(false);
+        return supabase
+          .rpc('get_my_organization_permissions', { ws_id: activeWorkspace.id })
+          .abortSignal(controller.signal);
+      })
+      .then((result) => {
+        if (!active || !result) return;
+        const { data, error } = result;
+        if (error) throw error;
         setPermissionKeys(
-          error ? [] : (data || []).map((item: { permission_key: string }) => item.permission_key)
+          (data || []).map((item: { permission_key: string }) => item.permission_key)
         );
+        setPermissionScope(`${activeWorkspace.id}:${activeWorkspace.role}`);
         setPermissionsLoaded(true);
-      });
+      })
+      .catch(() => {
+        if (!active) return;
+        setPermissionKeys([]);
+        setPermissionError(true);
+      })
+      .finally(() => clearTimeout(timeout));
     return () => {
       active = false;
+      clearTimeout(timeout);
+      controller.abort();
     };
-  }, [activeWorkspace?.id, activeWorkspace?.role, activeWorkspace?.workspaceType, supabase]);
+  }, [
+    activeWorkspace?.id,
+    activeWorkspace?.role,
+    activeWorkspace?.workspaceType,
+    supabase,
+    permissionRetry,
+  ]);
 
   const visibleNavigation = useMemo(() => {
     if (!activeWorkspace) return [];
@@ -171,7 +93,34 @@ export default function OrganizationShell({ children }: { children: ReactNode })
     ? canAccessOrganizationSection(activeWorkspace.role, permissionKeys, routePermission)
     : false;
 
-  if (loading) {
+  const currentSection = navigation
+    .filter((item) => organizationRouteMatches(pathname, item.href))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const elevated = activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
+  const permissionsReady =
+    elevated ||
+    (permissionsLoaded && permissionScope === `${activeWorkspace?.id}:${activeWorkspace?.role}`);
+
+  if (permissionError && !elevated && activeWorkspace?.workspaceType === 'business') {
+    return (
+      <AppLayout noPadding>
+        <div className="min-h-[420px] flex flex-col items-center justify-center gap-4 p-5 text-center">
+          <p role="alert" className="text-sm text-muted-foreground">
+            No se pudieron comprobar los permisos de la organización.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPermissionRetry((value) => value + 1)}
+            className="h-10 rounded-md border border-border px-4 text-sm font-medium"
+          >
+            Volver a intentar
+          </button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (loading || (activeWorkspace?.workspaceType === 'business' && !permissionsReady)) {
     return (
       <AppLayout noPadding>
         <div className="min-h-[420px] grid place-items-center text-sm text-muted-foreground">
@@ -233,62 +182,52 @@ export default function OrganizationShell({ children }: { children: ReactNode })
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 md:-my-6 min-h-[calc(100vh-104px)] bg-slate-50 dark:bg-background">
-        <header className="bg-background border-b border-border px-5 lg:px-7 py-5">
+      <div className="organization-console -mx-4 -my-4 md:-my-6 min-h-[calc(100vh-104px)] bg-slate-50 dark:bg-background">
+        <header className="organization-header bg-background border-b border-border px-5 lg:px-7 py-5">
           <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-medium text-foreground truncate">
-                {activeWorkspace.name}
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Administración de la organización
-              </p>
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="organization-workspace-mark">
+                <Building2 size={21} aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <p className="organization-eyebrow">Consola de organización</p>
+                <h1 className="text-lg font-medium text-foreground truncate">
+                  {activeWorkspace.name}
+                </h1>
+              </div>
             </div>
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-medium border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Acceso{' '}
-              {activeWorkspace.role}
-            </span>
+            <div className="flex items-center gap-3 shrink-0">
+              <Link
+                href="/mis-documentos"
+                prefetch={false}
+                className="organization-workspace-link hidden xl:inline-flex"
+              >
+                Ir a mi espacio
+                <ArrowUpRight size={15} aria-hidden="true" />
+              </Link>
+              <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-primary/5 text-primary px-3 py-1 text-xs font-medium border border-primary/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Acceso{' '}
+                {{ owner: 'de propietario', admin: 'de administrador', member: 'de miembro' }[
+                  activeWorkspace.role
+                ] || activeWorkspace.role}
+              </span>
+            </div>
           </div>
         </header>
-        <div className="lg:grid lg:grid-cols-[250px_minmax(0,1fr)] min-h-[calc(100vh-199px)]">
-          <aside className="bg-background border-r border-border">
-            <div className="lg:hidden overflow-x-auto border-b border-border px-3 py-2 flex gap-1">
-              {visibleNavigation.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`whitespace-nowrap px-3 py-2 rounded-md text-sm ${active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground'}`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-            <nav className="hidden lg:block p-3 sticky top-[104px] max-h-[calc(100vh-104px)] overflow-y-auto">
-              {visibleNavigation.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`group flex items-center gap-3 min-h-10 px-3 rounded-md mb-0.5 text-sm transition-colors ${active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
-                  >
-                    <item.icon size={17} className="shrink-0" />
-                    <span className="flex-1 truncate">{item.label}</span>
-                    <ChevronRight
-                      size={14}
-                      className={`shrink-0 ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'}`}
-                    />
-                  </Link>
-                );
-              })}
-            </nav>
-          </aside>
-          <main className="min-w-0 p-4 sm:p-5 lg:p-7">{children}</main>
+        <div className="lg:grid lg:grid-cols-[258px_minmax(0,1fr)] min-h-[calc(100vh-199px)]">
+          <OrganizationNavigation items={visibleNavigation} pathname={pathname} />
+          <main key={activeWorkspace.id} className="organization-main min-w-0 p-4 sm:p-5 lg:p-7">
+            <OrganizationAccessProvider role={activeWorkspace.role} permissionKeys={permissionKeys}>
+              <nav aria-label="Ruta de navegación" className="organization-breadcrumb">
+                <Link href="/organizacion" prefetch={false}>
+                  Administración
+                </Link>
+                <ChevronRight size={12} aria-hidden="true" />
+                <span aria-current="page">{currentSection?.label || 'Organización'}</span>
+              </nav>
+              {children}
+            </OrganizationAccessProvider>
+          </main>
         </div>
       </div>
     </AppLayout>

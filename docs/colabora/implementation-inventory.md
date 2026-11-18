@@ -1,5 +1,55 @@
 # Docubox Colabora - inventario de implementacion
 
+## Segunda fase local
+
+Los pendientes de workers, acciones masivas de tareas y exportaciones tienen implementación y pruebas aisladas. Se añadieron paginación y filtros de tareas, revalidación de permisos por acción, mutación e historial en transacción, notificación agrupada de reasignaciones y descargas CSV/PDF/XLSX. La [evidencia y los pendientes actuales](../organization/completion-second-phase.md) distinguen este código de la activación SQL y de la cobertura global que aún falta.
+
+## Revisión funcional del 17 de noviembre de 2026
+
+El estado siguiente distingue el código local de la activación en Supabase. La migración
+`20261118005751_colabora_request_forms_and_delivery.sql` **todavía no está aplicada en el proyecto**.
+El conector SQL agotó el tiempo de conexión y la CLI respondió 403 por permisos insuficientes.
+Las validaciones remotas históricas documentadas más abajo no cubren esta migración.
+
+- Formularios: bandeja propia en Colabora, búsqueda, estados, solicitudes vinculadas y acceso
+  al visor de respuestas existente. Los conteos se agregan en PostgreSQL con los permisos del
+  usuario; no se descargan respuestas para contarlas ni se depende del límite REST de 1,000 filas.
+- Solicitudes: múltiples requisitos, formularios publicados, documentos para firma, orden inicial,
+  edición de pendientes, incorporación de entregas, responsable delegado, invitaciones y renovación.
+- Portal: correo con OTP, desafíos de un solo uso, límites de envío e intentos, archivos versionados,
+  formularios privados y firma mediante los procesos canónicos existentes.
+- Revisión: creación y decisiones en transacciones, control de versión, comentarios bloqueantes,
+  revisión de archivos con análisis limpio y cierre sin omitir requisitos obligatorios.
+- Salas: invitaciones con plantilla de organización, revocación al renovar, políticas de descarga,
+  marca de agua y comentarios del invitado visibles para el equipo y para su propio autor.
+- Equipos y permisos: referencias activas del mismo espacio, lecturas con RLS y comprobación del
+  alcance del usuario antes de las mutaciones privilegiadas. No se activan planes automáticamente.
+- Calendario y reportes: filtros de estado, cierre de hitos independientes, navegación a recursos y
+  conteos completos. Diálogos, mensajes y controles adaptados al lenguaje visual del proyecto.
+
+Verificación reproducible:
+
+Resultado local: 57 pruebas automatizadas de dominio, API y PostgreSQL aislado, y 28
+comprobaciones del navegador. Las 15 secciones se cargaron y se revisó el desbordamiento en
+390 y 820 píxeles. ESLint y TypeScript del alcance de Colabora pasaron sin errores.
+
+```powershell
+npm install --prefix .tmp/colabora-db-qa --no-save --ignore-scripts @electric-sql/pglite@0.5.16
+npm install --prefix .tmp/organization-browser-qa --no-save --ignore-scripts playwright-core@1.65.1
+npm run test:colabora
+npm run test:colabora:interface
+```
+
+La prueba de interfaz usa Chromium headless ya instalado en la caché de Playwright de Windows.
+Las dependencias de QA permanecen fuera de las dependencias de producción. Las pruebas usan
+contextos y bases aislados, destinatarios `example.invalid` y datos sintéticos. No envían correo,
+no verifican biometría y no realizan firmas reales. TypeScript se comprueba con el alcance de
+Colabora y sus dependencias; no se ejecutó un build global sobre los cambios previos del repositorio.
+
+Pendiente para declarar operación completa: restablecer acceso SQL, inspeccionar el esquema real,
+aplicar la migración, comprobar RLS y los triggers junto con las migraciones existentes, y recorrer
+el flujo autenticado con almacenamiento, escáner y correo reales. No se desplegó esta entrega.
+
 ## Reutilizacion
 
 | Capacidad          | Implementacion existente                                             | Decision                                                          |

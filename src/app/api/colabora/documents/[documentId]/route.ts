@@ -1,3 +1,4 @@
+import { assertCollaborationReference } from '@/lib/collaboration/references.server';
 import { z } from 'zod';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
 import {
@@ -49,7 +50,7 @@ export async function GET(request: Request, context: { params: Promise<{ documen
   try {
     const { documentId } = await context.params;
     const workspaceId = new URL(request.url).searchParams.get('workspace_id') || '';
-    const { service, access } = await authorizeCollaborationRequest(
+    const { userClient: service, access } = await authorizeCollaborationRequest(
       request,
       workspaceId,
       'reviews.view'
@@ -113,14 +114,17 @@ export async function POST(request: Request, context: { params: Promise<{ docume
     const body = await request.json();
     if (body?.action === 'comment') {
       const input = commentSchema.parse(body);
-      const { service, user, access } = await authorizeCollaborationRequest(
+      const { service, user, access, userClient } = await authorizeCollaborationRequest(
         request,
         input.workspace_id,
         'reviews.comment',
-        true
+        true,
+        input.review_round_id
+          ? { type: 'review', id: input.review_round_id }
+          : { type: 'version', id: input.document_version_id }
       );
       requireCollaborationEntitlement(access, 'collaboration_advanced_reviews', true);
-      const version = await service
+      const version = await userClient
         .from('document_versions')
         .select('id,status')
         .eq('workspace_id', input.workspace_id)
@@ -134,6 +138,34 @@ export async function POST(request: Request, context: { params: Promise<{ docume
           'version_mismatch',
           'La version seleccionada no pertenece al documento.'
         );
+      if (input.review_round_id) {
+        const round = await userClient
+          .from('collaboration_review_rounds')
+          .select('id')
+          .eq('workspace_id', input.workspace_id)
+          .eq('document_id', documentId)
+          .eq('document_version_id', input.document_version_id)
+          .eq('id', input.review_round_id)
+          .maybeSingle();
+        if (round.error) throw round.error;
+        if (!round.data)
+          throw new OrganizationApiError(
+            422,
+            'review_mismatch',
+            'La ronda no corresponde al documento y la versión seleccionados.'
+          );
+      }
+      await Promise.all(
+        input.recipient_ids.map((id) =>
+          assertCollaborationReference(
+            service,
+            input.workspace_id,
+            'workspace_members',
+            id,
+            'user_id'
+          )
+        )
+      );
       const { annotation, action: _action, ...comment } = input;
       const result = await service
         .from('collaboration_comments')
@@ -180,13 +212,28 @@ export async function POST(request: Request, context: { params: Promise<{ docume
 
     if (body?.action === 'resolve_comment' || body?.action === 'reopen_comment') {
       const input = commentStateSchema.parse(body);
-      const { service, user, access } = await authorizeCollaborationRequest(
+      const { service, user, access, userClient } = await authorizeCollaborationRequest(
         request,
         input.workspace_id,
         'reviews.resolve_comments',
-        true
+        true,
+        { type: 'comment', id: input.comment_id }
       );
       requireCollaborationEntitlement(access, 'collaboration_advanced_reviews', true);
+      const visible = await userClient
+        .from('collaboration_comments')
+        .select('id')
+        .eq('workspace_id', input.workspace_id)
+        .eq('document_id', documentId)
+        .eq('id', input.comment_id)
+        .maybeSingle();
+      if (visible.error) throw visible.error;
+      if (!visible.data)
+        throw new OrganizationApiError(
+          404,
+          'comment_not_found',
+          'El comentario no está en tu alcance.'
+        );
       const status = input.action === 'resolve_comment' ? 'resolved' : 'open';
       const result = await service
         .from('collaboration_comments')
@@ -228,83 +275,34 @@ export async function POST(request: Request, context: { params: Promise<{ docume
         : input.action === 'request_changes'
           ? 'reviews.request_changes'
           : 'reviews.resolve_comments';
-    const { service, user, access } = await authorizeCollaborationRequest(
+    const { service, user, access, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       permission,
-      true
+      true,
+      { type: 'review', id: input.review_round_id }
     );
     requireCollaborationEntitlement(access, 'collaboration_advanced_reviews', true);
-    const round = await service
+    const visible = await userClient
       .from('collaboration_review_rounds')
-      .select('*')
+      .select('id')
       .eq('workspace_id', input.workspace_id)
       .eq('document_id', documentId)
       .eq('id', input.review_round_id)
       .maybeSingle();
-    if (round.error) throw round.error;
-    if (!round.data)
-      throw new OrganizationApiError(404, 'review_not_found', 'La ronda de revision no existe.');
-    if (input.action === 'approve' && round.data.blocking_comments_required) {
-      const blocking = await service
-        .from('collaboration_comments')
-        .select('id', { count: 'exact', head: true })
-        .eq('review_round_id', input.review_round_id)
-        .eq('is_blocking', true)
-        .eq('status', 'open');
-      if (blocking.error) throw blocking.error;
-      if ((blocking.count || 0) > 0)
-        throw new OrganizationApiError(
-          409,
-          'blocking_comments',
-          'Resuelve los comentarios bloqueantes antes de aprobar.'
-        );
-    }
-    const nextStatus =
-      input.action === 'approve'
-        ? 'approved'
-        : input.action === 'request_changes'
-          ? 'changes_requested'
-          : 'closed';
-    const result = await service
-      .from('collaboration_review_rounds')
-      .update({
-        status: nextStatus,
-        decision_note: input.note || null,
-        decided_by: user.id,
-        decided_at: new Date().toISOString(),
-      })
-      .eq('id', input.review_round_id)
-      .eq('workspace_id', input.workspace_id)
-      .eq('optimistic_version', input.optimistic_version)
-      .select('*')
-      .maybeSingle();
-    if (result.error) throw result.error;
-    if (!result.data)
-      throw new OrganizationApiError(
-        409,
-        'version_conflict',
-        'La ronda cambio en otra sesion. Actualiza y vuelve a intentarlo.'
-      );
-    if (input.action === 'approve') {
-      const approvedVersion = await service
-        .from('document_versions')
-        .update({ status: 'approved' })
-        .eq('workspace_id', input.workspace_id)
-        .eq('document_id', documentId)
-        .eq('id', round.data.document_version_id)
-        .eq('status', 'in_review');
-      if (approvedVersion.error) throw approvedVersion.error;
-    }
-    await recordCollaborationAudit(service, {
-      workspaceId: input.workspace_id,
-      actorUserId: user.id,
-      eventType: `collaboration.review_${input.action}`,
-      resourceType: 'review_round',
-      resourceId: input.review_round_id,
-      summary: `La ronda de revision cambio a ${nextStatus}.`,
-      payload: { note: input.note || null },
+    if (visible.error) throw visible.error;
+    if (!visible.data)
+      throw new OrganizationApiError(404, 'review_not_found', 'La revisión no está en tu alcance.');
+    const result = await service.rpc('colabora_decide_review', {
+      ws: input.workspace_id,
+      actor: user.id,
+      document_id: documentId,
+      review_id: input.review_round_id,
+      operation: input.action,
+      expected_version: input.optimistic_version,
+      note: input.note || null,
     });
+    if (result.error) throw result.error;
     return Response.json({ success: true, data: result.data });
   } catch (error) {
     return organizationApiFailure(error);

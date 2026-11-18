@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertOrganizationResourceAccess } from '@/lib/organization/resource-access.server';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
@@ -27,11 +28,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const { service, user, access } = await authorizeCollaborationRequest(
+    const { service, user, access, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       'versions.compare',
       true
+    );
+    await Promise.all(
+      [input.left_version_id, input.right_version_id].map((id) =>
+        assertOrganizationResourceAccess(userClient, input.workspace_id, 'versions.compare', {
+          type: 'version',
+          id,
+        })
+      )
     );
     requireCollaborationEntitlement(access, 'collaboration_advanced_reviews', true);
 

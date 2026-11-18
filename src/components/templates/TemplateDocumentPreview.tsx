@@ -48,10 +48,12 @@ export function TemplateDocumentPreview({
     [final, template, values]
   );
   const dimensions = getTemplatePageDimensions(renderedTemplate);
-  const scale = Math.max(0.5, Math.min(2, zoom / 100));
+  const scale = Math.max(0.25, Math.min(2, zoom / 100));
 
   return (
     <div
+      data-document-preview-sheet
+      data-preview-zoom={scale * 100}
       className="relative flex-shrink-0 overflow-hidden border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.12)]"
       style={{ width: dimensions.width * scale }}
     >

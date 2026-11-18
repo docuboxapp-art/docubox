@@ -1,9 +1,17 @@
+import { assertCollaborationCreationReferences } from '@/lib/collaboration/references.server';
+import { collaborationRequestItemSchema } from '@/lib/collaboration/request-items';
+import { prepareCollaborationRequestItems } from '@/lib/collaboration/request-items.server';
+import {
+  sendCollaborationRequestInvitation,
+  sendCollaborationRoomInvitation,
+} from '@/lib/collaboration/invitations.server';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
 import { automationDefinitionSchema } from '@/lib/collaboration/automation-contracts';
 import { OrganizationApiError, organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
+  assertCollaborationCreationScope,
   recordCollaborationAudit,
   requireCollaborationEntitlement,
 } from '@/lib/collaboration/server';
@@ -125,19 +133,11 @@ const requestSchema = z.object({
   description: z.string().trim().max(3000).nullable().optional(),
   recipient_name: z.string().trim().min(2).max(180),
   recipient_email: z.string().trim().email().max(320),
+  responsible_user_id: z.string().uuid().nullable().optional(),
   due_at: z.string().datetime().nullable().optional(),
   space_id: z.string().uuid().nullable().optional(),
-  items: z
-    .array(
-      z.object({
-        item_type: z.enum(['document', 'form', 'identity', 'signature']).default('document'),
-        title: z.string().trim().min(2).max(180),
-        description: z.string().trim().max(2000).nullable().optional(),
-        required: z.boolean().default(true),
-      })
-    )
-    .min(1)
-    .max(50),
+  items: z.array(collaborationRequestItemSchema).min(1).max(50),
+  send_invitation: z.boolean().default(true),
 });
 
 const roomSchema = z.object({
@@ -161,6 +161,7 @@ const roomSchema = z.object({
     )
     .max(100)
     .default([]),
+  send_invitation: z.boolean().default(true),
 });
 
 const automationSchema = z
@@ -218,7 +219,7 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
     const id = url.searchParams.get('id');
     const spaceId = url.searchParams.get('space_id');
     const documentId = url.searchParams.get('document_id');
-    const { service, access } = await authorizeCollaborationRequest(
+    const { userClient: service, access } = await authorizeCollaborationRequest(
       request,
       workspaceId,
       definition.permission
@@ -285,8 +286,8 @@ export async function POST(request: Request, context: { params: Promise<{ resour
         'resource_read_only',
         'Este recurso no se crea desde este endpoint.'
       );
-    const workspaceId = String(body?.workspace_id || '');
-    const { service, user, access } = await authorizeCollaborationRequest(
+    const workspaceId = z.string().uuid().parse(body?.workspace_id);
+    const { service, user, access, userClient } = await authorizeCollaborationRequest(
       request,
       workspaceId,
       permission,
@@ -311,10 +312,19 @@ export async function POST(request: Request, context: { params: Promise<{ resour
         proFeature: true,
       });
 
+    await assertCollaborationCreationReferences(service, workspaceId, body);
     let created: Record<string, unknown>;
     let oneTimeCredentials: Array<Record<string, string>> = [];
     if (resource === 'spaces') {
       const input = spaceSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'space',
+        user.id,
+        input
+      );
       const result = await service
         .from('collaboration_spaces')
         .insert({
@@ -329,6 +339,14 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       created = result.data;
     } else if (resource === 'milestones') {
       const input = milestoneSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'milestone',
+        user.id,
+        input
+      );
       const result = await service
         .from('collaboration_milestones')
         .insert({ ...input, created_by: user.id, owner_id: input.owner_id || user.id })
@@ -338,40 +356,55 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       created = result.data;
     } else if (resource === 'requests') {
       const input = requestSchema.parse(body);
-      const { items, ...requestValues } = input;
-      const token = randomBytes(32).toString('base64url');
-      const folio = `SOL-${new Date().getFullYear()}-${randomBytes(3).toString('hex').toUpperCase()}`;
-      const result = await service
-        .from('collaboration_document_requests')
-        .insert({
-          ...requestValues,
-          folio,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-          created_by: user.id,
-          access_token_hash: createHash('sha256').update(token).digest('hex'),
-          access_expires_at: input.due_at || new Date(Date.now() + 14 * 86400000).toISOString(),
-        })
-        .select('*')
-        .single();
-      if (result.error) throw result.error;
-      const itemResult = await service.from('collaboration_request_items').insert(
-        items.map((item, position) => ({
-          ...item,
-          workspace_id: workspaceId,
-          request_id: result.data.id,
-          position,
-        }))
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'request',
+        user.id,
+        input
       );
-      if (itemResult.error) {
-        await service.from('collaboration_document_requests').delete().eq('id', result.data.id);
-        throw itemResult.error;
-      }
+      if (input.due_at && Date.parse(input.due_at) <= Date.now())
+        throw new OrganizationApiError(
+          422,
+          'invalid_due_date',
+          'El vencimiento debe ser posterior a la fecha actual.'
+        );
+      const preparedItems = await prepareCollaborationRequestItems(
+        service,
+        workspaceId,
+        input.recipient_email,
+        input.items
+      );
+      const token = randomBytes(32).toString('base64url');
+      const { items: _items, send_invitation: _send, ...values } = input;
+      const result = await service.rpc('colabora_create_document_request', {
+        ws: workspaceId,
+        actor: user.id,
+        request_values: { ...values, send_invitation: input.send_invitation },
+        items: preparedItems,
+        token_hash: createHash('sha256').update(token).digest('hex'),
+      });
+      if (result.error) throw result.error;
       created = result.data;
+      if (input.send_invitation) {
+        const invitation = await sendCollaborationRequestInvitation(service, created, token);
+        created = { ...created, invitation_status: invitation.status };
+      }
       oneTimeCredentials = [{ type: 'request', token, path: `/solicitud/${token}` }];
     } else if (resource === 'rooms') {
       const input = roomSchema.parse(body);
-      const { guests, ...room } = input;
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'room',
+        user.id,
+        input
+      );
+      if (Date.parse(input.expires_at) <= Date.now())
+        throw new OrganizationApiError(422, 'expiry_required', 'Selecciona una vigencia futura.');
+      const { guests, send_invitation, ...room } = input;
       const result = await service
         .from('collaboration_rooms')
         .insert({
@@ -398,6 +431,7 @@ export async function POST(request: Request, context: { params: Promise<{ resour
             workspace_id: workspaceId,
             room_id: result.data.id,
             ...guest,
+            email: guest.email.toLowerCase(),
             token_hash: createHash('sha256').update(token).digest('hex'),
             token_expires_at: input.expires_at,
             invited_by: user.id,
@@ -408,9 +442,25 @@ export async function POST(request: Request, context: { params: Promise<{ resour
           await service.from('collaboration_rooms').delete().eq('id', result.data.id);
           throw guestResult.error;
         }
+        if (send_invitation)
+          for (const credential of oneTimeCredentials) {
+            const guest = guests.find((item) => item.email === credential.email);
+            if (guest)
+              credential.delivery_status = (
+                await sendCollaborationRoomInvitation(service, created, guest, credential.token)
+              ).status;
+          }
       }
     } else if (resource === 'automations') {
       const input = automationSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'automation',
+        user.id,
+        input
+      );
       const { trigger_definition, conditions, actions, ...automation } = input;
       const result = await service
         .from('collaboration_automations')
@@ -449,6 +499,14 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       });
     } else if (resource === 'negotiations') {
       const input = negotiationSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'negotiation',
+        user.id,
+        input
+      );
       const document = await service
         .from('documentos')
         .select('id')
@@ -467,6 +525,14 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       created = result.data;
     } else if (resource === 'committees') {
       const input = committeeSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'committee',
+        user.id,
+        input
+      );
       const { quorum_minimum, first_agenda_item, ...committee } = input;
       const result = await service
         .from('collaboration_committees')
@@ -485,6 +551,14 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       created = result.data;
     } else if (resource === 'closings') {
       const input = closingSchema.parse(body);
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'closing',
+        user.id,
+        input
+      );
       const result = await service
         .from('collaboration_closing_rooms')
         .insert({
@@ -503,76 +577,39 @@ export async function POST(request: Request, context: { params: Promise<{ resour
       created = result.data;
     } else {
       const input = reviewSchema.parse(body);
-      const { reviewer_ids, ...review } = input;
-      const version = await service
-        .from('document_versions')
-        .select('id,document_id,status')
-        .eq('workspace_id', workspaceId)
-        .eq('id', input.document_version_id)
-        .maybeSingle();
-      if (version.error) throw version.error;
-      if (!version.data || version.data.document_id !== input.document_id)
-        throw new OrganizationApiError(
-          409,
-          'review_version_mismatch',
-          'La version seleccionada no pertenece al documento.'
-        );
-      if (['sent', 'signed', 'obsolete'].includes(version.data.status))
-        throw new OrganizationApiError(
-          409,
-          'immutable_version',
-          'Esta version es inmutable y no puede abrir una nueva ronda de revision.'
-        );
-      const rounds = await service
-        .from('collaboration_review_rounds')
-        .select('round_number')
-        .eq('document_id', input.document_id)
-        .order('round_number', { ascending: false })
-        .limit(1);
-      if (rounds.error) throw rounds.error;
-      const result = await service
-        .from('collaboration_review_rounds')
-        .insert({
-          ...review,
-          requested_by: user.id,
-          round_number: (rounds.data?.[0]?.round_number || 0) + 1,
-          status: 'open',
-        })
-        .select('*')
-        .single();
-      if (result.error) throw result.error;
-      const reviewers = await service.from('collaboration_reviewers').insert(
-        reviewer_ids.map((reviewerId) => ({
-          workspace_id: workspaceId,
-          review_round_id: result.data.id,
-          user_id: reviewerId,
-        }))
+      await assertCollaborationCreationScope(
+        userClient,
+        workspaceId,
+        permission,
+        'review',
+        user.id,
+        input
       );
-      if (reviewers.error) {
-        await service.from('collaboration_review_rounds').delete().eq('id', result.data.id);
-        throw reviewers.error;
-      }
-      const versionUpdate = await service
-        .from('document_versions')
-        .update({ status: 'in_review' })
-        .eq('workspace_id', workspaceId)
-        .eq('id', input.document_version_id)
-        .eq('status', version.data.status);
-      if (versionUpdate.error) throw versionUpdate.error;
+      const result = await service.rpc('colabora_create_review', {
+        ws: workspaceId,
+        actor: user.id,
+        document_id: input.document_id,
+        version_id: input.document_version_id,
+        review_title: input.title,
+        reviewer_ids: [...new Set(input.reviewer_ids)],
+        due_at: input.due_at || null,
+      });
+      if (result.error) throw result.error;
       created = result.data;
     }
 
-    await recordCollaborationAudit(service, {
-      workspaceId,
-      actorUserId: user.id,
-      eventType: `collaboration.${resource}_created`,
-      resourceType: resource,
-      resourceId: String(created.id || ''),
-      summary: `Se creo un recurso de Colabora: ${resource}.`,
-    });
+    if (!['requests', 'reviews'].includes(resource))
+      await recordCollaborationAudit(service, {
+        workspaceId,
+        actorUserId: user.id,
+        eventType: `collaboration.${resource}_created`,
+        resourceType: resource,
+        resourceId: String(created.id || ''),
+        summary: `Se creo un recurso de Colabora: ${resource}.`,
+      });
     return Response.json(
       { success: true, data: created, one_time_credentials: oneTimeCredentials },
-      { status: 201 }
+      { status: 201, headers: { 'Cache-Control': 'private, no-store' } }
     );
   } catch (error) {
     return organizationApiFailure(error);

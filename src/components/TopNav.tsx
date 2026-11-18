@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import MobileNavigation from './MobileNavigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
@@ -65,7 +66,11 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { useLuciaAssistant } from '@/contexts/LuciaAssistantContext';
 import UserAvatar from '@/components/ui/UserAvatar';
-import { isRetiredNotification, notificationAreaLabel, notificationDestination } from '@/lib/notifications/presentation';
+import {
+  isRetiredNotification,
+  notificationAreaLabel,
+  notificationDestination,
+} from '@/lib/notifications/presentation';
 
 const BASE_NAV_TABS = [
   { href: '/inicio', label: 'Inicio', icon: Home },
@@ -198,6 +203,7 @@ export default function TopNav() {
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [notifications, setNotifications] = useState<
     Array<{
@@ -719,22 +725,24 @@ export default function TopNav() {
         .limit(20);
       if (data) {
         setNotifications(
-          data.filter((n: any) => !isRetiredNotification(n)).map((n: any) => ({
-            id: n.id,
-            title: n.title,
-            description: n.description,
-            time: formatRelativeTime(n.created_at),
-            read: n.read,
-            type: n.type,
-            category: n.category,
-            event_type: n.event_type,
-            entity_type: n.entity_type,
-            created_at: n.created_at,
-            priority: n.priority,
-            metadata: n.metadata,
-            action_url: n.action_url,
-            action_label: n.action_label,
-          }))
+          data
+            .filter((n: any) => !isRetiredNotification(n))
+            .map((n: any) => ({
+              id: n.id,
+              title: n.title,
+              description: n.description,
+              time: formatRelativeTime(n.created_at),
+              read: n.read,
+              type: n.type,
+              category: n.category,
+              event_type: n.event_type,
+              entity_type: n.entity_type,
+              created_at: n.created_at,
+              priority: n.priority,
+              metadata: n.metadata,
+              action_url: n.action_url,
+              action_label: n.action_label,
+            }))
         );
       }
     };
@@ -861,23 +869,25 @@ export default function TopNav() {
     <>
       {/* TopNav header — primary bar always visible; secondary nav bar hidden when sidebar is open */}
       <header
-        className={`fixed top-0 left-0 right-0 z-30 flex-shrink-0 bg-white dark:bg-background ${
+        className={`app-topnav fixed top-0 left-0 right-0 z-30 flex-shrink-0 bg-white dark:bg-background ${
           usesWorkspaceChrome ? 'shadow-none' : 'shadow-sm'
         }`}
       >
         {/* ── Primary top bar ── h-16, px-4 — ALWAYS VISIBLE */}
         <div
-          className={`flex items-center h-16 px-4 lg:px-6 ${
+          className={`app-topbar flex items-center h-16 px-4 lg:px-6 ${
             !sidebarOpen ? 'border-b border-border/60' : 'border-b border-border'
           }`}
         >
           {/* Left section: hamburger (mobile) + logo + workspace */}
-          <div className="flex items-center gap-8">
+          <div className="app-brand flex min-w-0 items-center gap-2 lg:gap-8">
             {/* Hamburger — mobile only */}
             <button
-              className="md:hidden w-10 h-10 rounded-md flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150"
+              className="lg:hidden w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Abrir menú"
+              aria-expanded={mobileMenuOpen}
+              aria-haspopup="dialog"
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -888,7 +898,7 @@ export default function TopNav() {
             </Link>
 
             {/* Workspace selector — hidden on mobile */}
-            <div ref={workspaceRef} className="relative hidden md:block">
+            <div ref={workspaceRef} className="relative hidden lg:block">
               <button
                 onClick={() => setWorkspaceOpen(!workspaceOpen)}
                 className={`workspace-selector-button flex h-10 items-center gap-2.5 rounded-lg border bg-background px-3 text-sm transition-colors hover:bg-slate-50 focus:outline-none ${
@@ -949,24 +959,24 @@ export default function TopNav() {
                             isActive ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-primary/5'
                           }`}
                         >
-                           {isWsPersonal ? (
-                             <UserAvatar
-                               src={userAvatarUrl}
-                               alt={`Foto de ${userFullName}`}
-                               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${
-                                 isActive ? 'bg-primary/20' : 'bg-primary/10'
-                               }`}
-                               fallback={<User size={14} className="text-primary" />}
-                             />
-                           ) : (
-                             <div
-                               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
-                                 isActive ? 'bg-primary/20' : 'bg-primary/10'
-                               }`}
-                             >
-                               <Building2 size={14} className="text-primary" />
-                             </div>
-                           )}
+                          {isWsPersonal ? (
+                            <UserAvatar
+                              src={userAvatarUrl}
+                              alt={`Foto de ${userFullName}`}
+                              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${
+                                isActive ? 'bg-primary/20' : 'bg-primary/10'
+                              }`}
+                              fallback={<User size={14} className="text-primary" />}
+                            />
+                          ) : (
+                            <div
+                              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+                                isActive ? 'bg-primary/20' : 'bg-primary/10'
+                              }`}
+                            >
+                              <Building2 size={14} className="text-primary" />
+                            </div>
+                          )}
                           <div className="flex-1 text-left min-w-0">
                             <p
                               className={`text-sm truncate ${isActive ? 'font-600 text-primary' : 'font-500 text-foreground'}`}
@@ -1051,7 +1061,7 @@ export default function TopNav() {
                   </button>
                 ) : (
                   <div
-                    className={`hidden h-10 items-center gap-2 rounded-lg border bg-slate-50 px-3 transition-[width,border-color,background-color,box-shadow] lg:flex lg:w-[26rem] 2xl:w-[30rem] ${searchOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : 'border-slate-200 hover:border-slate-300'}`}
+                    className={`topnav-search-trigger hidden h-10 items-center gap-2 rounded-lg border bg-slate-50 px-3 transition-[width,border-color,background-color,box-shadow] lg:flex lg:w-[26rem] 2xl:w-[30rem] ${searchOpen ? 'border-primary/50 bg-white ring-2 ring-primary/10' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <Search
                       className={`h-5 w-5 flex-shrink-0 ${searchOpen ? 'text-primary' : 'text-slate-500'}`}
@@ -1518,7 +1528,7 @@ export default function TopNav() {
 
         {/* ── Secondary navigation bar ── desktop only — only rendered when sidebar is closed */}
         {!sidebarOpen && navTabs.length > 0 && (
-          <div className="hidden h-10 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200 bg-white px-4 scrollbar-none md:flex lg:px-6 dark:border-slate-700 dark:bg-slate-900">
+          <div className="hidden h-10 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200 bg-white px-4 scrollbar-none lg:flex lg:px-6 dark:border-slate-700 dark:bg-slate-900">
             {navTabs.map((tab) => {
               const isActive = getTabActive(tab.href);
               const TabIcon = tab.icon;
@@ -1542,8 +1552,38 @@ export default function TopNav() {
         )}
       </header>
 
+      {mobileMenuOpen && (
+        <MobileNavigation
+          items={[
+            ...sidebarNavSections.flatMap((section) => section.items),
+            { href: '/mi-perfil', label: 'Mi perfil', icon: UserCircle },
+            { href: '/notificaciones', label: 'Notificaciones', icon: Bell },
+          ]}
+          workspaces={workspaces.map((workspace) => ({
+            id: workspace.id,
+            name:
+              workspace.workspaceType === 'personal'
+                ? `Personal · ${userFullName}`
+                : workspace.name,
+          }))}
+          workspaceId={activeWorkspace?.id}
+          onWorkspaceChange={(id) => {
+            const workspace = workspaces.find((entry) => entry.id === id);
+            if (workspace) handleSelectWorkspace(workspace);
+          }}
+          isActive={getTabActive}
+          onClose={closeMobileMenu}
+          isDark={isDark}
+          onThemeChange={toggleTheme}
+          onJoinWorkspace={handleOpenJoinModal}
+          onToggleFullscreen={() => setIsExpanded(!isExpanded)}
+        />
+      )}
+
       {/* ── Lateral Sidebar — push layout, fixed left, below top bar ── */}
       <aside
+        hidden={!sidebarOpen}
+        style={!sidebarOpen ? { display: 'none' } : undefined}
         className={`fixed top-16 left-0 z-40 h-[calc(100vh-4rem)] w-64 2xl:w-72 bg-white border-r border-slate-200/90 shadow-[4px_0_18px_rgba(15,23,42,0.04)] flex flex-col transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}

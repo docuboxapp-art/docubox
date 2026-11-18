@@ -1,0 +1,83 @@
+Revisión y cierre de expedientes — validación del 9 de noviembre de 2026
+
+Resultado implementado
+
+La configuración del paso 4 alimenta la ejecución de cada expediente. Las
+aprobaciones, revisiones, verificaciones y firmas se consultan desde sus fuentes;
+un indicador enviado por el navegador no puede declarar cumplida una condición.
+
+El flujo es: publicar un tipo, iniciarlo con responsables autorizados, vincular
+entregas y sus versiones, revisarlas, atender correcciones, obtener la aprobación
+configurada, completar las firmas en el módulo documental y finalizar el caso.
+El cierre puede ser automático o confirmado por el responsable. Conserva una
+instantánea y un manifiesto descargable cuyo SHA-256 se puede reproducir.
+
+La firma utiliza el registro canónico existente de claim/commit y evidencia final,
+incluidos grupos y delegaciones. Sustituir evidencia invalida sus controles;
+una firma enviada, parcial, anulada o de otra versión no permite cerrar.
+Los reintentos usan claves de operación y no duplican decisiones ni manifiestos.
+
+Se añadieron controles de servidor, RPC exclusivas de service_role y comprobaciones
+de espacio, membresía activa, caducidad y rol. Las modificaciones de un expediente
+cerrado se rechazan. El servicio de firma conserva su resultado aunque falle la
+reevaluación posterior: se registra un reintento duradero y el mantenimiento diario
+existente lo procesa. También se puede actualizar los controles desde la ficha.
+
+Pantallas y endpoints
+
+  /expedientes/nuevo: publicación a través del servidor validado.
+  /expedientes/lanzar?tipo=ID: inicio con sujeto y responsables reales.
+  /expedientes/ID: contenido, revisión, aprobación, verificaciones, etapas y cierre.
+  /api/expedientes/ID/control: evaluación y comandos autorizados.
+  /api/expedientes/ID/manifest: descarga privada con comprobación de integridad.
+  /api/expedientes/ID/correo: OTP acotado al sujeto y al expediente.
+
+Pruebas realizadas
+
+  76 pruebas Node: reglas, versiones, revisión independiente, sustitución de una
+  de siete entregas, permisos caducados, aprobación, firmas parciales, grupos,
+  delegación, respuestas de formulario y firma opcional.
+
+  19 grupos de comprobaciones SQL de ejecución y 10 de persistencia/RLS sobre el
+  proyecto principal autorizado. Se ejecutaron con transacciones y ROLLBACK.
+  Incluyen publicación inmutable, asignación, vínculo versionado, observaciones,
+  correcciones globales, aprobación, claim/commit canónico de firma, OTP de un
+  solo uso, etapas manuales, cierre manual/automático y hash del manifiesto.
+  Incluye respuestas públicas de contactos externos sin exigirles crear cuenta;
+  ese vínculo no sustituye las verificaciones de identidad configuradas.
+  También rechazan RPC y escritura directa autenticada, suplantación de recibos
+  de formulario, lectura entre espacios y firma fuera de la fase permitida.
+  El recuento final de tipos, versiones e instancias de prueba fue cero.
+
+  HTTP: capacidades habilitadas responden 200; ejecución anónima y publicación
+  sin sesión responden 401. No se imprimieron credenciales.
+
+  Navegador con la sesión del usuario: acceso a Expedientes, recorrido de los
+  siete pasos, requisito obligatorio, revisión manual, firma del documento,
+  aprobación con selección de rol, cierre manual y vista previa de dependencias.
+  La configuración temporal no se guardó ni publicó.
+
+  ESLint de los módulos nuevos sin errores y compilación de producción aislada
+  con DIST_DIR=.next-case-validation completada correctamente. Se corrigió la
+  frontera Suspense del lanzamiento conforme a la documentación local de Next.
+  La comprobación final npx tsc --noEmit terminó sin errores.
+
+Alcance y límites de la prueba
+
+El registro de firma y sus transiciones se probaron contra las RPC reales con
+evidencia sintética dentro del rollback. No se solicitó una firma legal, no se
+envió correo a participantes y no se invocó certificación externa de pago.
+La prueba de OTP verificó su persistencia, intentos, vinculación y consumo;
+no fue una prueba de entrega de un correo real.
+
+La prueba del navegador cubrió el configurador sin persistir casos de prueba.
+El ciclo operativo de aprobación, firma y cierre se validó en el evaluador y en
+la base, no mediante la firma de documentos reales en la interfaz del usuario.
+
+Las migraciones del runtime se aplicaron al proyecto principal según la
+autorización del usuario. El código de aplicación está en el workspace local;
+no se realizó despliegue, commit, push ni modificación de planes.
+
+La revisión de asesores de Supabase no identificó avisos nuevos del runtime.
+Se conservan avisos anteriores ajenos a este cambio; este trabajo no constituye
+una auditoría general del proyecto.

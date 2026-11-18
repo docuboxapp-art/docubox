@@ -1,5 +1,15 @@
 'use client';
 
+import {
+  collaborationFieldLabels,
+  collaborationLabels,
+  collaborationRelatedLabels,
+} from '@/lib/collaboration/presentation';
+import { useCollaborationReason } from '../../_components/useCollaborationReason';
+import RequestInvitationActions from '../../_components/RequestInvitationActions';
+import RequestRequirementActions from '../../_components/RequestRequirementActions';
+import type { CollaborationRequestItemInput } from '@/lib/collaboration/request-items';
+
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -56,12 +66,21 @@ const resources: Record<string, string> = {
 function value(input: unknown) {
   if (input == null || input === '') return '—';
   if (typeof input === 'object') return JSON.stringify(input);
-  return String(input).replaceAll('_', ' ');
+  if (
+    typeof input === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T/.test(input) &&
+    Number.isFinite(Date.parse(input))
+  )
+    return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date(input)
+    );
+  return collaborationLabels[String(input)] || String(input).replaceAll('_', ' ');
 }
 
 export default function ColaboraDetailPage() {
   const { section, id } = useParams<{ section: string; id: string }>();
   const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
   const { access, can } = useCollaboration();
   const api = useCollaborationApi();
   const [data, setData] = useState<DetailPayload | null>(null);
@@ -79,14 +98,18 @@ export default function ColaboraDetailPage() {
   const [roomDocuments, setRoomDocuments] = useState<
     Array<{ id: string; nombre: string; estado: string }>
   >([]);
+  const [askReason, reasonModal] = useCollaborationReason();
   const [oneTimeLink, setOneTimeLink] = useState('');
+  const [roomInvitationMessage, setRoomInvitationMessage] = useState('');
   const proEntitlement = collaborationSectionEntitlements[section];
-  const proAvailable = !proEntitlement || hasCollaborationEntitlement(access, proEntitlement, {
-    proFeature: true,
-  });
+  const proAvailable =
+    !proEntitlement ||
+    hasCollaborationEntitlement(access, proEntitlement, {
+      proFeature: true,
+    });
 
   const load = useCallback(async () => {
-    if (!activeWorkspace?.id || !proAvailable) {
+    if (!workspaceId || !proAvailable) {
       setLoading(false);
       return;
     }
@@ -97,46 +120,44 @@ export default function ColaboraDetailPage() {
         section === 'tareas'
           ? `/api/colabora/tasks/${id}`
           : `/api/colabora/details/${resources[section]}/${id}`;
-      const payload = await api<{ data: DetailPayload }>(
-        `${path}?workspace_id=${activeWorkspace.id}`
-      );
+      const payload = await api<{ data: DetailPayload }>(`${path}?workspace_id=${workspaceId}`);
       setData(payload.data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo cargar el detalle.');
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace?.id, api, id, proAvailable, section]);
+  }, [workspaceId, api, id, proAvailable, section]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   useEffect(() => {
-    if (section !== 'espacios' || !activeWorkspace?.id || !proAvailable) return;
-    api<{ data: { members: typeof workspaceMembers } }>(
-      `/api/colabora/overview?workspace_id=${activeWorkspace.id}`
+    if (section !== 'espacios' || !workspaceId || !proAvailable) return;
+    api<{ data: typeof workspaceMembers }>(
+      `/api/colabora/catalog?workspace_id=${workspaceId}&type=members`
     )
-      .then((payload) => setWorkspaceMembers(payload.data.members || []))
+      .then((payload) => setWorkspaceMembers(payload.data || []))
       .catch(() => setWorkspaceMembers([]));
-  }, [activeWorkspace?.id, api, proAvailable, section]);
+  }, [workspaceId, api, proAvailable, section]);
   useEffect(() => {
-    if (section !== 'salas' || !activeWorkspace?.id || !proAvailable || !can('rooms.create', true)) return;
+    if (section !== 'salas' || !workspaceId || !proAvailable || !can('rooms.create', true)) return;
     api<{ data: typeof roomDocuments }>(
-      `/api/colabora/catalog?workspace_id=${activeWorkspace.id}&type=documents`
+      `/api/colabora/catalog?workspace_id=${workspaceId}&type=documents`
     )
       .then((payload) => setRoomDocuments(payload.data || []))
       .catch(() => setRoomDocuments([]));
-  }, [activeWorkspace?.id, api, can, proAvailable, section]);
+  }, [workspaceId, api, can, proAvailable, section]);
 
   const taskAction = async (action: string, reason?: string) => {
     const task = data?.task;
-    if (!activeWorkspace?.id || !task) return;
+    if (!workspaceId || !task) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/tasks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action,
           reason: reason || null,
           optimistic_version: task.optimistic_version,
@@ -152,7 +173,7 @@ export default function ColaboraDetailPage() {
 
   const addComment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     const form = event.currentTarget;
     const input = form.elements.namedItem('comment') as HTMLInputElement;
     if (!input.value.trim()) return;
@@ -161,7 +182,7 @@ export default function ColaboraDetailPage() {
       await api(`/api/colabora/tasks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'comment',
           text: input.value,
           audience: 'internal',
@@ -179,7 +200,7 @@ export default function ColaboraDetailPage() {
 
   const addChecklistItem = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     const form = event.currentTarget;
     const input = form.elements.namedItem('checklist_text') as HTMLInputElement;
     if (!input.value.trim()) return;
@@ -189,7 +210,7 @@ export default function ColaboraDetailPage() {
       await api(`/api/colabora/tasks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'add_checklist',
           text: input.value,
         }),
@@ -204,14 +225,14 @@ export default function ColaboraDetailPage() {
   };
 
   const toggleChecklistItem = async (itemId: string, done: boolean) => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/tasks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'toggle_checklist',
           item_id: itemId,
           done,
@@ -226,8 +247,13 @@ export default function ColaboraDetailPage() {
   };
 
   const requestItemAction = async (action: string, itemId: string, needsReason = false) => {
-    if (!activeWorkspace?.id) return;
-    const reason = needsReason ? window.prompt('Indica el motivo y como puede corregirse:') : null;
+    if (!workspaceId) return;
+    const reason = needsReason
+      ? await askReason(
+          action === 'cancel' ? 'Cancelar solicitud' : 'Revisar requisito',
+          'Indica el motivo y cómo puede corregirse.'
+        )
+      : null;
     if (needsReason && !reason?.trim()) return;
     setSaving(true);
     setError('');
@@ -235,9 +261,9 @@ export default function ColaboraDetailPage() {
       await api(`/api/colabora/details/requests/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action,
-          item_id: itemId,
+          item_id: itemId || undefined,
           reason,
         }),
       });
@@ -250,13 +276,13 @@ export default function ColaboraDetailPage() {
   };
 
   const scanRequestFile = async (fileId: string) => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/request-files/${fileId}/scan`, {
         method: 'POST',
-        body: JSON.stringify({ workspace_id: activeWorkspace.id }),
+        body: JSON.stringify({ workspace_id: workspaceId }),
       });
       await load();
     } catch (cause) {
@@ -267,13 +293,13 @@ export default function ColaboraDetailPage() {
   };
 
   const spaceAction = async (body: Record<string, unknown>) => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/details/spaces/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ workspace_id: activeWorkspace.id, ...body }),
+        body: JSON.stringify({ workspace_id: workspaceId, ...body }),
       });
       await load();
     } catch (cause) {
@@ -322,19 +348,27 @@ export default function ColaboraDetailPage() {
   };
 
   const roomAction = async (body: Record<string, unknown>) => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
-      const payload = await api<{ one_time_credentials?: { path: string } | null }>(
-        `/api/colabora/details/rooms/${id}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ workspace_id: activeWorkspace.id, ...body }),
-        }
-      );
+      const payload = await api<{
+        one_time_credentials?: { path: string } | null;
+        invitation?: { status: string } | null;
+      }>(`/api/colabora/details/rooms/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workspace_id: workspaceId, ...body }),
+      });
       if (payload.one_time_credentials?.path)
         setOneTimeLink(`${window.location.origin}${payload.one_time_credentials.path}`);
+      if (payload.one_time_credentials?.path)
+        setRoomInvitationMessage(
+          payload.invitation?.status === 'sent'
+            ? 'Invitación enviada por correo.'
+            : payload.invitation?.status === 'failed'
+              ? 'El correo no pudo enviarse. Comparte el enlace o vuelve a invitar a la persona.'
+              : 'Enlace listo para compartir.'
+        );
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo actualizar la sala.');
@@ -352,6 +386,8 @@ export default function ColaboraDetailPage() {
       name: values.get('name'),
       email: values.get('email'),
       allow_download: values.get('allow_download') === 'on',
+      allow_comment: values.get('allow_comment') === 'on',
+      send_invitation: values.get('send_invitation') === 'on',
     });
     form.reset();
   };
@@ -370,13 +406,13 @@ export default function ColaboraDetailPage() {
   };
 
   const automationAction = async (body: Record<string, unknown>) => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/details/automations/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ workspace_id: activeWorkspace.id, ...body }),
+        body: JSON.stringify({ workspace_id: workspaceId, ...body }),
       });
       await load();
     } catch (cause) {
@@ -387,13 +423,13 @@ export default function ColaboraDetailPage() {
   };
 
   const advancedAction = async (body: Record<string, unknown>) => {
-    if (!activeWorkspace?.id || !resources[section]) return;
+    if (!workspaceId || !resources[section]) return;
     setSaving(true);
     setError('');
     try {
       await api(`/api/colabora/details/${resources[section]}/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ workspace_id: activeWorkspace.id, ...body }),
+        body: JSON.stringify({ workspace_id: workspaceId, ...body }),
       });
       await load();
     } catch (cause) {
@@ -410,17 +446,29 @@ export default function ColaboraDetailPage() {
       </div>
     );
   if (!proAvailable) {
-    const canManagePlan = access.canManageSubscription
-      || access.membershipRole === 'owner'
-      || access.permissions.includes('subscription.manage_addons');
+    const canManagePlan =
+      access.canManageSubscription ||
+      access.membershipRole === 'owner' ||
+      access.permissions.includes('subscription.manage_addons');
     return (
       <div className="mx-auto max-w-[920px] rounded-lg border border-border bg-background p-6">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-medium">{labels[section]}</h2>
-          <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">PRO</span>
+          <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            PRO
+          </span>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">Función no disponible en el plan actual. Contacta a tu administrador.</p>
-        {canManagePlan && <Link href="/app-market" className="mt-5 inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-white">Actualizar a Pro</Link>}
+        <p className="mt-2 text-sm text-muted-foreground">
+          Función no disponible en el plan actual. Contacta a tu administrador.
+        </p>
+        {canManagePlan && (
+          <Link
+            href="/app-market"
+            className="mt-5 inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-white"
+          >
+            Actualizar a Pro
+          </Link>
+        )}
       </div>
     );
   }
@@ -504,6 +552,7 @@ export default function ColaboraDetailPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
+      {reasonModal}
       <div>
         <Link
           href={`/colabora/${section}`}
@@ -553,7 +602,12 @@ export default function ColaboraDetailPage() {
                     </button>
                     <button
                       disabled={saving}
-                      onClick={() => taskAction('complete')}
+                      onClick={async () => {
+                        const reason = await askReason(
+                          'Describe el resultado realizado (entre 15 y 1,000 caracteres):'
+                        );
+                        if (reason) await taskAction('complete', reason);
+                      }}
                       className="h-10 rounded-md bg-emerald-600 px-4 text-sm font-medium text-white"
                     >
                       Completar
@@ -572,14 +626,26 @@ export default function ColaboraDetailPage() {
               )}
             </div>
           )}
+          {section === 'solicitudes' &&
+            can('requests.create', true) &&
+            !['completed', 'cancelled', 'expired'].includes(String(primary.status)) && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => requestItemAction('cancel', '', true)}
+                className="colabora-secondary-button text-red-600"
+              >
+                Cancelar solicitud
+              </button>
+            )}
           {section === 'espacios' &&
             can('collaboration_spaces.archive', true) &&
             !['closed', 'archived'].includes(String(primary.status)) && (
               <div className="flex flex-wrap gap-2">
                 <button
                   disabled={saving}
-                  onClick={() => {
-                    const reason = window.prompt('Motivo de cierre:');
+                  onClick={async () => {
+                    const reason = await askReason('Motivo de cierre:');
                     if (reason?.trim()) spaceAction({ action: 'close', reason });
                   }}
                   className="h-10 rounded-md border border-border bg-background px-4 text-sm"
@@ -588,8 +654,8 @@ export default function ColaboraDetailPage() {
                 </button>
                 <button
                   disabled={saving}
-                  onClick={() => {
-                    const reason = window.prompt('Motivo de archivo:');
+                  onClick={async () => {
+                    const reason = await askReason('Motivo de archivo:');
                     if (reason?.trim()) spaceAction({ action: 'archive', reason });
                   }}
                   className="h-10 rounded-md border border-border bg-background px-4 text-sm text-muted-foreground"
@@ -604,8 +670,8 @@ export default function ColaboraDetailPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   disabled={saving}
-                  onClick={() => {
-                    const reason = window.prompt('Motivo de cierre:');
+                  onClick={async () => {
+                    const reason = await askReason('Motivo de cierre:');
                     if (reason?.trim()) roomAction({ action: 'close', reason });
                   }}
                   className="h-10 rounded-md border border-border bg-background px-4 text-sm"
@@ -614,8 +680,8 @@ export default function ColaboraDetailPage() {
                 </button>
                 <button
                   disabled={saving}
-                  onClick={() => {
-                    const reason = window.prompt('Motivo de revocacion:');
+                  onClick={async () => {
+                    const reason = await askReason('Motivo de revocacion:');
                     if (reason?.trim()) roomAction({ action: 'revoke', reason });
                   }}
                   className="h-10 rounded-md border border-red-200 bg-red-50 px-4 text-sm text-red-700"
@@ -640,28 +706,14 @@ export default function ColaboraDetailPage() {
             </div>
             <dl className="grid sm:grid-cols-2">
               {Object.entries(primary)
-                .filter(
-                  ([key, item]) =>
-                    ![
-                      'id',
-                      'workspace_id',
-                      'comments',
-                      'activity',
-                      'attachments',
-                      'dependencies',
-                      'checklist',
-                      'settings',
-                      'metadata',
-                    ].includes(key) && item != null
-                )
-                .slice(0, 18)
+                .filter(([key, item]) => key in collaborationFieldLabels && item != null)
                 .map(([key, item], index) => (
                   <div
                     key={key}
                     className={`border-border px-5 py-3.5 ${index > 1 ? 'border-t' : ''} ${index % 2 ? 'sm:border-l' : ''}`}
                   >
                     <dt className="text-xs uppercase text-muted-foreground">
-                      {key.replaceAll('_', ' ')}
+                      {collaborationFieldLabels[key] || key.replaceAll('_', ' ')}
                     </dt>
                     <dd className="mt-1 break-words text-sm text-foreground">{value(item)}</dd>
                   </div>
@@ -724,10 +776,44 @@ export default function ColaboraDetailPage() {
             </section>
           )}
           {section === 'solicitudes' && (
+            <RequestInvitationActions
+              requestId={id}
+              status={String(primary.status)}
+              invitationStatus={String(primary.invitation_status || '')}
+            />
+          )}
+          {section === 'solicitudes' && (
             <section className="overflow-hidden rounded-lg border border-border bg-background">
-              <div className="flex items-center justify-between border-b border-border px-5 py-4">
-                <h3 className="font-medium text-foreground">Requisitos recibidos</h3>
-                <span className="text-xs text-muted-foreground">{requestItems.length}</span>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                <div>
+                  <h3 className="font-medium text-foreground">Requisitos y entregas</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Documentos, formularios y firmas vinculados a esta solicitud.
+                  </p>
+                </div>
+                <div className="flex w-full flex-wrap items-center gap-2">
+                  <span className="mr-auto text-xs text-muted-foreground">
+                    {requestItems.length} requisitos
+                  </span>
+                  {['sent', 'in_progress', 'draft'].includes(String(primary.status)) && (
+                    <RequestRequirementActions requestId={id} onSaved={load} />
+                  )}
+                  {can('requests.review_items', true) &&
+                    !['completed', 'cancelled', 'expired'].includes(String(primary.status)) &&
+                    requestItems.every(
+                      (item) =>
+                        !item.required || ['approved', 'waived'].includes(String(item.status))
+                    ) && (
+                      <button
+                        type="button"
+                        className="colabora-primary-button"
+                        disabled={saving}
+                        onClick={() => requestItemAction('complete', '')}
+                      >
+                        Completar solicitud
+                      </button>
+                    )}
+                </div>
               </div>
               {requestItems.length ? (
                 <div className="divide-y divide-border">
@@ -738,7 +824,13 @@ export default function ColaboraDetailPage() {
                     const latest = [...files].sort(
                       (a, b) => Number(b.version || 0) - Number(a.version || 0)
                     )[0];
-                    const scanClean = latest?.malware_scan_status === 'clean';
+                    const scanClean = ['form', 'signature'].includes(String(item.item_type))
+                      ? Boolean(
+                          item.form_response_id ||
+                          (item.item_type === 'signature' &&
+                            ['uploaded', 'in_review', 'approved'].includes(String(item.status)))
+                        )
+                      : latest?.malware_scan_status === 'clean';
                     return (
                       <div key={String(item.id)} className="px-5 py-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -747,6 +839,19 @@ export default function ColaboraDetailPage() {
                               <p className="text-sm font-medium text-foreground">
                                 {value(item.title)}
                               </p>
+                              {['sent', 'in_progress'].includes(String(primary.status)) && (
+                                <RequestRequirementActions
+                                  requestId={id}
+                                  item={
+                                    item as unknown as CollaborationRequestItemInput & {
+                                      id: string;
+                                      status: string;
+                                      form_response_id?: string;
+                                    }
+                                  }
+                                  onSaved={load}
+                                />
+                              )}
                               <span
                                 className={`rounded-full border px-2 py-0.5 text-[11px] ${String(item.status) === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-border bg-muted text-muted-foreground'}`}
                               >
@@ -756,8 +861,36 @@ export default function ColaboraDetailPage() {
                             <p className="mt-1 text-xs text-muted-foreground">
                               {latest
                                 ? `${value(latest.original_name)} · version ${value(latest.version)}`
-                                : 'Sin archivo recibido'}
+                                : item.item_type === 'form'
+                                  ? item.form_response_id
+                                    ? 'Respuesta recibida'
+                                    : 'Pendiente de responder'
+                                  : item.item_type === 'signature'
+                                    ? ['uploaded', 'in_review', 'approved'].includes(
+                                        String(item.status)
+                                      )
+                                      ? 'Firma completada'
+                                      : 'Pendiente de firma'
+                                    : 'Sin archivo recibido'}
                             </p>
+                            {item.item_type === 'form' && Boolean(item.form_response_id) && (
+                              <Link
+                                href={`/formularios/respuestas?id=${item.form_template_id}&respuesta=${item.form_response_id}`}
+                                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary"
+                              >
+                                <ExternalLink size={14} />
+                                Ver respuesta
+                              </Link>
+                            )}
+                            {item.item_type === 'signature' && Boolean(item.document_id) && (
+                              <Link
+                                href={`/documentos/${item.document_id}`}
+                                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary"
+                              >
+                                <ExternalLink size={14} />
+                                Ver documento
+                              </Link>
+                            )}
                             {latest && (
                               <p
                                 className={`mt-1 text-xs ${scanClean ? 'text-emerald-700' : 'text-amber-700'}`}
@@ -869,6 +1002,7 @@ export default function ColaboraDetailPage() {
               resources={roomResources}
               documents={roomDocuments}
               oneTimeLink={oneTimeLink}
+              invitationMessage={roomInvitationMessage}
               saving={saving}
               canManageGuests={can('rooms.manage_guests', true)}
               canManageSecurity={can('rooms.manage_security', true)}
@@ -908,7 +1042,7 @@ export default function ColaboraDetailPage() {
             >
               <div className="flex items-center justify-between border-b border-border px-5 py-4">
                 <h3 className="font-medium capitalize text-foreground">
-                  {key.replaceAll('_', ' ')}
+                  {collaborationRelatedLabels[key] || key.replaceAll('_', ' ')}
                 </h3>
                 <span className="text-xs text-muted-foreground">{(items as unknown[]).length}</span>
               </div>
@@ -1374,6 +1508,7 @@ function RoomManagement({
   resources,
   documents,
   oneTimeLink,
+  invitationMessage,
   saving,
   canManageGuests,
   canManageSecurity,
@@ -1387,6 +1522,7 @@ function RoomManagement({
   resources: Record<string, unknown>[];
   documents: Array<{ id: string; nombre: string; estado: string }>;
   oneTimeLink: string;
+  invitationMessage: string;
   saving: boolean;
   canManageGuests: boolean;
   canManageSecurity: boolean;
@@ -1401,6 +1537,9 @@ function RoomManagement({
       {oneTimeLink && (
         <section className="rounded-lg border border-blue-200 bg-blue-50 p-5">
           <p className="text-sm font-medium text-blue-950">Enlace de acceso creado</p>
+          <p role="status" className="mt-1 text-sm text-blue-900">
+            {invitationMessage}
+          </p>
           <p className="mt-1 text-xs leading-5 text-blue-800">
             Comparte este enlace por un canal seguro. Solo se muestra durante esta sesion.
           </p>
@@ -1470,6 +1609,14 @@ function RoomManagement({
             />
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input type="checkbox" name="allow_download" className="h-4 w-4" /> Permitir descarga
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" name="allow_comment" className="h-4 w-4" />
+              Permitir comentarios (según la política de la organización)
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" name="send_invitation" defaultChecked className="h-4 w-4" />
+              Enviar invitación por correo
             </label>
             <button
               disabled={saving}
@@ -1651,7 +1798,7 @@ function SpaceManagement({
     const resourceId = String(resource.resource_id || '');
     if (resource.resource_type === 'document') return `/visor-documento/${resourceId}`;
     if (resource.resource_type === 'case_file') return `/expedientes/${resourceId}`;
-    if (resource.resource_type === 'form') return `/formularios/nuevo?id=${resourceId}`;
+    if (resource.resource_type === 'form') return `/formularios/respuestas?id=${resourceId}`;
     if (resource.resource_type === 'template') return `/plantillas/nueva?id=${resourceId}`;
     return '';
   };

@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
+import ActivityHub, { ActivityLoading } from '@/components/activity/ActivityHub';
+import ActivityTypeTabs from '@/components/activity/ActivityTypeTabs';
 import { ActivitySummary, type ActivitySummaryMetric } from '@/components/documents/ActivitySummary';
 import { useRouter } from 'next/navigation';
 import { hasEffectiveParticipation } from '@/lib/documents/participant-visibility';
@@ -2505,7 +2507,7 @@ function KanbanCard({ req, onCancelled, onInvite, onParticipantRevoked }: Reques
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function ParticipationRequestsPage() {
+function DocumentRequestsPage() {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -2789,16 +2791,7 @@ export default function ParticipationRequestsPage() {
   const calViewLabels: Record<CalendarView, string> = { mes: 'Mes', semana: 'Semana', dia: 'Día' };
 
   if (loadingData) {
-    return (
-      <AppLayout noPadding>
-        <div className="-mx-4 -my-4 flex min-h-[calc(100vh-4rem)] items-center justify-center bg-[#f6f8fb] px-4 md:-my-6">
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200/90 bg-white px-8 py-7 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <p className="text-sm text-slate-500">Cargando solicitudes...</p>
-          </div>
-        </div>
-      </AppLayout>
-    );
+    return <ActivityLoading mode="sent" />;
   }
 
   return (
@@ -2815,10 +2808,12 @@ export default function ParticipationRequestsPage() {
           <div>
             <h1 className="text-2xl font-600 leading-tight text-slate-950">Solicitudes enviadas</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Monitorea el avance de tus documentos y participantes.
+              Monitorea los documentos, formularios y expedientes que has enviado.
             </p>
           </div>
         </div>
+
+        <ActivityTypeTabs mode="sent" active="documentos" />
 
         {/* Data error banner */}
         {dataError && (
@@ -3230,4 +3225,8 @@ export default function ParticipationRequestsPage() {
       </div>
     </AppLayout>
   );
+}
+
+export default function ParticipationRequestsPage() {
+  return <ActivityHub mode="sent" documents={DocumentRequestsPage} />;
 }

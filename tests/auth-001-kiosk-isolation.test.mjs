@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-const middleware = await read('../src/middleware.ts');
+const middleware = await read('../src/proxy.ts');
 const sessionService = await read('../src/lib/in-person/kiosk-session.server.ts');
 const documentAccess = await read('../src/lib/security/document-access.ts');
 const contextRoute = await read('../src/app/api/firma-presencial/context/route.ts');

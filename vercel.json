@@ -14,6 +14,10 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/organizacion/continuity/process",
+      "schedule": "30 3 * * *"
+    },
+    {
       "path": "/api/internal/document-purge",
       "schedule": "20 4 * * *"
     },

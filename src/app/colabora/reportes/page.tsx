@@ -21,6 +21,7 @@ export default function CollaborationReportsPage() {
   const [generatedAt, setGeneratedAt] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'csv' | 'pdf' | 'xlsx'>('csv');
   const [error, setError] = useState('');
   const advancedAvailable = hasCollaborationEntitlement(access, 'collaboration_analytics', {
     proFeature: true,
@@ -29,19 +30,32 @@ export default function CollaborationReportsPage() {
 
   useEffect(() => {
     if (!activeWorkspace?.id) return;
-    setLoading(true);
-    api<{ data: { rows: ReportRow[]; generated_at: string } }>(
-      `/api/colabora/reports?workspace_id=${activeWorkspace.id}&scope=${advancedAvailable ? 'advanced' : 'basic'}`
-    )
-      .then((payload) => {
-        setRows(payload.data.rows);
-        setGeneratedAt(payload.data.generated_at);
-      })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : 'No se pudo generar.'))
-      .finally(() => setLoading(false));
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setLoading(true);
+      setError('');
+      try {
+        const result = await api<{ data: { rows: ReportRow[]; generated_at: string } }>(
+          `/api/colabora/reports?workspace_id=${activeWorkspace.id}&scope=${advancedAvailable ? 'advanced' : 'basic'}`
+        );
+        if (active) {
+          setRows(result.data.rows);
+          setGeneratedAt(result.data.generated_at);
+        }
+      } catch (cause) {
+        if (active)
+          setError(cause instanceof Error ? cause.message : 'No se pudo generar el reporte.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [activeWorkspace?.id, advancedAvailable, api]);
 
-  const exportCsv = async () => {
+  const exportReport = async () => {
     if (!activeWorkspace?.id) return;
     setExporting(true);
     setError('');
@@ -49,7 +63,7 @@ export default function CollaborationReportsPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.access_token) throw new Error('Tu sesion ha expirado.');
       const response = await fetch(
-        `/api/colabora/reports?workspace_id=${activeWorkspace.id}&format=csv&scope=${advancedAvailable ? 'advanced' : 'basic'}`,
+        `/api/colabora/reports?workspace_id=${activeWorkspace.id}&format=${exportFormat}&scope=${advancedAvailable ? 'advanced' : 'basic'}`,
         {
           headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
           cache: 'no-store',
@@ -62,7 +76,7 @@ export default function CollaborationReportsPage() {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = url;
-      link.download = `docubox-colabora-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.download = `docubox-colabora-${new Date().toISOString().slice(0, 10)}.${exportFormat}`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (cause) {
@@ -94,14 +108,27 @@ export default function CollaborationReportsPage() {
           </p>
         </div>
         {can('reports.export', true) && (
-          <button
-            disabled={exporting}
-            onClick={exportCsv}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm disabled:opacity-60"
-          >
-            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            Exportar CSV
-          </button>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="Formato de exportación"
+              value={exportFormat}
+              disabled={exporting}
+              onChange={(event) => setExportFormat(event.target.value as 'csv' | 'pdf' | 'xlsx')}
+              className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="csv">CSV</option>
+              <option value="pdf">PDF</option>
+              <option value="xlsx">Excel</option>
+            </select>
+            <button
+              disabled={exporting}
+              onClick={exportReport}
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              Exportar
+            </button>
+          </div>
         )}
       </div>
       {error && (
@@ -130,12 +157,23 @@ export default function CollaborationReportsPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-medium">Analítica avanzada y SLA</h3>
-                <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">PRO</span>
+                <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                  PRO
+                </span>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">Función no disponible en el plan actual. Contacta a tu administrador.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Función no disponible en el plan actual. Contacta a tu administrador.
+              </p>
             </div>
-            {(access.canManageSubscription || access.membershipRole === 'owner' || access.permissions.includes('subscription.manage_addons')) && (
-              <a href="/app-market" className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white">Actualizar a Pro</a>
+            {(access.canManageSubscription ||
+              access.membershipRole === 'owner' ||
+              access.permissions.includes('subscription.manage_addons')) && (
+              <a
+                href="/app-market"
+                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white"
+              >
+                Actualizar a Pro
+              </a>
             )}
           </div>
         </section>

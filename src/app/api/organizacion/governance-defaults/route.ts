@@ -32,11 +32,23 @@ const configuration = {
 
 export async function GET(request: Request) {
   try {
-    const workspaceId = new URL(request.url).searchParams.get('workspace_id') || '';
+    const url = new URL(request.url);
+    const workspaceId = url.searchParams.get('workspace_id') || '';
+    const kind = url.searchParams.get('kind');
+    if (kind && !['workflow', 'signature_policy'].includes(kind))
+      throw new OrganizationApiError(
+        422,
+        'invalid_resource',
+        'Selecciona un tipo de configuración válido.'
+      );
     const { service } = await authorizeOrganizationRequest(
       request,
       workspaceId,
-      'organization.read'
+      kind === 'workflow'
+        ? 'workflows.read'
+        : kind === 'signature_policy'
+          ? 'signature_policies.read'
+          : 'organization.read'
     );
     const result = await service
       .from('workspaces')

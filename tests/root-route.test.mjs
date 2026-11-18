@@ -5,7 +5,7 @@ import test from 'node:test';
 test('the site root renders login without redirecting to a subpage', async () => {
   const [rootPage, middleware, config] = await Promise.all([
     readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/middleware.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/proxy.ts', import.meta.url), 'utf8'),
     readFile(new URL('../next.config.mjs', import.meta.url), 'utf8'),
   ]);
 

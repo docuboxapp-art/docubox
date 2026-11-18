@@ -565,7 +565,7 @@ function LaunchContent() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-slate-50 text-slate-950"
+      className="docubox-wizard fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-slate-50 text-slate-950"
     >
       <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-6">
         <AppLogo size={34} imageClassName="max-sm:w-24" />

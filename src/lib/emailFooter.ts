@@ -21,11 +21,11 @@ function escapeHtml(value: string): string {
   });
 }
 
-export function docuboxEmailFooter(context: string): string {
+export function docuboxEmailFooter(context: string, hideLogo = false): string {
   return `<tr><td style="background:#ffffff;padding:26px 40px;border-top:1px solid #EBEBF0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="vertical-align:middle;"><img src="${LOGO_URL}" alt="Docubox" width="104" style="display:block;border:0;max-width:104px;height:auto;"></td>
+        <td style="vertical-align:middle;">${hideLogo ? '' : `<img src="${LOGO_URL}" alt="Docubox" width="104" style="display:block;border:0;max-width:104px;height:auto;">`}</td>
         <td style="vertical-align:middle;text-align:right;">
           <a href="${APP_URL}/politica-privacidad" style="font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:12px;">Política de privacidad</a>
           <a href="${APP_URL}/terminos-condiciones" style="font-size:12px;color:#9ca3af;text-decoration:none;display:inline-block;margin-left:12px;">Términos y condiciones</a>
@@ -40,14 +40,29 @@ export function docuboxEmailFooter(context: string): string {
 export const docuboxEmailSafetyLine =
   '<p style="font-size:11px;color:#9ca3af;margin:16px 0 0;text-align:center;">Este correo fue enviado de forma segura por Docubox.</p>';
 
-export function wrapDocuboxEmail(contentHtml: string, context: string): string {
+export type OrganizationEmailBrand = {
+  name?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  cobranding?: boolean;
+};
+export function wrapDocuboxEmail(
+  contentHtml: string,
+  context: string,
+  branding?: OrganizationEmailBrand
+): string {
+  const color = /^#[0-9a-f]{6}$/i.test(branding?.primaryColor || '')
+    ? branding!.primaryColor!
+    : '#1E6BFF';
+  const logo = branding?.logoUrl?.startsWith('https://') ? branding.logoUrl : LOGO_URL;
+  const name = branding?.name || 'Docubox';
   return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
   <body style="margin:0;padding:0;background:#F6F8FB;font-family:'Google Sans','Google Sans Text','Segoe UI',Arial,sans-serif;color:#18181B;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F8FB;padding:40px 16px;"><tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #EBEBF0;border-radius:12px;overflow:hidden;">
-        <tr><td style="padding:24px 40px;border-bottom:1px solid #EBEBF0;"><img src="${LOGO_URL}" alt="Docubox" width="142" style="display:block;border:0;max-width:142px;height:auto;"></td></tr>
+        <tr><td style="padding:24px 40px;${branding ? `border-top:4px solid ${color};` : ''}border-bottom:1px solid #EBEBF0;">${branding?.cobranding === false && !branding.logoUrl ? '' : `<img src="${escapeHtml(logo)}" alt="${escapeHtml(name)}" width="142" style="display:block;border:0;max-width:142px;height:auto;">`}${branding?.name ? `<p style="margin:12px 0 0;font-size:14px;color:#475569;">${escapeHtml(name)}</p>` : ''}</td></tr>
         <tr><td style="padding:32px 40px 36px;">${contentHtml}</td></tr>
-        ${docuboxEmailFooter(context)}
+        ${docuboxEmailFooter(context, branding?.cobranding === false)}
       </table>
       ${docuboxEmailSafetyLine}
     </td></tr></table>

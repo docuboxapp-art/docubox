@@ -19,6 +19,7 @@ const ALLOWED_SCOPES = new Set([
   'organization.profile.update',
   'workflows.manage',
   'signature_policies.manage',
+  'authorities.manage',
   'members.offboard',
   'organization.transfer_ownership',
   'documents.custody.transfer',
@@ -42,11 +43,29 @@ export async function POST(request: Request) {
         'Selecciona una operacion valida.'
       );
 
-    const { user, service } = await authorizeOrganizationRequest(
+    const { user, service, userClient } = await authorizeOrganizationRequest(
       request,
       workspaceId,
-      'organization.read'
+      scopes[0]
     );
+    for (const scope of scopes.slice(1)) {
+      const permission = await userClient.rpc('has_organization_permission', {
+        ws_id: workspaceId,
+        requested_permission: scope,
+      });
+      if (permission.error)
+        throw new OrganizationApiError(
+          503,
+          'permissions_unavailable',
+          'No se pudieron comprobar los permisos.'
+        );
+      if (permission.data !== true)
+        throw new OrganizationApiError(
+          403,
+          'permission_denied',
+          'No tienes permiso para realizar esta acción.'
+        );
+    }
     await verifyOrganizationPassword(user.id, user.email, password);
 
     const secret = createOpaqueSecret('dbxreauth');

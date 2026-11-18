@@ -9,6 +9,7 @@ import {
   ListFilter, RotateCcw, Search, Send, Star, Trash2, Users, X,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import ResponsiveFilterBar from '@/components/ResponsiveFilterBar';
 import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -574,7 +575,7 @@ export default function FormulariosPage() {
                 Crea, publica y administra formularios que generan documentos listos para firma.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => router.push('/formularios/lanzar')} disabled={!forms.some((form) => form.status === 'published')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-white px-4 text-sm font-600 text-primary transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} /> Lanzar formulario</button><button
+            <div className="module-page-actions flex flex-wrap gap-2"><button type="button" onClick={() => router.push('/formularios/lanzar')} disabled={!forms.some((form) => form.status === 'published')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-primary bg-white px-4 text-sm font-600 text-primary transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} /> Lanzar formulario</button><button
               type="button"
               onClick={() => router.push('/formularios/nuevo')}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition-colors hover:bg-primary/90"
@@ -687,6 +688,7 @@ export default function FormulariosPage() {
                 <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
+            <ResponsiveFilterBar count={activeFilterCount}>
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3 dark:border-border">
               <FormQuickFilter
                 label="Tipo de formulario"
@@ -722,6 +724,7 @@ export default function FormulariosPage() {
                 </button>
               )}
             </div>
+          </ResponsiveFilterBar>
           </section>
 
           <section className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
@@ -731,7 +734,7 @@ export default function FormulariosPage() {
             <EmptyState onCreate={() => router.push('/formularios/nuevo')} filtered={Boolean(query || forms.length)} />
           ) : (
             <div className="overflow-x-auto rounded-lg">
-              <table className="w-full min-w-[980px] table-fixed text-sm">
+              <table className="responsive-data-table w-full min-w-[980px] table-fixed text-sm">
                 <thead><tr className="border-b border-slate-200 bg-slate-50/80 text-left dark:border-border dark:bg-muted/40">
                   <TableHeading className="w-[36%]">Formulario</TableHeading>
                   <TableHeading className="w-[18%]">Tipo de formulario</TableHeading>
@@ -747,12 +750,12 @@ export default function FormulariosPage() {
                     const isFavorite = favoriteSet.has(form.id);
                     return (
                       <tr key={form.id} className="transition-colors hover:bg-slate-50/70 dark:hover:bg-muted/30">
-                        <td className="px-3 py-3"><button type="button" onClick={() => router.push(`/formularios/nuevo?id=${form.id}`)} className="group flex w-full min-w-0 items-center gap-3 text-left"><span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border ${formStyle.iconClass}`}><FormIcon size={17} /></span><span className="min-w-0"><span className="block truncate text-sm font-500 text-slate-950 group-hover:text-primary dark:text-foreground">{form.name} <span className="text-xs font-normal text-slate-400">v{form.version_number || 1}.0{(form.revision_number || 1) > 1 ? ` · rev. ${form.revision_number}` : ''}</span></span>{form.description?.trim() && <span className="mt-0.5 block truncate !text-xs !font-normal text-slate-500 dark:text-muted-foreground">{form.description}</span>}</span></button></td>
-                        <td className="px-3 py-3"><span className="block truncate text-xs text-slate-600 dark:text-muted-foreground" title={form.typeName}>{form.typeName}</span></td>
-                        <td className="px-3 py-3"><StatusBadge status={form.status} /></td>
-                        <td className="px-3 py-3">{canViewFormResponses(form.status) ? <button type="button" onClick={() => router.push(`/formularios/respuestas?id=${form.id}`)} className="inline-flex items-center gap-2 text-xs font-500 text-slate-700 hover:text-primary dark:text-foreground"><Users size={14} className="text-slate-400" /><span className="tabular-nums">{form.responseCount}</span><span className="text-slate-400">{form.responseCount === 1 ? 'respuesta' : 'respuestas'}</span></button> : <span className="text-xs text-slate-400" aria-label="Respuestas no disponibles">—</span>}</td>
-                        <td className="whitespace-nowrap px-3 py-3"><span className="block text-xs font-500 text-slate-700 dark:text-foreground">{new Date(form.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="mt-0.5 block text-[11px] text-slate-400">{new Date(form.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span></td>
-                        <td className="relative px-3 py-3 text-right">
+                        <td data-label="Formulario" className="px-3 py-3"><button type="button" onClick={() => router.push(`/formularios/nuevo?id=${form.id}`)} className="group flex w-full min-w-0 items-center gap-3 text-left"><span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border ${formStyle.iconClass}`}><FormIcon size={17} /></span><span className="min-w-0"><span className="block truncate text-sm font-500 text-slate-950 group-hover:text-primary dark:text-foreground">{form.name} <span className="text-xs font-normal text-slate-400">v{form.version_number || 1}.0{(form.revision_number || 1) > 1 ? ` · rev. ${form.revision_number}` : ''}</span></span>{form.description?.trim() && <span className="mt-0.5 block truncate !text-xs !font-normal text-slate-500 dark:text-muted-foreground">{form.description}</span>}</span></button></td>
+                        <td data-label="Tipo de formulario" className="px-3 py-3"><span className="block truncate text-xs text-slate-600 dark:text-muted-foreground" title={form.typeName}>{form.typeName}</span></td>
+                        <td data-label="Estado" className="px-3 py-3"><StatusBadge status={form.status} /></td>
+                        <td data-label="Respuestas" className="px-3 py-3">{canViewFormResponses(form.status) ? <button type="button" onClick={() => router.push(`/formularios/respuestas?id=${form.id}`)} className="inline-flex items-center gap-2 text-xs font-500 text-slate-700 hover:text-primary dark:text-foreground"><Users size={14} className="text-slate-400" /><span className="tabular-nums">{form.responseCount}</span><span className="text-slate-400">{form.responseCount === 1 ? 'respuesta' : 'respuestas'}</span></button> : <span className="text-xs text-slate-400" aria-label="Respuestas no disponibles">—</span>}</td>
+                        <td data-label="Última modificación" className="whitespace-nowrap px-3 py-3"><span className="block text-xs font-500 text-slate-700 dark:text-foreground">{new Date(form.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="mt-0.5 block text-[11px] text-slate-400">{new Date(form.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span></td>
+                        <td data-label="Acciones" className="relative px-3 py-3 text-right">
                           <div className="inline-flex items-center gap-1">
                             <button type="button" onClick={() => router.push(`/formularios/preview?id=${form.id}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Vista previa" aria-label={`Vista previa de ${form.name}`}><Eye size={13} /></button>
                             {form.status === 'published' && <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>}

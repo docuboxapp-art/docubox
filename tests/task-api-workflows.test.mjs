@@ -78,19 +78,20 @@ function database(seed = {}) {
   return { rows, from };
 }
 
-function setup({ role = 'owner', actor = ownerId, organization = false, task = {} } = {}) {
+function setup({ role = 'owner', actor = ownerId, organization = false, task = {}, scopeAllowed, scopeUnavailable=false } = {}) {
   const service = database({
     tareas: [{ id: taskId, workspace_id: workspaceId, created_by: ownerId,
       assigned_to: memberId, title: 'Revisar contrato', tipo: 'revisar_documento',
       estado: 'pendiente', prioridad: 'media', origin: 'manual', source_type: 'document',
       source_id: documentId, document_id: documentId, created_at: '2026-10-01T00:00:00Z', ...task }],
-    workspaces: [{ id: workspaceId, organization_enabled: organization, workspace_type: organization ? 'organization' : 'personal', owner_id: ownerId }],
+    workspaces: [{ id: workspaceId, organization_enabled: organization, workspace_type: organization ? 'business' : 'personal', owner_id: ownerId }],
     workspace_members: [ownerId, memberId].map(user_id => ({ workspace_id: workspaceId, user_id, status: 'active' })),
     user_profiles: [{ id: ownerId, full_name: 'Propietaria', email: 'owner@example.com' },
       { id: memberId, full_name: 'Integrante', email: 'member@example.com' }],
     documentos: [{ id: documentId, workspace_id: workspaceId, nombre: 'Contrato', estado: 'en_proceso' }],
   });
-  globalThis.__taskTestAuth = { service, scoped: service, user: { id: actor, email: 'owner@example.com' }, role };
+  const scoped={...service,rpc:async(name,args)=>{if(scopeUnavailable)return {data:null,error:{code:'PGRST202'}};const row=service.rows.tareas[0];const allowed=scopeAllowed ?? (role==='owner'||role==='admin'||(args.requested_permission!=='tasks.assign'&&(row?.created_by===actor||row?.assigned_to===actor)));return {data:allowed,error:null};}};
+  globalThis.__taskTestAuth = { service, scoped, user: { id: actor, email: 'owner@example.com' }, role };
   return service.rows;
 }
 
@@ -251,3 +252,8 @@ test('an owner can reschedule a manual task but cannot place its deadline before
   })).status, 400);
   assert.equal(rows.tareas[0].due_date, dueDate);
 });
+
+
+test('organization scopes deny the legacy endpoint before it can change a task',async()=>{const rows=setup({organization:true,scopeAllowed:false});const before=rows.tareas[0].estado;const response=await action('start');assert.equal(response.status,403);assert.equal(rows.tareas[0].estado,before);});
+test('an authorized team role can start a teammate task through the legacy route',async()=>{const rows=setup({organization:true,role:'member',actor:memberId,task:{assigned_to:ownerId},scopeAllowed:true});const response=await action('start');assert.equal(response.status,200);assert.equal(rows.tareas[0].estado,'en_proceso');});
+test('scope service failure keeps the task unchanged and returns a retryable error',async()=>{const rows=setup({organization:true,scopeUnavailable:true});const before=rows.tareas[0].estado;const response=await action('start');assert.equal(response.status,503);assert.equal(rows.tareas[0].estado,before);});

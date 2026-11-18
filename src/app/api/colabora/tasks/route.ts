@@ -1,12 +1,38 @@
+import { assertCollaborationCreationReferences } from '@/lib/collaboration/references.server';
 import { z } from 'zod';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
+  assertCollaborationCreationScope,
   recordCollaborationAudit,
 } from '@/lib/collaboration/server';
 
 export const runtime = 'nodejs';
+const listSchema = z.object({
+  workspace_id: z.string().uuid(),
+  status: z
+    .enum([
+      'nueva',
+      'pendiente',
+      'en_proceso',
+      'bloqueada',
+      'en_revision',
+      'vencida',
+      'escalada',
+      'completada',
+      'cancelada',
+      'rechazada',
+    ])
+    .optional(),
+  assignee: z.string().uuid().optional(),
+  priority: z.enum(['critica', 'alta', 'media', 'baja']).optional(),
+  due: z.enum(['overdue', 'soon']).optional(),
+  mine: z.enum(['1']).optional(),
+  search: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  page_size: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 const taskSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -42,30 +68,55 @@ const taskSchema = z.object({
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const workspaceId = url.searchParams.get('workspace_id') || '';
-    const status = url.searchParams.get('status');
-    const assignee = url.searchParams.get('assignee');
-    const search = url.searchParams.get('search')?.trim();
-    const { service } = await authorizeCollaborationRequest(request, workspaceId, 'tasks.view');
+    const filters = listSchema.parse(Object.fromEntries(url.searchParams));
+    const { workspace_id: workspaceId, status, assignee, search } = filters;
+    const { userClient: service, user } = await authorizeCollaborationRequest(
+      request,
+      workspaceId,
+      'tasks.view'
+    );
 
     let query = service
       .from('tareas')
       .select(
-        'id,title,description,tipo,prioridad,estado,riesgo,due_date,sla,sla_due_at,is_overdue,is_blocked,blocked_reason,assigned_to,assigned_team_id,responsible_name,creator_name,document_name,document_id,expediente_id,expediente_name,tags,collaboration_space_id,confidentiality,optimistic_version,created_at,updated_at'
+        'id,title,description,tipo,prioridad,estado,riesgo,due_date,sla,sla_due_at,is_overdue,is_blocked,blocked_reason,assigned_to,assigned_team_id,responsible_name,creator_name,document_name,document_id,expediente_id,expediente_name,tags,collaboration_space_id,confidentiality,optimistic_version,created_at,updated_at',
+        { count: 'exact' }
       )
       .eq('workspace_id', workspaceId)
       .order('is_overdue', { ascending: false })
       .order('due_date', { ascending: true, nullsFirst: false })
-      .limit(200);
+      .order('id')
+      .range((filters.page - 1) * filters.page_size, filters.page * filters.page_size - 1);
     if (status) query = query.eq('estado', status);
     if (assignee) query = query.eq('assigned_to', assignee);
+    if (filters.mine === '1') query = query.eq('assigned_to', user.id);
+    if (filters.priority) query = query.eq('prioridad', filters.priority);
+    if (filters.due) {
+      const now = new Date();
+      query = query.not('estado', 'in', '(completada,cancelada,rechazada)');
+      query =
+        filters.due === 'overdue'
+          ? query.lt('due_date', now.toISOString())
+          : query
+              .gte('due_date', now.toISOString())
+              .lte('due_date', new Date(now.getTime() + 72 * 3600000).toISOString());
+    }
     if (search)
       query = query.or(
-        `title.ilike.%${search.replace(/[%_,]/g, '')}%,description.ilike.%${search.replace(/[%_,]/g, '')}%`
+        `title.ilike.%${search.replace(/[%_,()"'\\\r\n]/g, '')}%,description.ilike.%${search.replace(/[%_,()"'\\\r\n]/g, '')}%`
       );
     const result = await query;
     if (result.error) throw result.error;
-    return Response.json({ success: true, data: result.data || [] });
+    return Response.json(
+      {
+        success: true,
+        data: result.data || [],
+        total: result.count ?? 0,
+        page: filters.page,
+        page_size: filters.page_size,
+      },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
   } catch (error) {
     return organizationApiFailure(error);
   }
@@ -74,11 +125,20 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const input = taskSchema.parse(await request.json());
-    const { service, user } = await authorizeCollaborationRequest(
+    const { service, user, userClient } = await authorizeCollaborationRequest(
       request,
       input.workspace_id,
       'tasks.create',
       true
+    );
+    await assertCollaborationCreationReferences(service, input.workspace_id, input);
+    await assertCollaborationCreationScope(
+      userClient,
+      input.workspace_id,
+      'tasks.create',
+      'task',
+      user.id,
+      input
     );
     const [profile, assignee] = await Promise.all([
       service.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle(),

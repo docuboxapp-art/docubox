@@ -23,7 +23,7 @@ export function NumberedWizardNav({
   return (
     <nav
       aria-label="Progreso"
-      className={`flex min-w-max items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 ${className}`}
+      className={`numbered-wizard-nav flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 ${className}`}
     >
       {steps.map((step, index) => {
         const isActive = step.id === currentStep;
@@ -31,7 +31,7 @@ export function NumberedWizardNav({
         const canSelect = isCompleted && Boolean(onStepSelect);
 
         return (
-          <div key={step.id} className="flex items-center gap-1">
+          <div key={step.id} className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               onClick={() => canSelect && onStepSelect?.(step.id)}

@@ -17,7 +17,7 @@ const ownerSessionRoute = await read(
 );
 const kioskRoute = await read('../src/app/api/firma-presencial/[token]/route.ts');
 const kioskPage = await read('../src/app/firma-presencial/[token]/page.tsx');
-const middleware = await read('../src/middleware.ts');
+const middleware = await read('../src/proxy.ts');
 const sendRoute = await read('../src/app/api/documentos/enviar/route.ts');
 
 test('package tables are additive and preserve historical documentos JSONB', () => {

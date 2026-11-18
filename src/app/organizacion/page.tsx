@@ -1,87 +1,398 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowRight, Building2, CheckCircle2, CircleAlert, Clock3, ShieldCheck, Users, UsersRound } from 'lucide-react';
+import {
+  Activity,
+  ArrowRight,
+  Building2,
+  Check,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  Mail,
+  RefreshCw,
+  ShieldCheck,
+  Users,
+  UsersRound,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-
-type Summary = {
-  members: number;
-  teams: number;
-  pendingInvitations: number;
-  recentEvents: Array<{ id: string; summary: string; event_type: string; occurred_at: string }>;
-  organization: { legal_name: string | null; rfc: string | null; contact_email: string | null; verification_status: string | null; kyb_status: string | null } | null;
-};
-
-const emptySummary: Summary = { members: 0, teams: 0, pendingInvitations: 0, recentEvents: [], organization: null };
+import { organizationSections } from '@/lib/organization/sections';
+import {
+  emptyOrganizationDashboard,
+  loadOrganizationDashboard,
+} from '@/lib/organization/dashboard';
+import { useOrganizationAccess } from './_components/OrganizationAccessContext';
+import OrganizationSectionIcon from './_components/OrganizationSectionIcon';
 
 function humanDate(value: string) {
-  return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Fecha no disponible'
+    : new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
+
+const shortcutKeys = ['members', 'teams', 'roles', 'workflows', 'resources', 'security'];
 
 export default function OrganizationDashboardPage() {
   const { activeWorkspace } = useWorkspace();
-  const [summary, setSummary] = useState(emptySummary);
+  const workspaceId = activeWorkspace?.id;
+  const { canAccess } = useOrganizationAccess();
+  const supabase = useMemo(() => createClient(), []);
+  const [summary, setSummary] = useState(emptyOrganizationDashboard);
   const [loading, setLoading] = useState(true);
+  const [incomplete, setIncomplete] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!activeWorkspace?.id) return;
-    const supabase = createClient();
-    const load = async () => {
+    if (!workspaceId) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    let active = true;
+    async function load() {
+      await Promise.resolve();
+      if (!active) return;
       setLoading(true);
-      const [workspaceResult, membersResult, teamsResult, invitationsResult, auditResult] = await Promise.all([
-        supabase.from('workspaces').select('legal_name,rfc,contact_email,verification_status,kyb_status').eq('id', activeWorkspace.id).maybeSingle(),
-        supabase.from('workspace_members').select('id', { count: 'exact', head: true }).eq('workspace_id', activeWorkspace.id).eq('status', 'active'),
-        supabase.from('organization_units').select('id', { count: 'exact', head: true }).eq('workspace_id', activeWorkspace.id).eq('status', 'active'),
-        supabase.from('organization_invitations').select('id', { count: 'exact', head: true }).eq('workspace_id', activeWorkspace.id).eq('status', 'pending'),
-        supabase.from('organization_audit_events').select('id,summary,event_type,occurred_at').eq('workspace_id', activeWorkspace.id).order('occurred_at', { ascending: false }).limit(5),
-      ]);
-      setSummary({ organization: workspaceResult.data, members: membersResult.count ?? 0, teams: teamsResult.count ?? 0, pendingInvitations: invitationsResult.count ?? 0, recentEvents: auditResult.data ?? [] });
-      setLoading(false);
+      setIncomplete(false);
+      try {
+        const result = await loadOrganizationDashboard(
+          supabase,
+          workspaceId!,
+          canAccess,
+          controller.signal
+        );
+        if (!active) return;
+        setSummary(result.summary);
+        setIncomplete(result.incomplete);
+      } catch {
+        if (active) setIncomplete(true);
+      } finally {
+        clearTimeout(timeout);
+        if (active) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      controller.abort();
     };
-    load();
-  }, [activeWorkspace?.id]);
+  }, [workspaceId, canAccess, retry, supabase]);
 
   const checklist = [
-    { label: 'Completar datos generales y contacto', done: Boolean(summary.organization?.legal_name && summary.organization?.contact_email), href: '/organizacion/perfil' },
-    { label: 'Registrar datos fiscales', done: Boolean(summary.organization?.rfc), href: '/organizacion/perfil' },
-    { label: 'Invitar al equipo', done: summary.members > 1, href: '/organizacion/miembros' },
-    { label: 'Definir roles y permisos', done: summary.members > 0, href: '/organizacion/roles' },
-  ];
+    {
+      label: 'Datos generales y contacto',
+      done: Boolean(summary.organization?.legal_name && summary.organization?.contact_email),
+      href: '/organizacion/perfil',
+      permission: 'organization.read',
+    },
+    {
+      label: 'Información fiscal',
+      done: Boolean(summary.organization?.rfc),
+      href: '/organizacion/perfil',
+      permission: 'organization.read',
+    },
+    {
+      label: 'Invitar al equipo',
+      done: summary.members !== null && summary.members > 1,
+      href: '/organizacion/miembros',
+      permission: 'members.read',
+    },
+    {
+      label: 'Definir roles y permisos',
+      done: summary.customRoles !== null && summary.customRoles > 0,
+      href: '/organizacion/roles',
+      permission: 'roles.read',
+    },
+  ].filter((item) => canAccess(item.permission));
   const completed = checklist.filter((item) => item.done).length;
+  const progress = checklist.length ? Math.round((completed / checklist.length) * 100) : 0;
+  const shortcuts = shortcutKeys
+    .map((key) => organizationSections.find((section) => section.key === key)!)
+    .filter((section) => canAccess(section.permission));
+  const verified = summary.organization?.kyb_status === 'verified';
+  const stats = [
+    {
+      label: 'Miembros activos',
+      value: summary.members,
+      icon: Users,
+      href: '/organizacion/miembros',
+      permission: 'members.read',
+      tone: 'blue',
+      note: 'Personas con acceso a tu organización',
+    },
+    {
+      label: 'Equipos y áreas',
+      value: summary.teams,
+      icon: UsersRound,
+      href: '/organizacion/equipos',
+      permission: 'teams.read',
+      tone: 'violet',
+      note: 'Estructura activa del equipo',
+    },
+    {
+      label: 'Invitaciones pendientes',
+      value: summary.pendingInvitations,
+      icon: Mail,
+      href: '/organizacion/miembros',
+      permission: 'members.read',
+      tone: 'amber',
+      note: 'Invitaciones vigentes por aceptar',
+    },
+    {
+      label: 'Verificación (KYB)',
+      value: summary.organization ? (verified ? 'Verificada' : 'Pendiente') : null,
+      icon: ShieldCheck,
+      href: '/organizacion/perfil',
+      permission: 'organization.read',
+      tone: verified ? 'green' : 'slate',
+      note: 'Identidad y evidencias de la organización',
+    },
+  ].filter((item) => canAccess(item.permission));
 
   return (
-    <div className="max-w-[1500px] mx-auto space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div><h2 className="text-xl font-medium text-foreground">Resumen</h2><p className="mt-1 text-sm text-muted-foreground">Gobierno, acceso y operación del espacio empresarial.</p></div>
-        <Link href="/organizacion/miembros" className="inline-flex h-10 items-center justify-center gap-2 px-4 rounded-md bg-primary text-white text-sm font-medium"><Users size={16} /> Gestionar miembros</Link>
+    <div className="organization-dashboard max-w-[1500px] mx-auto" aria-busy={loading}>
+      <div className="organization-dashboard-heading">
+        <div>
+          <h2>Panel de administración</h2>
+          <p>Tu equipo, la operación y la configuración, en un solo lugar.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="organization-refresh-button"
+            aria-label="Actualizar resumen"
+            title="Actualizar resumen"
+            disabled={loading}
+            onClick={() => setRetry((value) => value + 1)}
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          {canAccess('members.read') && (
+            <Link
+              href="/organizacion/miembros"
+              prefetch={false}
+              className="organization-primary-button"
+            >
+              <Users size={16} aria-hidden="true" />
+              Gestionar miembros
+            </Link>
+          )}
+        </div>
       </div>
 
-      <section className="bg-background border border-border rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3"><div><h3 className="font-medium text-foreground">Puesta en marcha</h3><p className="text-sm text-muted-foreground mt-0.5">{completed} de {checklist.length} tareas completadas</p></div><span className="text-sm font-medium text-primary">{Math.round((completed / checklist.length) * 100)}%</span></div>
-        <div className="h-1 bg-muted"><div className="h-full bg-primary" style={{ width: `${(completed / checklist.length) * 100}%` }} /></div>
-        <div className="divide-y divide-border">{checklist.map((item) => <Link key={item.label} href={item.href} className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/50 transition-colors">{item.done ? <CheckCircle2 size={18} className="text-emerald-600" /> : <CircleAlert size={18} className="text-amber-500" />}<span className="text-sm text-foreground flex-1">{item.label}</span><ArrowRight size={15} className="text-muted-foreground" /></Link>)}</div>
-      </section>
+      {incomplete && (
+        <div className="organization-dashboard-notice" role="alert">
+          <span>Algunos datos no están disponibles. Vuelve a actualizar el resumen.</span>
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            Reintentar
+          </button>
+        </div>
+      )}
 
-      <section className="grid sm:grid-cols-2 xl:grid-cols-4 bg-background border border-border rounded-lg overflow-hidden divide-y sm:divide-y-0 sm:divide-x divide-border">
-        {[
-          { label: 'Miembros activos', value: summary.members, icon: Users, href: '/organizacion/miembros' },
-          { label: 'Equipos y áreas', value: summary.teams, icon: UsersRound, href: '/organizacion/equipos' },
-          { label: 'Invitaciones pendientes', value: summary.pendingInvitations, icon: Clock3, href: '/organizacion/miembros' },
-          { label: 'Estado KYB', value: summary.organization?.kyb_status === 'verified' ? 'Verificado' : 'Pendiente', icon: ShieldCheck, href: '/organizacion/perfil' },
-        ].map((item) => <Link key={item.label} href={item.href} className="p-5 hover:bg-muted/40 transition-colors min-h-28"><item.icon size={18} className="text-primary" /><p className="mt-3 text-2xl font-medium text-foreground tabular-nums">{loading ? '—' : item.value}</p><p className="mt-1 text-sm text-muted-foreground">{item.label}</p></Link>)}
-      </section>
+      <div className="organization-stat-grid">
+        {stats.map((item) => (
+          <Link
+            key={item.label}
+            href={item.href}
+            prefetch={false}
+            className="organization-stat-card"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className={`organization-stat-icon organization-tone-${item.tone}`}>
+                <item.icon size={18} aria-hidden="true" />
+              </span>
+              <ArrowRight size={14} className="text-muted-foreground" aria-hidden="true" />
+            </div>
+            <p className="organization-stat-value">{loading ? '—' : (item.value ?? '—')}</p>
+            <h3>{item.label}</h3>
+            <p className="organization-stat-note">{item.note}</p>
+          </Link>
+        ))}
+      </div>
 
-      <div className="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
-        <section className="bg-background border border-border rounded-lg overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center justify-between"><div><h3 className="font-medium text-foreground">Actividad reciente</h3><p className="mt-0.5 text-sm text-muted-foreground">Eventos administrativos de la organización.</p></div><Link href="/organizacion/auditoria" className="text-sm text-primary font-medium">Ver auditoría</Link></div>
-          {summary.recentEvents.length ? <div className="divide-y divide-border">{summary.recentEvents.map((event) => <div key={event.id} className="px-5 py-3.5 flex gap-3"><Activity size={16} className="mt-0.5 text-muted-foreground shrink-0" /><div><p className="text-sm text-foreground">{event.summary}</p><p className="mt-0.5 text-xs text-muted-foreground">{humanDate(event.occurred_at)}</p></div></div>)}</div> : <div className="px-5 py-12 text-center text-sm text-muted-foreground">Aún no hay eventos administrativos.</div>}
-        </section>
-        <section className="bg-background border border-border rounded-lg overflow-hidden">
-          <div className="px-5 py-4 border-b border-border"><h3 className="font-medium text-foreground">Identidad organizacional</h3></div>
-          <div className="p-5 space-y-4"><div className="flex items-start gap-3"><Building2 size={18} className="text-primary mt-0.5" /><div><p className="text-xs uppercase text-muted-foreground">Razón social</p><p className="text-sm text-foreground mt-1">{summary.organization?.legal_name || 'Pendiente de completar'}</p></div></div><div><p className="text-xs uppercase text-muted-foreground">RFC</p><p className="text-sm text-foreground mt-1">{summary.organization?.rfc || 'No registrado'}</p></div><div className="pt-3 border-t border-border"><p className="text-xs text-muted-foreground">Los estados de verificación solo cambian cuando existe evidencia registrada.</p></div></div>
-        </section>
+      <div className="organization-dashboard-columns">
+        <div className="min-w-0 space-y-5">
+          {!!shortcuts.length && (
+            <section className="organization-dashboard-card">
+              <div className="organization-card-heading">
+                <div>
+                  <h3>Accesos rápidos</h3>
+                  <p>Las herramientas de tu día a día.</p>
+                </div>
+              </div>
+              <div className="organization-shortcuts">
+                {shortcuts.map((item) => (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    prefetch={false}
+                    className="organization-shortcut"
+                  >
+                    <span className="organization-shortcut-icon">
+                      <OrganizationSectionIcon section={item.key} size={19} />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="organization-shortcut-title">{item.label}</span>
+                      <span className="organization-shortcut-description">{item.description}</span>
+                    </span>
+                    <ArrowRight
+                      size={14}
+                      className="shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="organization-dashboard-card">
+            <div className="organization-card-heading">
+              <div>
+                <h3>Actividad reciente</h3>
+                <p>Lo que ha cambiado en tu organización.</p>
+              </div>
+              {canAccess('audit.read') && (
+                <Link href="/organizacion/auditoria" prefetch={false}>
+                  Ver auditoría
+                  <ArrowRight size={13} aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+            {loading ? (
+              <p className="organization-empty-state" role="status">
+                Cargando actividad...
+              </p>
+            ) : summary.recentEvents?.length ? (
+              <ol className="organization-activity-list">
+                {summary.recentEvents.map((event) => (
+                  <li key={event.id}>
+                    <span className="organization-activity-icon">
+                      <Activity size={15} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p>{event.summary}</p>
+                      <time dateTime={event.occurred_at}>{humanDate(event.occurred_at)}</time>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="organization-empty-state">
+                <Clock3
+                  size={22}
+                  className="mx-auto mb-2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <p>
+                  {summary.recentEvents === null
+                    ? 'La actividad se mostrará cuando esté disponible para tu acceso.'
+                    : 'Aún no hay eventos administrativos.'}
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="organization-dashboard-support min-w-0">
+          <section className="organization-dashboard-card">
+            <div className="organization-card-heading">
+              <div>
+                <h3>Puesta en marcha</h3>
+                <p>
+                  {loading
+                    ? 'Consultando configuración...'
+                    : `${completed} de ${checklist.length} configuraciones listas`}
+                </p>
+              </div>
+              <span className="organization-progress-label">{loading ? '—' : `${progress}%`}</span>
+            </div>
+            <div className="organization-setup-body">
+              <div
+                className="organization-setup-progress"
+                role="progressbar"
+                aria-label="Avance de configuración"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={loading ? undefined : progress}
+              >
+                <div style={{ width: `${loading ? 0 : progress}%` }} />
+              </div>
+              <ul className="organization-setup-list">
+                {checklist.map((item) => (
+                  <li key={item.label}>
+                    <Link href={item.href} prefetch={false}>
+                      <span
+                        className={
+                          item.done && !loading
+                            ? 'organization-setup-done'
+                            : 'organization-setup-pending'
+                        }
+                      >
+                        {item.done && !loading ? (
+                          <Check size={13} aria-hidden="true" />
+                        ) : (
+                          <Circle size={13} aria-hidden="true" />
+                        )}
+                      </span>
+                      <span className="flex-1">{item.label}</span>
+                      <ArrowRight size={13} className="text-muted-foreground" aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {completed === checklist.length && !loading && (
+                <p className="organization-setup-complete">
+                  <CheckCircle2 size={14} aria-hidden="true" />
+                  Configuración inicial completa
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="organization-dashboard-card">
+            <div className="organization-card-heading">
+              <div>
+                <h3>Identidad organizacional</h3>
+                <p>Datos del espacio de trabajo.</p>
+              </div>
+              <Building2 size={18} className="text-muted-foreground" aria-hidden="true" />
+            </div>
+            <div className="organization-identity-body">
+              <dl>
+                <div>
+                  <dt>Razón social</dt>
+                  <dd>
+                    {loading ? '—' : summary.organization?.legal_name || 'Pendiente de completar'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>RFC</dt>
+                  <dd>{loading ? '—' : summary.organization?.rfc || 'No registrado'}</dd>
+                </div>
+                <div>
+                  <dt>Correo de contacto</dt>
+                  <dd>{loading ? '—' : summary.organization?.contact_email || 'No registrado'}</dd>
+                </div>
+              </dl>
+              <Link
+                href="/organizacion/perfil"
+                prefetch={false}
+                className="organization-profile-link"
+              >
+                {canAccess('organization.profile.update')
+                  ? 'Completar o editar perfil'
+                  : 'Ver perfil'}
+                <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+              <p className="organization-identity-note">
+                Los estados de verificación solo cambian cuando existe evidencia registrada.
+              </p>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

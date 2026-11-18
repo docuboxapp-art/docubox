@@ -9,6 +9,7 @@ import {
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 import { isTemporaryDatabaseFailure } from '@/lib/supabase/backend-failure';
 import { emitObservedEvent } from '@/lib/observability/events';
+import { signatureMethodList } from '@/lib/documents/signature-methods';
 
 // Terminal sub_estados stored in documentos.participantes JSONB
 const TERMINAL_SUB_ESTADOS = [
@@ -377,7 +378,7 @@ export async function GET(request: NextRequest) {
 
       const myRol = myEntry?.rol ?? myEntry?.role ?? myEntry?.rolDocumento ?? undefined;
       const myActo = myEntry?.acto ?? myEntry?.action ?? undefined;
-      const myTipoFirma: string[] = myEntry?.tipoFirma ?? myEntry?.tipo_firma ?? [];
+      const myTipoFirma = signatureMethodList(myEntry?.tipoFirma ?? myEntry?.tipo_firma);
       const myParticipantId = myEntry?.id ?? null;
 
       // Filter campos_solicitados to only those assigned to this participant

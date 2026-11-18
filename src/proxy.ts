@@ -1,5 +1,6 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { fetchWithCompleteResponseTimeout } from '@/lib/supabase/password-auth-fetch';
 import {
   emitObservedEvent,
   type ObservedOutcome,
@@ -277,9 +278,11 @@ type SessionPolicyValidationResult = {
 
 const INVALID_SESSION_ERROR_CODES = new Set(['refresh_token_not_found', 'bad_jwt', 'PGRST301']);
 const SESSION_POLICY_RETRY_DELAY_MS = 350;
-// The policy RPC's observed p99 is above eight seconds during gateway pressure.
-const SESSION_VALIDATION_TIMEOUT_MS = 12_000;
-const MIDDLEWARE_DEADLINE_MS = 20_000;
+// Valid policy responses can take 9–11 seconds during gateway pressure. Give
+// each upstream call room to finish within a bounded total deadline.
+// Expiry/revocation still require a fresh policy result on every request.
+const SESSION_VALIDATION_TIMEOUT_MS = 20_000;
+const MIDDLEWARE_DEADLINE_MS = 24_000;
 const SESSION_POLICY_FAILURE_BACKOFF_MS = 2_000;
 const inFlightSessionPolicyValidations = new Map<string, Promise<SessionPolicyValidationResult>>();
 const sessionPolicyFailureUntil = new Map<string, number>();
@@ -304,25 +307,11 @@ async function fetchWithSessionValidationTimeout(
   requestSignal?: AbortSignal,
   onResponse?: (response: Response) => void
 ) {
-  const controller = new AbortController();
-  const upstreamSignal = init?.signal;
-  const forwardAbort = () => controller.abort(upstreamSignal?.reason);
-  const forwardRequestAbort = () => controller.abort(requestSignal?.reason);
-  if (upstreamSignal?.aborted) forwardAbort();
-  else upstreamSignal?.addEventListener('abort', forwardAbort, { once: true });
-  if (requestSignal?.aborted) forwardRequestAbort();
-  else requestSignal?.addEventListener('abort', forwardRequestAbort, { once: true });
-
-  const timeout = setTimeout(() => controller.abort(), SESSION_VALIDATION_TIMEOUT_MS);
-  try {
-    const response = await fetch(input, { ...init, signal: controller.signal });
-    onResponse?.(response);
-    return response;
-  } finally {
-    clearTimeout(timeout);
-    upstreamSignal?.removeEventListener('abort', forwardAbort);
-    requestSignal?.removeEventListener('abort', forwardRequestAbort);
-  }
+  return fetchWithCompleteResponseTimeout(input, init, {
+    timeoutMs: SESSION_VALIDATION_TIMEOUT_MS,
+    requestSignal,
+    onResponse,
+  });
 }
 
 function getPolicyRow(value: unknown): SessionPolicyRow | null {
@@ -645,7 +634,7 @@ function unavailableSessionPolicyResponse(
   return unavailableResponse;
 }
 
-export async function middleware(request: NextRequest, event: NextFetchEvent) {
+export async function proxy(request: NextRequest, event: NextFetchEvent) {
   const correlationId = crypto.randomUUID();
   const startedAt = performance.now();
   const controller = new AbortController();

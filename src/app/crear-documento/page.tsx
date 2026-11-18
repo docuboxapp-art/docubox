@@ -832,7 +832,7 @@ function CrearDocumentoPageInner() {
   }
 
   return (
-    <div ref={containerRef} className="flex h-screen flex-col bg-slate-50 text-slate-950">
+    <div ref={containerRef} className="docubox-wizard flex h-dvh min-h-0 flex-col bg-slate-50 text-slate-950">
       {showExitModal && (
         <ExitConfirmModal
           canSave={canSaveDraft}

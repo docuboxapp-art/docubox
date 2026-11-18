@@ -1,0 +1,121 @@
+{
+  "date": "2026-11-17",
+  "scope": "Session 503 stabilization and forms/cases activity hubs",
+  "status": "partial_verification_intermittent_503_remains",
+  "secondReview": {
+    "plan": "Free/Nano unchanged, as requested",
+    "localFixes": [
+      "Server anon Auth clients now use the complete-response deadline already used by browser and middleware; scoped deadlines retain Request and caller cancellation.",
+      "Case cookie authentication now classifies provider/network timeouts as CASE_AUTH_UNAVAILABLE (503), preserving 401 only for missing or definitively rejected sessions.",
+      "Viewer permission checks preserve temporary Auth failures as 503 instead of incorrectly reporting invalid credentials.",
+      "Case option catalogs load in one parallel wave after identity, case access, membership and subject scope are established; document ownership and signature compatibility filters remain enforced."
+    ],
+    "tests": { "passed": 84, "additionalRuntimeAndPermissionRegressionsPassed": 45, "failed": 0, "typescriptExit": 0, "changedServerModulesLintErrors": 0, "changedServerModulesLintWarnings": 0 },
+    "liveDatabaseMaintenance": "ANALYZE cron.job_run_details; updated stale planner statistics only. No cron disabled, history deleted, grants changed or paid resources added.",
+    "cronFinding": "The health query scans approximately 82,800 history rows. Only runid is indexed. The managed table belongs to supabase_admin; no ownership change or privilege escalation attempted. ANALYZE improved the row estimates but did not demonstrate a latency improvement (separate samples about 4 and 10 seconds).",
+    "backgroundJobs": "System task rules and open tasks still exist, so the workers were retained. Cumulative pg_stat_statements figures since October 15 are historical totals, not current per-minute load.",
+    "providerWindow": {
+      "startUtc": "2026-11-17T21:35:00Z", "endUtc": "2026-11-17T22:05:00Z",
+      "scope": "One aggregate query, no tokens, emails, IPs or raw errors retained",
+      "sessionPolicy": { "requests": 54, "recordedStatus": 200, "p50OriginMs": 743.5, "p95OriginMs": 9300.95 },
+      "authUser": { "requests": 25, "recordedStatus": 200, "p50OriginMs": 1156, "p95OriginMs": 4883.8 },
+      "authToken": { "requests": 4, "recordedStatus": 200, "p50OriginMs": 894.5, "p95OriginMs": 4643.55 },
+      "jwks": { "requests": 5, "recordedStatus": 200, "p50OriginMs": 11, "p95OriginMs": 459.6 },
+      "caveat": "Provider-recorded responses do not include proof that every client received a complete response before its deadline. Local 503s remain part of the incident evidence."
+    },
+    "visualVerification": "Pending: desktop automation reads Chrome but input geometry is unavailable and screenshots target a different foreground window. User requested continuing the 503 investigation first; bringing Chrome forward was requested again after the no-cost fixes passed."
+  },
+  "postUpdateRuntime": {
+    "localhostLogin": { "status": 200, "hasHtml": true, "latencyMs": 3187 },
+    "sessionPolicyAt": "2026-11-17T21:53:14Z",
+    "sessionPolicy": { "status": 503, "durationMs": 20059 },
+    "consultation": "Later case consultation responses returned HTTP 200 but some took 52-66 seconds in application code.",
+    "conclusion": "Local startup and synthetic auth regressions pass. Intermittent upstream degradation remains; no sustained recovery or full post-update browser verification claimed."
+  },
+  "proposedCapacityChange": {
+    "organizationPlan": "Pro",
+    "compute": "Small, 2 GB",
+    "estimatedMonthlyUsdBeforeTaxesAndOverages": 30,
+    "billingBasis": "25 Pro + approximately 15 Small - 10 monthly compute credit, one project.",
+    "approval": "Declined by user: retain current Free/Nano plan. Not applied.",
+    "caveat": "Brief downtime possible. Improvement must be verified after the change; not a guaranteed sole-cause fix."
+  },
+  "changes": [
+    {
+      "scope": "local_code",
+      "description": "Auth and session-policy deadlines include complete JSON bodies, cancellation and cleanup, preventing hung validation promises."
+    },
+    {
+      "scope": "local_dependency",
+      "description": "Pinned supabase-js 2.100.0 to 2.119.0, removing the default shared auth mutex and retaining official refresh deduplication and commit guards.",
+      "nodeCompatibility": "Local Node 24; linked Vercel configuration Node 24.x; SDK requires Node >=22."
+    },
+    {
+      "scope": "production_migration",
+      "version": "20261117195719",
+      "description": "Avoid session-expiry lock queues; retain server-side expiry enforcement and audit."
+    },
+    {
+      "scope": "production_migration",
+      "version": "20261117202741",
+      "description": "Skip outbound form dispatch invocation when no scheduled/retry/expired-claim work is due. Same minute cadence and eligibility as claimant.",
+      "verification": "11 eligibility fixtures and live empty-queue command in repeatable-read transaction followed by rollback; no HTTP request enqueued. Passed again after application."
+    }
+  ],
+  "automatedTests": {
+    "passed": 60,
+    "failed": 0,
+    "includes": [
+      "activity ownership and authorization",
+      "session expiry and unavailable-session recovery",
+      "auth response-body deadline and outer cancellation",
+      "concurrent refresh single-flight",
+      "refresh cannot restore a signed-out session",
+      "session read in auth subscriber does not deadlock"
+    ],
+    "transport": "Synthetic sessions and mocked transport only for SDK concurrency tests; no real credentials or Auth requests.",
+    "lint": "Auth fetch helper and middleware: 0 errors, 0 warnings.",
+    "typescript": "Activity routes, pages and middleware with upgraded SDK: tsc exit 0."
+  },
+  "browserEvidenceBeforeSDKUpdate": {
+    "warning": "These observations predate the dependency update. Do not treat them as post-update end-to-end verification.",
+    "observations": 49,
+    "verified": [
+      "Sent and received forms: state, access, search, dates, workspace and grid filters.",
+      "Sent forms: response list and form preview opened.",
+      "Sent and received cases: state, access, search, dates, urgent ordering, workspace and grid filters.",
+      "Cancelled received case invitations cannot open the participant portal.",
+      "Received case attention page and its separate participant portal opened with document upload and linked form controls."
+    ],
+    "pending": [
+      "Received form: rendered response viewer after opening.",
+      "Received form: continue-signature first stage only; no real signature.",
+      "Sent case: consultation controls fully loaded without upstream error.",
+      "Final browser run with the upgraded SDK."
+    ],
+    "blocker": "In-app browser control stopped responding; native input and documented browser recovery also failed. User reopened localhost but the browser-control service still timed out. Codex restart requested."
+  },
+  "infrastructureEvidence": {
+    "plan": "Free",
+    "compute": "Nano",
+    "historicalDashboardRange": "2026-11-10 through 2026-11-17",
+    "diskIoCreditBalancePercent": 3,
+    "connectionSnapshot": { "connections": 30, "limit": 60, "active": 2, "blocked": 0 },
+    "metricsSnapshotIntervalSeconds": 62.67,
+    "metricsApproximateCpuIowaitPercent": 26.8,
+    "metricsApproximateDiskBusyPercent": 32.9,
+    "metricsAvailableMemoryMiB": 222,
+    "metricsSwapUsedMiB": 499.6,
+    "caveat": "Short snapshots; swap occupancy alone does not establish active paging or current memory exhaustion. Low I/O credits and timeouts outside the app indicate capacity pressure but do not prove a sole cause.",
+    "latestSingleAuthHealthSample": { "status": 200, "latencyMs": 647 },
+    "healthCaveat": "A single successful health response is not proof of sustained recovery."
+  },
+  "noChanges": ["No paid-plan or compute upgrade", "No deployment", "No commit or push", "No real signature", "No test email sent"],
+  "sources": [
+    "https://github.com/supabase/supabase-js/blob/master/packages/core/auth-js/migrations/lockless-coordination.md",
+    "https://github.com/supabase/supabase-js/blob/master/packages/core/supabase-js/CHANGELOG.md",
+    "https://supabase.com/docs/guides/platform/compute-and-disk",
+    "https://supabase.com/docs/guides/platform/manage-your-usage/compute",
+    "https://supabase.com/docs/guides/observability/reports"
+  ]
+}

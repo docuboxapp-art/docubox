@@ -53,7 +53,7 @@ test('standard analytics does not satisfy an advanced Pro requirement', () => {
       proFeature: true,
       minimumLevel: 'advanced',
     }),
-    false,
+    false
   );
   assert.equal(hasCollaborationPro(access), false);
 });
@@ -70,6 +70,6 @@ test('suspended Pro entitlements are not usable through direct Pro routes', () =
   });
   assert.equal(
     hasCollaborationEntitlement(access, 'collaboration_external_rooms', { proFeature: true }),
-    false,
+    false
   );
 });

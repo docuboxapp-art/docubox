@@ -332,7 +332,7 @@ export default function MobileSignaturePage() {
   ];
 
   return (
-    <main className="min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:h-dvh landscape:min-h-0 landscape:overflow-hidden landscape:px-2 landscape:py-2">
+    <main className="mobile-document-signature min-h-dvh bg-slate-50 px-4 py-7 text-slate-900 landscape:h-dvh landscape:min-h-0 landscape:overflow-hidden landscape:px-2 landscape:py-2">
       <div className="mx-auto w-full max-w-lg landscape:flex landscape:h-full landscape:max-w-none landscape:flex-col">
         <AppLogo className="mb-6 justify-center landscape:hidden" imageClassName="h-auto" />
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm landscape:flex landscape:min-h-0 landscape:flex-1 landscape:flex-col">
@@ -372,7 +372,7 @@ export default function MobileSignaturePage() {
                     {!hasStrokes && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-slate-400"><div><PenLine size={28} className="mx-auto mb-1 text-slate-300" /><p className="text-xs">Dibuja tu firma aquí</p></div></div>}
                     <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-slate-200" />
                   </div>
-                  <div className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 landscape:flex-col landscape:gap-1.5">
+                  <div className="mobile-signature-tools flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 landscape:flex-col landscape:gap-1.5">
                     {thicknesses.map(({ size, width, label }) => <button key={size} type="button" title={label} onClick={() => updateStrokeSize(size)} className={`flex h-9 w-9 items-center justify-center rounded-md ${strokeSize === size ? 'border-2 border-primary bg-primary/10' : 'border border-slate-200 bg-white'}`}><svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke={darkLine} strokeWidth={width} strokeLinecap="round" /></svg></button>)}
                     <div className="h-6 w-px bg-slate-200 landscape:h-px landscape:w-6" />
                     {['#0a0a0f', '#1d4ed8', '#dc2626'].map((color) => <button key={color} type="button" title={color === '#0a0a0f' ? 'Negro' : color === '#1d4ed8' ? 'Azul' : 'Rojo'} onClick={() => updateColor(color)} className={`h-7 w-7 self-center rounded-full ${penColor === color ? 'ring-2 ring-slate-500 ring-offset-2' : ''}`} style={{ backgroundColor: color }} />)}

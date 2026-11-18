@@ -96,6 +96,7 @@ export default function CollaborationSetupPage() {
   const router = useRouter();
   const api = useCollaborationApi();
   const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
   const { settings, access, can, refresh } = useCollaboration();
   const [step, setStep] = useState(0);
   const [members, setMembers] = useState<Member[]>([]);
@@ -130,17 +131,15 @@ export default function CollaborationSetupPage() {
   };
 
   const load = useCallback(async () => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     setLoading(true);
     setError('');
     try {
       const [overview, spaceList] = await Promise.all([
-        api<{ data: { members: Member[] } }>(
-          `/api/colabora/overview?workspace_id=${activeWorkspace.id}`
-        ),
-        api<{ data: Space[] }>(`/api/colabora/resources/spaces?workspace_id=${activeWorkspace.id}`),
+        api<{ data: Member[] }>(`/api/colabora/catalog?workspace_id=${workspaceId}&type=members`),
+        api<{ data: Space[] }>(`/api/colabora/resources/spaces?workspace_id=${workspaceId}`),
       ]);
-      const memberRows = overview.data.members || [];
+      const memberRows = overview.data || [];
       setMembers(memberRows);
       setSpaces(spaceList.data || []);
       setState((current) => ({
@@ -177,15 +176,16 @@ export default function CollaborationSetupPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace?.id, api, settings]);
+  }, [workspaceId, api, settings]);
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
 
   const writable = can('collaboration.manage_settings', true);
+  const [now] = useState(() => Date.now());
   const trialDays = access.trialEndsAt
-    ? Math.max(0, Math.ceil((new Date(access.trialEndsAt).getTime() - Date.now()) / 86400000))
+    ? Math.max(0, Math.ceil((new Date(access.trialEndsAt).getTime() - now) / 86400000))
     : null;
   const enabledFeatures = useMemo(
     () =>
@@ -198,7 +198,7 @@ export default function CollaborationSetupPage() {
   );
 
   const complete = async () => {
-    if (!activeWorkspace?.id || !writable) return;
+    if (!workspaceId || !writable) return;
     setSaving(true);
     setError('');
     try {
@@ -210,7 +210,7 @@ export default function CollaborationSetupPage() {
         await api('/api/colabora/resources/spaces', {
           method: 'POST',
           body: JSON.stringify({
-            workspace_id: activeWorkspace.id,
+            workspace_id: workspaceId,
             name: requestedSpace,
             description: 'Primer espacio configurado durante la activacion de Colabora.',
             space_type: 'project',
@@ -221,7 +221,7 @@ export default function CollaborationSetupPage() {
       await api('/api/colabora/access', {
         method: 'POST',
         body: JSON.stringify({
-          workspace_id: activeWorkspace.id,
+          workspace_id: workspaceId,
           action: 'update_settings',
           settings: {
             status: 'configured',

@@ -9,7 +9,7 @@ const certificationRoutePath = new URL('../src/app/api/documents/[documentId]/ce
 const artifactRoutePath = new URL('../src/app/api/documents/[documentId]/certifications/[certificationUuid]/artifacts/[artifact]/route.ts', import.meta.url);
 const viewerPath = new URL('../src/app/visor-documento/[id]/page.tsx', import.meta.url);
 const authConfirmPath = new URL('../src/app/auth/confirm/route.ts', import.meta.url);
-const middlewarePath = new URL('../src/middleware.ts', import.meta.url);
+const middlewarePath = new URL('../src/proxy.ts', import.meta.url);
 
 test('WP-09 keeps certification execution disabled unless the backend flag explicitly enables it', async () => {
   const [flag, route, viewer] = await Promise.all([

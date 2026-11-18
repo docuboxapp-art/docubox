@@ -23,6 +23,8 @@ type RoomData = {
   };
   guest: { name: string; email: string; terms_accepted: boolean };
   authenticated: boolean;
+  comments_allowed?: boolean;
+  comments?: Array<{ id: string; body: string; created_at: string }>;
   resources?: Array<{
     id: string;
     display_name: string | null;
@@ -52,57 +54,74 @@ export default function PublicCollaborationRoomPage({
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const response = await fetch(`/api/public/colabora/rooms/${token}`, {
-      headers: session ? { 'x-colabora-session': session } : {},
-      cache: 'no-store',
-    });
-    const payload = await response.json();
-    if (response.ok) {
-      setData(payload);
-      if (session && !payload.authenticated) {
-        sessionStorage.removeItem(`docubox-room:${token}`);
-        setSession('');
-      }
-    } else setError(payload.error);
-    setLoading(false);
+    try {
+      setError('');
+      const response = await fetch(`/api/public/colabora/rooms/${token}`, {
+        headers: session ? { 'x-colabora-session': session } : {},
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (response.ok) {
+        setData(payload);
+        if (session && !payload.authenticated) {
+          sessionStorage.removeItem(`docubox-room:${token}`);
+          setSession('');
+        }
+      } else setError(payload.error);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo cargar la sala.');
+    } finally {
+      setLoading(false);
+    }
   }, [session, token]);
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, [load]);
   const requestOtp = async () => {
     setSending(true);
     setError('');
-    const response = await fetch(`/api/public/colabora/rooms/${token}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'request_otp' }),
-    });
-    const payload = await response.json();
-    if (response.ok) setChallengeId(payload.challenge_id);
-    else setError(payload.error);
-    setSending(false);
+    try {
+      const response = await fetch(`/api/public/colabora/rooms/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request_otp' }),
+      });
+      const payload = await response.json();
+      if (response.ok) setChallengeId(payload.challenge_id);
+      else setError(payload.error);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo completar la operación.');
+    } finally {
+      setSending(false);
+    }
   };
   const verify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSending(true);
     setError('');
     const code = String(new FormData(event.currentTarget).get('code') || '');
-    const response = await fetch(`/api/public/colabora/rooms/${token}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'verify_otp', challenge_id: challengeId, code }),
-    });
-    const payload = await response.json();
-    if (response.ok) {
-      sessionStorage.setItem(`docubox-room:${token}`, payload.session_token);
-      setSession(payload.session_token);
-    } else setError(payload.error);
-    setSending(false);
+    try {
+      const response = await fetch(`/api/public/colabora/rooms/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify_otp', challenge_id: challengeId, code }),
+      });
+      const payload = await response.json();
+      if (response.ok) {
+        sessionStorage.setItem(`docubox-room:${token}`, payload.session_token);
+        setSession(payload.session_token);
+      } else setError(payload.error);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo completar la operación.');
+    } finally {
+      setSending(false);
+    }
   };
   const openResource = async (resourceId: string, download = false) => {
     setSending(true);
     setError('');
-    const popup = download ? null : window.open('', '_blank', 'noopener,noreferrer');
+    const popup = download ? null : window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
     try {
       const response = await fetch(
         `/api/public/colabora/rooms/${token}/resources/${resourceId}${download ? '?download=1' : ''}`,
@@ -119,6 +138,7 @@ export default function PublicCollaborationRoomPage({
         link.download = 'documento.pdf';
         link.click();
       } else if (popup) popup.location.href = url;
+      else window.location.assign(url);
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (cause) {
       popup?.close();
@@ -127,18 +147,47 @@ export default function PublicCollaborationRoomPage({
       setSending(false);
     }
   };
+  const sendComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setSending(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/public/colabora/rooms/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-colabora-session': session },
+        body: JSON.stringify({
+          action: 'comment',
+          body: String(new FormData(form).get('body') || ''),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo enviar el comentario.');
+      form.reset();
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo enviar el comentario.');
+    } finally {
+      setSending(false);
+    }
+  };
   const acceptTerms = async () => {
     setSending(true);
     setError('');
-    const response = await fetch(`/api/public/colabora/rooms/${token}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'accept_terms', session_token: session }),
-    });
-    const payload = await response.json();
-    if (response.ok) await load();
-    else setError(payload.error || 'No se pudieron aceptar los terminos.');
-    setSending(false);
+    try {
+      const response = await fetch(`/api/public/colabora/rooms/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'accept_terms', session_token: session }),
+      });
+      const payload = await response.json();
+      if (response.ok) await load();
+      else setError(payload.error || 'No se pudieron aceptar los terminos.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo completar la operación.');
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <div className="min-h-screen bg-[#f6f8fb] px-4 py-8 text-[#18181b]">
@@ -235,7 +284,7 @@ export default function PublicCollaborationRoomPage({
             ) : (
               <div>
                 <div className="flex items-center gap-3 border-b border-[#EBEBF0] bg-emerald-50 px-6 py-4 text-sm text-emerald-700">
-                  <CheckCircle2 size={18} /> Identidad de acceso confirmada
+                  <CheckCircle2 size={18} /> Correo verificado
                 </div>
                 <div className="divide-y divide-[#EBEBF0]">
                   {data.resources?.map((resource) => (
@@ -278,6 +327,47 @@ export default function PublicCollaborationRoomPage({
                     </div>
                   )}
                 </div>
+                {(data.comments_allowed || Boolean(data.comments?.length)) && (
+                  <section className="border-t border-[#EBEBF0] p-5 sm:p-6">
+                    <h3 className="text-base font-medium">Comentarios para el equipo</h3>
+                    <p className="mt-1 text-xs text-[#52525b]">
+                      El equipo de la organización podrá leer tus comentarios. Los demás invitados
+                      no tienen acceso a ellos.
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      {data.comments?.map((comment) => (
+                        <p
+                          key={comment.id}
+                          className="whitespace-pre-wrap break-words rounded-md border border-[#EBEBF0] bg-[#f8f8fb] p-3 text-sm"
+                        >
+                          {comment.body}
+                        </p>
+                      ))}
+                    </div>
+                    {data.comments_allowed && (
+                      <form onSubmit={sendComment} className="mt-4 space-y-3">
+                        <label className="block text-sm">
+                          Nuevo comentario
+                          <textarea
+                            name="body"
+                            required
+                            maxLength={2000}
+                            rows={3}
+                            disabled={sending}
+                            className="mt-2 w-full rounded-md border border-[#EBEBF0] p-3 text-sm"
+                          />
+                        </label>
+                        <button
+                          disabled={sending}
+                          className="inline-flex h-9 items-center gap-2 rounded-md bg-[#1E6BFF] px-4 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          {sending && <Loader2 size={14} className="animate-spin" />}Enviar
+                          comentario
+                        </button>
+                      </form>
+                    )}
+                  </section>
+                )}
               </div>
             )}
           </main>

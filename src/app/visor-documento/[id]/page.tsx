@@ -60,6 +60,7 @@ import { getDefaultSignatureStampStyle } from '@/lib/signatures/stamp-sizing';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
 import { AccessProtectionPanel } from '@/components/documents/AccessProtectionPanel';
@@ -812,6 +813,7 @@ function PdfCanvas({
       canvas.width = Math.ceil(viewport.width * outputScale);
       canvas.height = Math.ceil(viewport.height * outputScale);
       canvas.style.width = `${viewport.width}px`;
+      canvas.dataset.previewZoom = String(zoom);
       canvas.style.height = `${viewport.height}px`;
 
       const ctx = canvas.getContext('2d');
@@ -963,7 +965,11 @@ function PdfCanvas({
         </div>
       ) : (
         <>
-          <canvas ref={canvasRef} style={{ display: 'block' }} />
+          <canvas
+            ref={canvasRef}
+            data-preview-ready={!rendering && !error}
+            style={{ display: 'block' }}
+          />
           {rendered && !rendering ? children : null}
         </>
       )}
@@ -1064,6 +1070,9 @@ export default function VisorDocumentoPage() {
   const [loading, setLoading] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+  const modalPreviewViewportRef = useRef<HTMLDivElement>(null);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [sections, setSections] = useState<SectionState>({
@@ -3129,13 +3138,14 @@ export default function VisorDocumentoPage() {
             setDocument((current) => current?.id === docId ? { ...current, version_number: null } : current);
           }
         })();
-        const templateHeaders = await apiAuthHeaders();
-        const resolvedTemplate = await loadTemplateDocumentSource({
-          documentId: docId,
-          fileType: loadedDocument.file_type,
-          fileUrl: loadedDocument.file_url,
-          headers: templateHeaders,
-        }).catch(() => null);
+        const resolvedTemplate = data.source_form_response_id
+          ? null
+          : await loadTemplateDocumentSource({
+              documentId: docId,
+              fileType: loadedDocument.file_type,
+              fileUrl: loadedDocument.file_url,
+              headers: await apiAuthHeaders(),
+            }).catch(() => null);
         setTemplateDocument(resolvedTemplate);
 
         void loadAdditionalMetadata();
@@ -3823,7 +3833,7 @@ export default function VisorDocumentoPage() {
   };
 
   const ZOOM_STEP = 25;
-  const ZOOM_MIN = 50;
+  const ZOOM_MIN = 25;
   const ZOOM_MAX = 300;
 
   const handleZoomIn = () => setZoom((z) => Math.min(z + ZOOM_STEP, ZOOM_MAX));
@@ -6040,9 +6050,10 @@ export default function VisorDocumentoPage() {
 
     return (
       <div
-        className={`${modal ? 'relative z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
+        className={`viewer-pagination ${modal ? 'relative z-20' : 'absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto'}`}
       >
         <div className="flex items-center gap-1 rounded-full border border-border bg-white/90 px-3 py-1.5 shadow-md backdrop-blur-sm select-none">
+          <button type="button" onClick={() => setZoom(fitPreviewZoom(modal ? modalPreviewViewportRef.current : previewViewportRef.current, zoom, ZOOM_MIN, ZOOM_MAX))} className="rounded-md px-2 py-1 text-xs font-medium text-primary" aria-label="Ajustar documento al ancho">Ajustar</button>
           <button
             onClick={handleZoomOut}
             disabled={zoom <= ZOOM_MIN}
@@ -6124,11 +6135,10 @@ export default function VisorDocumentoPage() {
   return (
     <AppLayout>
       <div
-        className="-mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 sm:-mx-6 md:-my-6 lg:-mx-8 xl:-mx-10"
-        style={{ height: sidebarOpen ? 'calc(100dvh - 4rem)' : 'calc(100dvh - 6.5rem)' }}
+        className={`document-viewer-shell -mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 sm:-mx-6 md:-my-6 lg:-mx-8 xl:-mx-10 ${sidebarOpen ? 'with-sidebar' : ''}`}
       >
         {/* Document Top Bar */}
-        <div className="flex min-h-16 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:flex-nowrap md:px-5">
+        <div className="viewer-document-header flex min-h-16 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:flex-nowrap md:px-5">
           <div className="flex min-w-0 basis-full items-center gap-3 md:basis-auto md:flex-1">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
@@ -6264,6 +6274,7 @@ export default function VisorDocumentoPage() {
                       onClick={() => {
                         if (packageReadiness.hasContent && !packageReadiness.ready) {
                           setActiveTab('package');
+                          setMobilePanelOpen(true);
                           return;
                         }
                         router.push(`/firmar-documento/${document.id}`);
@@ -6318,7 +6329,7 @@ export default function VisorDocumentoPage() {
         <div className="document-viewer-workspace relative flex flex-1 overflow-hidden bg-gray-100">
           {/* PDF Viewer Area */}
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
-            <div className="pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
+            <div className="viewer-preview-tools pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
                 {!isTemplateDocumentMimeType(document.file_type) && (
                   <button
@@ -6353,7 +6364,8 @@ export default function VisorDocumentoPage() {
             </div>
 
             <div
-              className="flex-1 overflow-auto"
+              ref={previewViewportRef}
+              className="document-preview-scroll viewer-preview-scroll flex-1 overflow-auto"
               style={{ paddingTop: '56px', paddingBottom: '72px' }}
             >
               {templateDocument && document.estado !== 'completado' ? (
@@ -6408,16 +6420,20 @@ export default function VisorDocumentoPage() {
           </div>
 
           {/* Right side: icon tab strip + panel content */}
-          <div className="hidden flex-shrink-0 md:flex">
+          <div className="viewer-sections flex flex-shrink-0">
             <nav
               aria-label="Secciones del documento"
               className="document-viewer-tabs z-30 flex min-h-0 w-[72px] min-w-[72px] flex-col items-center gap-1 overflow-y-auto border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
             >
+              <button type="button" className="viewer-document-tab relative flex flex-col items-center justify-center gap-1 rounded-md border border-blue-200 bg-blue-50 text-primary" aria-label="Ver documento" aria-pressed={!mobilePanelOpen} onClick={() => setMobilePanelOpen(false)}><FileText size={17} /><span className="document-viewer-tab-label">Documento</span></button>
               {toolbarItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => setActiveTab(item.key)}
+                  data-mobile-active={mobilePanelOpen && activeTab === item.key}
+                  aria-expanded={mobilePanelOpen && activeTab === item.key}
+                  aria-controls="document-information-panel"
+                  onClick={() => { setActiveTab(item.key); setMobilePanelOpen(true); }}
                   title={item.title}
                   aria-current={activeTab === item.key ? 'page' : undefined}
                   className={`relative flex flex-col items-center justify-center gap-1 rounded-md border transition-colors ${
@@ -6462,7 +6478,8 @@ export default function VisorDocumentoPage() {
               )}
             </nav>
 
-            <div className="document-viewer-panel absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]">
+            <div id="document-information-panel" className={`document-viewer-panel ${mobilePanelOpen ? 'is-mobile-open' : ''} absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]`} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { setMobilePanelOpen(false); } }}>
+              <button type="button" className="viewer-return-to-document shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 text-sm font-medium text-primary" onClick={() => setMobilePanelOpen(false)}><ChevronLeft size={17} />Volver al documento</button>
               {document.additional_access_level &&
               (activeTab === 'details' || !toolbarItems.some((item) => item.key === activeTab)) ? (
                 <>
@@ -10205,7 +10222,7 @@ export default function VisorDocumentoPage() {
 
         {/* Fullscreen modal */}
         {showFullscreenModal && document?.file_url && (
-          <div className="fixed inset-0 z-50 flex flex-col bg-gray-100">
+          <div className="viewer-fullscreen-modal fixed inset-0 z-50 flex flex-col bg-gray-100">
             <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
               <span className="max-w-md truncate text-sm font-600 text-slate-950">
                 {document.nombre}
@@ -10218,7 +10235,7 @@ export default function VisorDocumentoPage() {
                 Cerrar
               </button>
             </div>
-            <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
+            <div ref={modalPreviewViewportRef} className="document-preview-scroll flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
               {templateDocument && document.estado !== 'completado' ? (
                 <TemplateDocumentPreview
                   template={templateDocument}

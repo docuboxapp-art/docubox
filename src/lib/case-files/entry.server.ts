@@ -8,6 +8,7 @@ import { CaseRuntimeError } from './runtime.server';
 import { hashInvitationToken } from './invitations';
 import { signEntryGrant, verifyEntryGrant } from './entry-cookie';
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { fetchWithPasswordSignInTimeout } from '@/lib/supabase/password-auth-fetch';
 
 export const caseEntryCookie = (hash: string) => `case_entry_${hash.slice(0, 20)}`;
 export const caseEntryAccessCookie = (hash: string) => `case_access_${hash.slice(0, 20)}`;
@@ -53,6 +54,7 @@ export async function caseEntryIdentity(request?: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
+          global: { fetch: fetchWithPasswordSignInTimeout },
           cookies: {
             getAll: () => jar.getAll(),
             setAll: (values) => {

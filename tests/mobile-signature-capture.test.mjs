@@ -39,7 +39,8 @@ test('desktop flow opens the inline pad directly and keeps expanded and mobile s
   assert.doesNotMatch(source, /¿Dónde deseas plasmar tu firma\?/);
   assert.match(source, /onNoticeAccepted\?\.\(\);\s*setFlowStep\('pad'\);/);
   assert.match(source, /const \[padExpanded, setPadExpanded\] = useState\(false\)/);
-  assert.match(source, /aria-label=\{padExpanded \? 'Reducir firma' : 'Expandir firma'\}/);
+  assert.match(source, /aria-label=\{padExpanded \? 'Reducir el área para dibujar la firma' : 'Ampliar el área para dibujar la firma'\}/);
+  assert.match(source, /aria-expanded=\{padExpanded\}/);
   assert.match(source, /height: padExpanded \? 'min\(52dvh, 420px\)' : '200px'/);
   assert.match(source, /useState<'thin' \| 'medium' \| 'thick'>\('thin'\)/);
   assert.match(source, /aria-label="Firmar desde el móvil"/);
@@ -54,7 +55,9 @@ test('autograph identity verification is retained behind a disabled-by-default c
   assert.match(source, /autographSignatureCapabilities\.identityVerification/);
   assert.doesNotMatch(capability, /NEXT_PUBLIC_AUTOGRAPH_LIVENESS_ENABLED/);
   assert.match(source, /const captureConfirmationFrame = useCallback/);
-  assert.match(source, /if \(!autographSignatureCapabilities\.identityVerification\) return;/);
+  assert.match(source, /requireBiometric = false/);
+  assert.match(source, /if \(!autographSignatureCapabilities\.identityVerification && !requireBiometric\) return;/);
+  assert.match(source, /if \(autographSignatureCapabilities\.identityVerification \|\| requireBiometric\)/);
   assert.match(source, /setFlowStep\('sending'\);\s*await captureConfirmationFrame\(\);\s*await sendAll\(\);/);
   assert.match(source, /otpEvidenceVerified =\s*autographSignatureCapabilities\.identityVerification && otpVerified/);
   assert.match(source, /sendOtp\(\);\s*setFlowStep\('otp'\);/);
@@ -70,7 +73,7 @@ test('mobile signing page captures vector strokes and submits them through the t
   assert.match(source, /geo: geolocationRef\.current/);
   assert.match(source, /geolocationStatus !== 'ready'/);
   assert.match(source, /useState<StrokeSize>\('thin'\)/);
-  assert.match(read('src/middleware.ts'), /'\/firma-movil\/'/);
+  assert.match(read('src/proxy.ts'), /'\/firma-movil\/'/);
 });
 
 test('mobile signing preserves strokes and uses a horizontal pad in every orientation', () => {

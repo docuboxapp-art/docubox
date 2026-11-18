@@ -22,7 +22,7 @@ const fortyFiveMinuteTimeoutMigration = await read(
 );
 const timeoutHook = await read('../src/hooks/useSessionTimeout.ts');
 const authContext = await read('../src/contexts/AuthContext.tsx');
-const middleware = await read('../src/middleware.ts');
+const middleware = await read('../src/proxy.ts');
 const loginForm = await read('../src/app/sign-up-login-screen/components/LoginForm.tsx');
 const totpCheckRoute = await read('../src/app/api/auth/totp/check/route.ts');
 const topNav = await read('../src/components/TopNav.tsx');
@@ -183,7 +183,8 @@ test('concurrent requests from one session share only the policy validation in p
 });
 
 test('temporary auth gateway failures do not multiply claims requests or trust the session', () => {
-  assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 12_000/);
+  assert.match(middleware, /SESSION_VALIDATION_TIMEOUT_MS = 20_000/);
+  assert.match(middleware, /MIDDLEWARE_DEADLINE_MS = 24_000/);
   assert.match(middleware, /fetchWithSessionValidationTimeout/);
   assert.equal((middleware.match(/supabase\.auth\.getClaims\(accessToken\)/g) || []).length, 1);
   assert.match(middleware, /unavailableSessionPolicyResponse\(request, response, isApiRequest\)/);

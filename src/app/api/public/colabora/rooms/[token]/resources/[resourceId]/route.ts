@@ -76,12 +76,14 @@ export async function GET(
       new Date(guest.token_expires_at).getTime() <= Date.now()
     )
       return Response.json({ error: 'El acceso vencio o fue revocado.' }, { status: 410 });
-    if (!await hasCurrentCollaborationEntitlement(
-      service,
-      guest.workspace_id,
-      'collaboration_external_rooms',
-      true
-    )) {
+    if (
+      !(await hasCurrentCollaborationEntitlement(
+        service,
+        guest.workspace_id,
+        'collaboration_external_rooms',
+        true
+      ))
+    ) {
       return Response.json({ error: 'El acceso vencio o fue revocado.' }, { status: 410 });
     }
     if (room.terms_required && !guest.nda_accepted_at) {
@@ -115,10 +117,17 @@ export async function GET(
     if (!roomResource.data)
       return Response.json({ error: 'El recurso no esta disponible.' }, { status: 404 });
     const guestPermissions = guest.permissions || {};
+    const policy = await service
+      .from('collaboration_settings')
+      .select('allow_external_downloads,watermark_external_files')
+      .eq('workspace_id', guest.workspace_id)
+      .maybeSingle();
+    if (policy.error) throw policy.error;
     const resourcePermissions = roomResource.data.permissions || {};
     const wantsDownload = new URL(request.url).searchParams.get('download') === '1';
     const canView = guestPermissions.view !== false && resourcePermissions.view !== false;
     const canDownload =
+      policy.data?.allow_external_downloads === true &&
       room.downloads_allowed === true &&
       guestPermissions.download === true &&
       resourcePermissions.download === true;
@@ -165,9 +174,10 @@ export async function GET(
     }
     if (!source) return Response.json({ error: 'El archivo no existe.' }, { status: 404 });
 
-    const protectedDocumentId = roomResource.data.resource_type === 'document'
-      ? String(source.id)
-      : String(source.document_id || '');
+    const protectedDocumentId =
+      roomResource.data.resource_type === 'document'
+        ? String(source.id)
+        : String(source.document_id || '');
     if (protectedDocumentId) {
       const protection = await service
         .from('document_security_settings')
@@ -178,14 +188,15 @@ export async function GET(
       if (protection.data?.codigo_acceso_enabled === true) {
         return Response.json(
           { error: 'El documento requiere desbloqueo en Docubox.', code: 'ACCESS_CODE_REQUIRED' },
-          { status: 423, headers: { 'Cache-Control': 'private, no-store' } },
+          { status: 423, headers: { 'Cache-Control': 'private, no-store' } }
         );
       }
     }
 
-    const finalReady = source.sealed_pdf_path && protectedDocumentId
-      ? await finalDeliverableReady(service, protectedDocumentId)
-      : false;
+    const finalReady =
+      source.sealed_pdf_path && protectedDocumentId
+        ? await finalDeliverableReady(service, protectedDocumentId)
+        : false;
     const candidates = [
       finalReady ? storageReference(String(source.sealed_pdf_path || '')) : null,
       storageReference(String(source.storage_path || '')),
@@ -201,7 +212,9 @@ export async function GET(
     }
     if (!file) return Response.json({ error: 'No se pudo recuperar el archivo.' }, { status: 404 });
     let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(await file.arrayBuffer());
-    if (room.watermark_enabled === true) bytes = await watermarkPdf(bytes, guest.email);
+    const watermarked =
+      room.watermark_enabled === true || policy.data?.watermark_external_files === true;
+    if (watermarked) bytes = await watermarkPdf(bytes, guest.email);
 
     await service.from('collaboration_external_events').insert({
       workspace_id: guest.workspace_id,
@@ -213,7 +226,7 @@ export async function GET(
       resource_id: roomResource.data.resource_id,
       ip_address: clientIp(request),
       user_agent: request.headers.get('user-agent'),
-      metadata: { watermarked: room.watermark_enabled === true },
+      metadata: { watermarked },
     });
     const fileName = String(roomResource.data.display_name || source.nombre || 'documento.pdf')
       .replace(/[^a-zA-Z0-9._ -]/g, '_')

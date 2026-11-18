@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canAccessOrganizationSection, filterOrganizationNavigation } from './navigation.ts';
+import {
+  canAccessOrganizationSection,
+  filterOrganizationNavigation,
+  organizationRouteMatches,
+} from './navigation.ts';
 
 const items = [
   { href: '/organizacion', permission: 'organization.read' },
@@ -15,8 +19,10 @@ test('owner and admin can see every organization section', () => {
 
 test('member navigation is limited to effective permissions', () => {
   assert.deepEqual(
-    filterOrganizationNavigation(items, 'member', ['organization.read', 'members.read']).map((item) => item.href),
-    ['/organizacion', '/organizacion/miembros'],
+    filterOrganizationNavigation(items, 'member', ['organization.read', 'members.read']).map(
+      (item) => item.href
+    ),
+    ['/organizacion', '/organizacion/miembros']
   );
 });
 
@@ -26,4 +32,14 @@ test('a missing permission fails closed', () => {
 
 test('an item without a permission remains available', () => {
   assert.equal(canAccessOrganizationSection('member', []), true);
+});
+
+test('only the selected section is highlighted, including nested member routes', () => {
+  assert.equal(
+    organizationRouteMatches('/organizacion/miembros/123', '/organizacion/miembros'),
+    true
+  );
+  assert.equal(organizationRouteMatches('/organizacion/miembros/123', '/organizacion'), false);
+  assert.equal(organizationRouteMatches('/organizacion', '/organizacion'), true);
+  assert.equal(organizationRouteMatches('/organizacion/roles', '/organizacion/miembros'), false);
 });

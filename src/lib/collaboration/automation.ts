@@ -12,6 +12,10 @@ import {
   type AutomationConditionContext,
 } from './automation-conditions';
 import { analyzeContractualDocument } from '@/lib/ai/documentIntelligence';
+import {
+  authorizeOrganizationWorkerAction,
+  OrganizationWorkerAccessError,
+} from '@/lib/organization/worker-authorization';
 
 export { automationRetryStatus, calculateAutomationBackoffSeconds } from './automation-policy';
 
@@ -180,11 +184,26 @@ async function executeAction(
   correlationId: string | null | undefined,
   depth: number,
   key: string,
-  event: CanonicalEvent | null
+  event: CanonicalEvent | null,
+  sourceType: 'automation' | 'workflow' = 'automation'
 ) {
   const workspaceId = String(automation.workspace_id || '');
+  const principal = await authorizeOrganizationWorkerAction(service, {
+    sourceId: String(automation.id || ''),
+    sourceType,
+    workspaceId,
+    actionType: action.type,
+    documentId: event?.document_id,
+    assigneeId:
+      action.type === 'create_task' && action.assigned_to === 'actor' ? actorUserId : null,
+  });
   if (action.type === 'notify') {
-    const recipients = await notificationRecipients(service, action, automation, event);
+    const recipients = await notificationRecipients(
+      service,
+      action,
+      { ...automation, created_by: principal },
+      event
+    );
     if (!recipients.length || recipients.some(({ userId }) => !userId))
       throw new AutomationExecutionError(
         'notification_recipient_missing',
@@ -265,8 +284,8 @@ async function executeAction(
         value_json: action.value,
         value_display: String(action.value),
         client_reference: clientReference,
-        created_by: String(automation.created_by),
-        updated_by: actorUserId,
+        created_by: principal,
+        updated_by: principal,
       },
       { onConflict: 'document_id,client_reference' }
     );
@@ -282,13 +301,12 @@ async function executeAction(
       .maybeSingle();
     if (existing.error) throw existing.error;
     if (existing.data) return { type: action.type, task_id: existing.data.id, deduplicated: true };
-    const assignedTo =
-      action.assigned_to === 'actor' && actorUserId ? actorUserId : String(automation.created_by);
+    const assignedTo = action.assigned_to === 'actor' && actorUserId ? actorUserId : principal;
     const task = await service
       .from('tareas')
       .insert({
         workspace_id: workspaceId,
-        created_by: actorUserId || automation.created_by,
+        created_by: principal,
         assigned_to: assignedTo,
         title: action.title,
         description: action.description || null,
@@ -309,7 +327,7 @@ async function executeAction(
     return { type: action.type, task_id: task.data.id };
   }
   if (action.type === 'trigger_lucia_contractual') {
-    const actor = actorUserId || String(automation.created_by || '');
+    const actor = principal;
     const membership = await service
       .from('workspace_members')
       .select('role,status')
@@ -355,7 +373,7 @@ async function executeAction(
   }
   const issued = await issueNom151ForVerifiedPadesBt(service, {
     documentId: event.document_id,
-    requestedBy: actorUserId || String(automation.created_by),
+    requestedBy: principal,
   });
   return { type: action.type, record_id: issued.recordId, already_issued: issued.alreadyIssued };
 }
@@ -390,7 +408,8 @@ export async function executeAgreementAction(
     input.correlationId,
     0,
     input.idempotencyKey,
-    input.event || null
+    input.event || null,
+    'workflow'
   );
 }
 
@@ -673,13 +692,14 @@ export async function processCollaborationAutomationQueue(
       const attempt = Number(claimed.data.attempt_count || 1);
       const nonRetryable =
         (cause instanceof AutomationExecutionError && !cause.retryable) ||
+        (cause instanceof OrganizationWorkerAccessError && !cause.retryable) ||
         cause instanceof z.ZodError ||
         cause instanceof OrganizationApiError;
       const status: AutomationRunStatus = nonRetryable
         ? 'dead_lettered'
         : automationRetryStatus(attempt, version.data.error_policy);
       const code =
-        cause instanceof AutomationExecutionError
+        cause instanceof AutomationExecutionError || cause instanceof OrganizationWorkerAccessError
           ? cause.code
           : cause instanceof z.ZodError
             ? 'invalid_automation_definition'

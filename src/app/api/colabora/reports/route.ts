@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { exportCollaborationReport } from '@/lib/collaboration/report-export';
 import { organizationApiFailure } from '@/lib/organization/server';
 import {
   authorizeCollaborationRequest,
@@ -10,7 +11,7 @@ export const runtime = 'nodejs';
 
 const querySchema = z.object({
   workspace_id: z.string().uuid(),
-  format: z.enum(['json', 'csv']).default('json'),
+  format: z.enum(['json', 'csv', 'pdf', 'xlsx']).default('json'),
   scope: z.enum(['basic', 'advanced']).default('basic'),
 });
 
@@ -22,102 +23,90 @@ export async function GET(request: Request) {
       format: url.searchParams.get('format') || 'json',
       scope: url.searchParams.get('scope') || 'basic',
     });
-    const permission = query.format === 'csv' ? 'reports.export' : 'reports.view';
-    const { service, user, access } = await authorizeCollaborationRequest(
+    const permission = query.format !== 'json' ? 'reports.export' : 'reports.view';
+    const {
+      service: auditService,
+      userClient: service,
+      user,
+      access,
+    } = await authorizeCollaborationRequest(
       request,
       query.workspace_id,
       permission,
-      query.format === 'csv'
+      query.format !== 'json'
     );
     requireCollaborationEntitlement(access, 'collaboration_analytics', false, {
       minimumLevel: query.scope,
       proFeature: query.scope === 'advanced',
     });
-    const [tasks, reviews, spaces, requests] = await Promise.all([
+    const now = new Date().toISOString();
+    const activeTasks = () =>
       service
         .from('tareas')
-        .select('estado,prioridad,due_date')
-        .eq('workspace_id', query.workspace_id),
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', query.workspace_id)
+        .not('estado', 'in', '(completada,cancelada,rechazada)');
+    const [tasks, overdue, blocked, reviews, spaces, requests, rooms] = await Promise.all([
+      activeTasks(),
+      activeTasks().lt('due_date', now),
+      activeTasks().or('is_blocked.eq.true,estado.eq.bloqueada'),
       service
-        .from('document_review_rounds')
-        .select('status')
-        .eq('workspace_id', query.workspace_id),
-      service.from('collaboration_spaces').select('status').eq('workspace_id', query.workspace_id),
+        .from('collaboration_review_rounds')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', query.workspace_id)
+        .not('status', 'in', '(approved,closed,cancelled)'),
+      service
+        .from('collaboration_spaces')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', query.workspace_id)
+        .eq('status', 'active'),
       service
         .from('collaboration_document_requests')
-        .select('status')
-        .eq('workspace_id', query.workspace_id),
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', query.workspace_id)
+        .not('status', 'in', '(completed,cancelled,expired)'),
+      query.scope === 'advanced'
+        ? service
+            .from('collaboration_rooms')
+            .select('id', { count: 'exact', head: true })
+            .eq('workspace_id', query.workspace_id)
+            .eq('status', 'active')
+        : Promise.resolve({ count: 0, error: null }),
     ]);
-    for (const result of [tasks, reviews, spaces, requests])
+    for (const result of [tasks, overdue, blocked, reviews, spaces, requests, rooms])
       if (result.error) throw result.error;
-    const now = Date.now();
-    const openTasks = (tasks.data || []).filter(
-      (item) => !['completada', 'cancelada', 'rechazada'].includes(item.estado)
-    );
+    const total = tasks.count || 0;
     const rows = [
-      { metric: 'Trabajo abierto', value: openTasks.length },
-      {
-        metric: 'Fuera de plazo',
-        value: openTasks.filter((item) => item.due_date && new Date(item.due_date).getTime() < now)
-          .length,
-      },
-      {
-        metric: 'Tareas bloqueadas',
-        value: openTasks.filter((item) => item.estado === 'bloqueada').length,
-      },
-      {
-        metric: 'Revisiones abiertas',
-        value: (reviews.data || []).filter(
-          (item) => !['approved', 'rejected', 'cancelled'].includes(item.status)
-        ).length,
-      },
-      {
-        metric: 'Espacios activos',
-        value: (spaces.data || []).filter((item) => item.status === 'active').length,
-      },
-      {
-        metric: 'Solicitudes abiertas',
-        value: (requests.data || []).filter(
-          (item) => !['completed', 'cancelled', 'expired'].includes(item.status)
-        ).length,
-      },
+      { metric: 'Trabajo abierto', value: total },
+      { metric: 'Fuera de plazo', value: overdue.count || 0 },
+      { metric: 'Tareas bloqueadas', value: blocked.count || 0 },
+      { metric: 'Revisiones abiertas', value: reviews.count || 0 },
+      { metric: 'Espacios activos', value: spaces.count || 0 },
+      { metric: 'Solicitudes abiertas', value: requests.count || 0 },
     ];
-    if (query.scope === 'advanced') {
-      const rooms = await service
-        .from('collaboration_rooms')
-        .select('status')
-        .eq('workspace_id', query.workspace_id);
-      if (rooms.error) throw rooms.error;
-      const onTime = openTasks.filter(
-        (item) => !item.due_date || new Date(item.due_date).getTime() >= now,
-      ).length;
+    if (query.scope === 'advanced')
       rows.push(
         {
           metric: 'Cumplimiento SLA (%)',
-          value: openTasks.length ? Math.round((onTime / openTasks.length) * 100) : 100,
+          value: total ? Math.round(((total - (overdue.count || 0)) / total) * 100) : 100,
         },
-        {
-          metric: 'Salas activas',
-          value: (rooms.data || []).filter((item) => item.status === 'active').length,
-        },
+        { metric: 'Salas activas', value: rooms.count || 0 }
       );
-    }
-    if (query.format === 'csv') {
-      await recordCollaborationAudit(service, {
+    if (query.format !== 'json') {
+      const generatedAt = new Date().toISOString();
+      const file = await exportCollaborationReport(rows, query.format, generatedAt, query.scope);
+      await recordCollaborationAudit(auditService, {
         workspaceId: query.workspace_id,
         actorUserId: user.id,
         eventType: 'collaboration.report_exported',
         resourceType: 'collaboration_report',
         summary: 'Se exporto el reporte operativo agregado.',
-        payload: { format: 'csv', scope: query.scope, row_count: rows.length },
+        payload: { format: query.format, scope: query.scope, row_count: rows.length },
       });
-      const csv = ['Indicador,Valor', ...rows.map((row) => `"${row.metric}",${row.value}`)].join(
-        '\r\n'
-      );
-      return new Response(`\uFEFF${csv}`, {
+      return new Response(new Uint8Array(file.bytes), {
         headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="docubox-colabora-${new Date().toISOString().slice(0, 10)}.csv"`,
+          'Content-Type': file.contentType,
+          'Content-Disposition': `attachment; filename="docubox-colabora-${generatedAt.slice(0, 10)}.${query.format}"`,
           'Cache-Control': 'private, no-store',
         },
       });

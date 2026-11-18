@@ -31,7 +31,7 @@ export default function LaunchDialog({
       }}
       aria-labelledby="launch-dialog-title"
       aria-describedby="launch-dialog-description"
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-3xl overflow-hidden rounded-2xl bg-white p-0 text-slate-950 shadow-2xl backdrop:bg-black/40 backdrop:backdrop-blur-sm"
+      className="launch-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-3xl overflow-hidden rounded-2xl bg-white p-0 text-slate-950 shadow-2xl backdrop:bg-black/40 backdrop:backdrop-blur-sm"
     >
       <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
         <header className="flex shrink-0 items-start justify-between gap-4 px-6 pb-4 pt-6">

@@ -1,3 +1,4 @@
+import { notifyOrganizationSecurityEvent } from '@/lib/organization/security-alerts.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { authenticator } from '@otplib/preset-v11';
@@ -20,7 +21,7 @@ function getSupabaseAdmin() {
   if (!url || !serviceRoleKey) {
     throw new Error('Supabase service credentials are not configured.');
   }
-  return supabaseAdmin ??= createClient(url, serviceRoleKey);
+  return (supabaseAdmin ??= createClient(url, serviceRoleKey));
 }
 
 function decryptSecret(encrypted: string): string {
@@ -46,14 +47,16 @@ async function logSecurityEvent(
   metadata?: Record<string, unknown>
 ) {
   try {
-    await getSupabaseAdmin().from('auth_security_events').insert({
-      user_id: userId,
-      event_type: eventType,
-      description,
-      ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
-      user_agent: req.headers.get('user-agent') || 'unknown',
-      metadata: metadata || null,
-    });
+    await getSupabaseAdmin()
+      .from('auth_security_events')
+      .insert({
+        user_id: userId,
+        event_type: eventType,
+        description,
+        ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        metadata: metadata || null,
+      });
   } catch {
     // non-blocking
   }
@@ -155,6 +158,12 @@ export async function POST(req: NextRequest) {
         { attempts: newAttempts }
       );
 
+      if (newAttempts >= 5)
+        await notifyOrganizationSecurityEvent(supabaseAdmin, {
+          event: 'auth.multiple_failures',
+          eventId: `${userId}:${updateData.locked_until}`,
+          affectedUserId: userId,
+        });
       return NextResponse.json(
         {
           error: 'Código incorrecto. Verifica tu app autenticadora e intenta nuevamente.',

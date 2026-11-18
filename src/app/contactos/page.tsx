@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, LayoutList, MoreVertical, Eye, Star, Tag, FileText, ChevronDown, ChevronLeft, ChevronRight, Hash, X, ExternalLink, SlidersHorizontal, Building2, ArrowUpDown, Maximize2, Minimize2, Filter } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import ResponsiveFilterBar from '@/components/ResponsiveFilterBar';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import ContactDetailWorkspace from './ContactDetailWorkspace';
@@ -479,7 +480,7 @@ function ContactDataTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <table className="w-full min-w-[850px] border-collapse text-left text-sm">
+      <table className="responsive-data-table w-full min-w-[850px] border-collapse text-left text-sm">
         <caption className="sr-only">Contactos de tu agenda</caption>
         <thead className="bg-slate-50/90">
           <tr className="border-b border-slate-200 text-xs font-medium text-slate-500">
@@ -518,14 +519,14 @@ function ContactDataTable({
                   </div>
                 </th>
                 {columns.datos && (
-                  <td className="px-4 py-3 text-xs text-slate-600">
+                  <td data-label="Datos de contacto" className="px-4 py-3 text-xs text-slate-600">
                     {contact.email && <p className="flex items-center gap-1.5"><Mail size={13} className="shrink-0 text-slate-400" /><span className="max-w-[210px] truncate" title={contact.email}>{contact.email}</span></p>}
                     {contact.telefono && <p className={'flex items-center gap-1.5 ' + (contact.email ? 'mt-1' : '')}><Phone size={13} className="shrink-0 text-slate-400" /><span className="truncate">{contact.telefono}</span></p>}
                     {!contact.email && !contact.telefono && <span className="text-slate-400">—</span>}
                   </td>
                 )}
                 {columns.etiquetas && (
-                  <td className="px-4 py-3">
+                  <td data-label="Etiquetas" className="px-4 py-3">
                     <div className="flex max-w-[175px] flex-wrap items-center gap-1">
                       {tags.length ? tags.slice(0, 2).map((tag, index) => (
                         <span key={tag} className={'max-w-[135px] truncate rounded-md border px-1.5 py-0.5 text-[11px] ' + tagTones[index]} title={tag}>{tag}</span>
@@ -535,7 +536,7 @@ function ContactDataTable({
                   </td>
                 )}
                 {columns.documentos && (
-                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                  <td data-label="Documentos" className="whitespace-nowrap px-4 py-3 text-xs">
                     {documentsLoaded ? (
                       <>
                         <p className="flex items-center gap-1.5 font-medium text-slate-700"><FileText size={13} className="text-slate-400" />{docs.length} {docs.length === 1 ? 'documento' : 'documentos'}</p>
@@ -545,7 +546,7 @@ function ContactDataTable({
                   </td>
                 )}
                 {columns.actividad && (
-                  <td className="px-4 py-3 text-xs text-slate-600">
+                  <td data-label="Documento reciente" className="px-4 py-3 text-xs text-slate-600">
                     {latest ? (
                       <>
                         <p className="max-w-[155px] truncate" title={latest.nombre}>{latest.nombre}</p>
@@ -554,7 +555,7 @@ function ContactDataTable({
                     ) : <span className="text-slate-400">—</span>}
                   </td>
                 )}
-                <td className="px-4 py-3 text-right">
+                <td data-label="Acciones" className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
                     <button
                       type="button"
@@ -915,13 +916,14 @@ export default function ContactosPage() {
                   </div>
                   <button type="button" onClick={() => setIsWideView((wide) => !wide)} aria-label={isWideView ? 'Salir de vista amplia' : 'Vista amplia'} title={isWideView ? 'Salir de vista amplia' : 'Vista amplia'} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950">{isWideView ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                 </div>
-                <div className="mis-documentos-filters flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                <ResponsiveFilterBar><div className="mis-documentos-filters flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
                   <ContactFilterMenu label="Tipo de contacto" value={typeFilter} options={[{ value: 'personas', label: 'Personas' }, { value: 'empresas', label: 'Empresas' }]} allLabel="Todos los tipos" open={openFilterDropdown === 'tipo'} onToggle={() => setOpenFilterDropdown((current) => current === 'tipo' ? null : 'tipo')} onChange={(value) => { setTypeFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
                   <ContactFilterMenu label="Favoritos" value={favoritesOnly ? 'favoritos' : ''} options={[{ value: 'favoritos', label: `Solo favoritos (${favoriteCount})` }]} allLabel="Todos los contactos" open={openFilterDropdown === 'favoritos'} disabled={!favoritesReady} onToggle={() => setOpenFilterDropdown((current) => current === 'favoritos' ? null : 'favoritos')} onChange={(value) => { setFavoritesOnly(Boolean(value)); setPage(1); setOpenFilterDropdown(null); }} />
                   <ContactFilterMenu label="Pendientes" value={pendingOnly ? 'pendientes' : ''} options={[{ value: 'pendientes', label: 'Con pendientes' }]} allLabel="Todos los contactos" open={openFilterDropdown === 'pendientes'} disabled={!documentsLoaded} onToggle={() => setOpenFilterDropdown((current) => current === 'pendientes' ? null : 'pendientes')} onChange={(value) => { setPendingOnly(Boolean(value)); setPage(1); setOpenFilterDropdown(null); }} />
                   <ContactFilterMenu label="Etiquetas" value={tagFilter} options={tags.map((tag) => ({ value: tag, label: tag }))} allLabel="Todas las etiquetas" open={openFilterDropdown === 'etiqueta'} onToggle={() => setOpenFilterDropdown((current) => current === 'etiqueta' ? null : 'etiqueta')} onChange={(value) => { setTagFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
                   <ContactFilterMenu label="Grupos" value={groupFilter} options={groupNames.map((name) => ({ value: name, label: name }))} allLabel="Todos los grupos" open={openFilterDropdown === 'grupo'} onToggle={() => setOpenFilterDropdown((current) => current === 'grupo' ? null : 'grupo')} onChange={(value) => { setGroupFilter(value); setPage(1); setOpenFilterDropdown(null); }} />
                 </div>
+              </ResponsiveFilterBar>
               </section>
               {loading ? <div className="rounded-lg border border-slate-200 bg-white py-24 text-center text-sm text-slate-500">Cargando contactos...</div> : !filtered.length ? <div className="rounded-lg border border-slate-200 bg-white px-5 py-20 text-center"><Users size={28} className="mx-auto mb-3 text-slate-400" /><p className="font-medium text-slate-900">{contacts.length ? 'Sin resultados' : 'Tu agenda de contactos está vacía'}</p><p className="mt-1 text-sm text-slate-500">{contacts.length ? 'Prueba con otra búsqueda o cambia los filtros.' : 'Agrega tu primer contacto para comenzar.'}</p></div> : viewMode === 'grid' ? <div className={'grid grid-cols-1 gap-3 sm:grid-cols-2 ' + (selectedContact ? 'xl:grid-cols-2' : 'xl:grid-cols-3 2xl:grid-cols-4')}>{visible.map((contact) => <ContactCard key={contact.id} contact={contact} idx={contacts.indexOf(contact)} onView={() => openPreview(contact)} onDelete={() => handleDelete(contact.id)} deleting={deletingId === contact.id} />)}</div> : <ContactDataTable contacts={contacts} visible={visible} columns={columns} documentsLoaded={documentsLoaded} previewId={previewId} getDocs={getDocs} getPending={getPending} onPreview={openPreview} onOpenDetail={openFullContact} favoriteIds={favoriteIds} favoritesReady={favoritesReady} favoritePendingId={favoritePendingId} onToggleFavorite={toggleFavorite} />}
               {!loading && filtered.length > 0 && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} de {filtered.length} contactos</span><div className="flex items-center gap-1"><button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} aria-label="Página anterior" className="rounded-md border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronLeft size={14} /></button><span className="px-2">{currentPage} de {totalPages}</span><button type="button" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)} aria-label="Página siguiente" className="rounded-md border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronRight size={14} /></button></div></div>}

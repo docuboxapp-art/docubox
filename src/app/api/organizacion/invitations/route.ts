@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { Resend } from 'resend';
-import { wrapDocuboxEmail } from '@/lib/emailFooter';
+import { renderOrganizationCommunication } from '@/lib/organization/communications.server';
+import { createServiceClient } from '@/lib/supabase/server';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import {
   authorizeOrganizationRequest,
@@ -50,13 +51,11 @@ function invitationHtml(params: {
     dateStyle: 'long',
     timeStyle: 'short',
   }).format(new Date(params.expiresAt));
-  return wrapDocuboxEmail(
-    `<p style="margin:0 0 10px;color:#64748b">Invitación a una organización</p><h1 style="font-size:24px;margin:0 0 16px">Únete a ${organizationName}</h1><p style="line-height:1.6;margin:0">${inviterName} te invitó a colaborar en el espacio de trabajo de ${organizationName}.</p>${message}<a href="${params.invitationUrl}" style="display:inline-block;margin:26px 0 18px;padding:13px 22px;border-radius:6px;background:#1E6BFF;color:white;text-decoration:none;font-weight:600">Revisar invitación</a><p style="font-size:13px;line-height:1.5;color:#64748b;margin:0">El enlace vence el ${escapeHtml(expiration)} y solo puede utilizarse una vez.</p>`,
-    'Recibiste este correo porque te invitaron a colaborar en una organización mediante Docubox.'
-  );
+  return `<p style="margin:0 0 10px;color:#64748b">Invitación a una organización</p><h1 style="font-size:24px;margin:0 0 16px">Únete a ${organizationName}</h1><p style="line-height:1.6;margin:0">${inviterName} te invitó a colaborar en el espacio de trabajo de ${organizationName}.</p>${message}<a href="${params.invitationUrl}" style="display:inline-block;margin:26px 0 18px;padding:13px 22px;border-radius:6px;background:#1E6BFF;color:white;text-decoration:none;font-weight:600">Revisar invitación</a><p style="font-size:13px;line-height:1.5;color:#64748b;margin:0">El enlace vence el ${escapeHtml(expiration)} y solo puede utilizarse una vez.</p>`;
 }
 
 async function sendInvitationEmail(params: {
+  workspaceId: string;
   email: string;
   organizationName: string;
   inviterName: string;
@@ -72,11 +71,31 @@ async function sendInvitationEmail(params: {
       'El servicio de correo no esta configurado.'
     );
   const resend = new Resend(key);
+  const rendered = await renderOrganizationCommunication(createServiceClient(), {
+    workspaceId: params.workspaceId,
+    templateKey: 'organization.invitation',
+    variables: {
+      organization_name: params.organizationName,
+      recipient_name: params.email,
+      inviter_name: params.inviterName,
+      action_url: params.invitationUrl,
+      expires_at: params.expiresAt,
+      message: params.message || '',
+    },
+    fallbackSubject: `${params.inviterName} te invito a ${params.organizationName} en Docubox`,
+    fallbackContentHtml: invitationHtml(params),
+    context:
+      'Recibiste este correo porque te invitaron a colaborar en una organización mediante Docubox.',
+  });
   const result = await resend.emails.send({
-    from: process.env.ORGANIZATION_INVITATION_FROM_EMAIL || 'Docubox <noreply@docubox.com.mx>',
+    from:
+      rendered.from ||
+      process.env.ORGANIZATION_INVITATION_FROM_EMAIL ||
+      'Docubox <noreply@docubox.com.mx>',
     to: params.email,
-    subject: `${params.inviterName} te invito a ${params.organizationName} en Docubox`,
-    html: invitationHtml(params),
+    subject: rendered.subject,
+    html: rendered.html,
+    replyTo: rendered.replyTo,
   });
   if (result.error)
     throw new OrganizationApiError(
@@ -244,6 +263,7 @@ export async function POST(request: Request) {
     let deliveryId: string | null = null;
     try {
       deliveryId = await sendInvitationEmail({
+        workspaceId,
         email,
         organizationName: workspaceResult.data.name,
         inviterName:
@@ -373,6 +393,7 @@ export async function PATCH(request: Request) {
         .eq('id', user.id)
         .maybeSingle();
       await sendInvitationEmail({
+        workspaceId,
         email: existing.data.email,
         organizationName: (existing.data.workspaces as any)?.name || 'tu organizacion',
         inviterName: inviter.data?.full_name || inviter.data?.email || 'Un administrador',

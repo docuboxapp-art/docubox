@@ -41,7 +41,9 @@ const allowed = new Set<SectionKey>([
 export default function OrganizationSectionPage() {
   const params = useParams<{ section: string }>();
   if (governance.has(params.section as GovernanceSection)) {
-    return <OrganizationGovernance section={params.section as GovernanceSection} />;
+    return (
+      <OrganizationGovernance key={params.section} section={params.section as GovernanceSection} />
+    );
   }
   if (params.section === 'marca') {
     return <OrganizationAdvancedAdministration section="marca-comunicaciones" />;
@@ -53,10 +55,15 @@ export default function OrganizationSectionPage() {
     return <OrganizationProfile />;
   }
   if (params.section === 'equipos' || params.section === 'roles') {
-    return <OrganizationStructureAdministration section={params.section} />;
+    return <OrganizationStructureAdministration key={params.section} section={params.section} />;
   }
   if (advanced.has(params.section as AdvancedSection)) {
-    return <OrganizationAdvancedAdministration section={params.section as AdvancedSection} />;
+    return (
+      <OrganizationAdvancedAdministration
+        key={params.section}
+        section={params.section as AdvancedSection}
+      />
+    );
   }
   const section = params.section as SectionKey;
   if (!allowed.has(section))

@@ -1,0 +1,383 @@
+Lanzar expediente e invitar participantes — validación actual
+
+Comportamiento
+- Wizard con el lenguaje visual de lanzar formulario: Participantes, Responsables
+  y Confirmar lanzamiento. El botón final es Lanzar y enviar invitaciones.
+- Titular desde contactos, miembros, búsqueda en Docubox o captura manual;
+  participantes adicionales como representantes o contactos de seguimiento.
+- Revisores, aprobador y cierre manual según la política publicada y los permisos
+  del espacio. El responsable principal es quien lanza el expediente.
+- La creación del expediente y la preparación de todas las invitaciones se guardan
+  en una única transacción. Después se intenta el envío por correo.
+- Una entrega parcial conserva el expediente y muestra los envíos pendientes;
+  reintentar no crea otro expediente ni repite correos ya aceptados.
+- El resumen del expediente permite consultar estados, reintentar pendientes,
+  emitir una nueva invitación y revocar enlaces. No se envían nuevas invitaciones
+  desde expedientes cancelados o cerrados.
+
+Entrega y acceso
+- Enlace personal de siete días por participante. El acceso muestra el estado
+  general y solo los requisitos/formularios que corresponden a esa participación.
+- El portal permite entregar requisitos de documento solicitado y abrir los
+  formularios asignados. Los documentos vinculados por el responsable conservan
+  su flujo propio. Los contactos de seguimiento no reciben acceso a entregas del titular.
+- La carga va directamente a almacenamiento privado, cifrada con AES-GCM.
+  El servidor comprueba tamaño, formato real, hash, asignación y vigencia antes
+  de crear la versión documental canónica con el cifrado normal de Docubox.
+  Recibir un documento no lo aprueba, no verifica identidad y no firma nada.
+- Los formularios usan invitaciones privadas vinculadas al expediente y conservan
+  su acceso con la cuenta destinataria y su flujo de captura/PDF/firma existente.
+  El PDF canónico se vincula automáticamente y se actualiza el avance con el
+  evaluador del expediente. Revocar el enlace también vence los formularios derivados.
+- Los reintentos conservan el PDF y su hash. Una entrega finalizada no puede
+  sobrescribirse, desvincularse ni borrarse como si fuese un borrador.
+- No se convierten contactos externos en miembros del espacio. Las invitaciones
+  son independientes de la verificación de identidad, aprobación, firmas y cierre.
+- Tokens de 256 bits; consulta por hash; secretos y payloads persistidos cifrados.
+  Tabla y RPC restringidas al servicio del servidor. Sin acceso anónimo/autenticado
+  a la tabla mediante Data API; RLS sin políticas públicas por diseño.
+- Envíos con leases, payload congelado y clave de idempotencia por invitación.
+  Los reintentos ambiguos se detienen antes de vencer la protección de 24 horas
+  del proveedor. Una renovación explícita invalida el enlace anterior.
+- El estado Enviada indica aceptación del proveedor; no representa lectura.
+- En desarrollo, los correos apuntan a localhost. Producción usa el origen público
+  configurado. No se desplegó la aplicación durante esta tarea.
+
+Validación de lanzamiento previa
+- 102 pruebas Node aprobadas: envío, cifrado, reintentos tras pérdida de acuse,
+  errores y timeouts, duplicados, políticas, ejecución, wizard, contenido y firma.
+- 12 comprobaciones SQL de invitaciones: creación atómica, permisos, leases,
+  payload inmutable, alcance del portal, vencimiento, renovación y revocación.
+- 19 comprobaciones SQL de regresión de revisión/aprobación/firma/cierre y RLS.
+  Los datos de estas transacciones SQL se revirtieron.
+- Tres comprobaciones HTTP de acceso anónimo: lanzamiento, consulta de envíos
+  y reintentos devuelven 401.
+- TypeScript, ESLint y compilación de producción correctos.
+- Envío real únicamente al buzón expresamente autorizado en el chat. El proveedor
+  confirmó el evento delivered. Una segunda ejecución no hizo llamadas de envío.
+- Navegador con la aplicación real y Supabase: portal personal accesible, panel
+  del responsable con 1 de 1 invitaciones enviadas, revocación desde la interfaz
+  y rechazo del enlace al recargar después de revocarlo.
+
+Limpieza de la prueba real
+- Expediente técnico cancelado; tipo técnico archivado; enlace revocado.
+- Los registros e historial de la prueba real se conservan para auditoría.
+  No quedan tipos técnicos activos. No se borraron ni debilitaron registros inmutables.
+- Se eliminó el archivo temporal que contenía el enlace de prueba en claro.
+
+Migraciones aplicadas
+- 20261110025557_case_launch_participants.sql
+- 20261110032311_case_participant_invitations.sql
+
+Evidencia local
+- .tmp/expediente-invitacion-enviada.png
+- .tmp/expediente-invitacion-real.png
+
+Verificación del portal de entregas — 10 de noviembre de 2026
+- 111 pruebas Node aprobadas, incluidas 9 nuevas de formatos, integridad,
+  reintentos del PDF y autenticación del generador.
+- 10 comprobaciones SQL del portal aprobadas, con rollback de todos los datos.
+  También se ejecutaron sin errores las 12 pruebas de invitaciones y las 19
+  de revisión/cierre, permisos y RLS.
+- TypeScript de los módulos y dependencias afectados y ESLint aprobados.
+  No se repitió la compilación global de producción en esta ampliación.
+- Navegador real: acceso al enlace, carga de PDF sintético, recepción del documento
+  y avance de 40 a 50 %. Acceso privado al formulario confirmado con la sesión.
+- Prueba adicional del servidor con datos sintéticos: aceptación de la respuesta,
+  ejecución del generador PDF del repositorio mediante adaptadores Node para sus
+  imports Deno, almacenamiento real, vinculación automática de una sola entrega,
+  hash canónico coincidente y avance hasta 67 %, conservando pendiente la firma.
+  Al repetir la generación se conservó el mismo PDF y el avance.
+- Se recuperó y descifró el documento canónico: coincide byte a byte con el
+  archivo sintético original. La copia temporal cifrada se eliminó al confirmar.
+- HTTP: invitación inválida y escritura desde un origen ajeno devuelven 403.
+- El control del navegador se desconectó antes de completar el envío visual
+  del formulario. Ese paso no se presenta como verificado de extremo a extremo.
+- La corrección de auditoría e idempotencia de generate-form-pdf se publicó
+  como versión 14, conservando su autenticación de servicio. La aplicación Next
+  no se desplegó. No se firmó ningún documento ni se enviaron nuevos correos.
+- Los tres expedientes sintéticos quedaron cancelados, los tipos y formularios
+  de prueba archivados, documentos en papelera y enlaces revocados. Se conserva
+  la evidencia de auditoría y se retiró el archivo temporal del enlace en claro.
+
+Migraciones adicionales aplicadas
+- 20261110175145_case_participant_portal_contributions.sql
+- 20261110175441_case_portal_form_continuation.sql
+- 20261110180213_case_portal_receipt_integrity.sql
+- 20261110181127_case_portal_freeze_form_receipts.sql
+- 20261110181250_case_portal_private_form_identity.sql
+
+Evidencia adicional local
+- .tmp/case-portal-all-tests.log
+- .tmp/case-portal-server-verification.json
+- .tmp/case-portal-types-focused.log
+- .tmp/case-portal-lint.log
+
+Lanzamiento y consulta unificados — 10 de noviembre de 2026
+- Entrada /expedientes/lanzar con selector de definición publicada. Wizard de
+  participantes, responsables, firma y confirmación/envío; mismo patrón de
+  encabezado, pasos, selectores, avisos y barra inferior que Lanzar formulario.
+- Contactos, miembros de la cuenta, búsqueda exacta por correo/teléfono/RFC/CURP
+  y captura manual de persona física o moral. Los responsables se filtran por
+  permisos y separación de funciones; no se convierten los invitados en miembros.
+- Modalidad privada con la cuenta destinataria; modalidad pública con código
+  independiente y prueba de vida. Un destinatario ya registrado puede acreditar
+  identidad sin iniciar sesión. Quien no tenga acceso registrado debe crearlo y
+  verificar su correo antes de continuar. No se crea una sesión de cuenta pública.
+- Código y autorización del navegador son cookies HttpOnly con HMAC, ámbitos
+  distintos, vencimiento y vínculo a la invitación y código vigentes. Una prueba
+  biométrica de otro navegador no autoriza el navegador actual por sí sola.
+- La autorización exige evidencia del proveedor guardada por el servidor. Los
+  metadatos modificables de una sesión móvil no sustituyen esa evidencia.
+- Click & Sign, autógrafa digital o e.firma SAT según compatibilidad de las fuentes.
+  El método y los datos de prellenado pasan a los formularios; los documentos
+  solicitados que requieran firma reciben al titular y el método elegido. El
+  registro canónico rechaza métodos incompatibles y firmas antes de la revisión.
+- Formularios públicos dentro del expediente reciben una capacidad corta con
+  la identidad ya acreditada. Cada respuesta queda ligada a su invitación; se
+  conservan la integridad del PDF y los controles de revisión, firma y cierre.
+- Envío inmediato o programado con zona horaria, vigencia, bandeja persistente,
+  leases, reintentos y correos separados para enlace y código. Un enlace aceptado
+  por el proveedor no cuenta como envío completo si falta entregar el código.
+- Worker case-invitation-dispatch v1 desplegado, con autenticación HMAC y secretos
+  en Vault. Cron activo cada minuto; no genera una llamada HTTP si no hay envíos
+  vencidos. Solo procesa lanzamientos autorizados y aún vigentes.
+- /expedientes/consultar ofrece búsqueda, filtros por tipo/estado/fechas/envíos
+  programados, orden, paginación, progreso, participantes, vista previa, detalle,
+  consulta del código autorizada y cancelación del envío futuro. Las métricas
+  corresponden al espacio completo y las filas solo a la página consultada.
+- La cabecera del detalle muestra al responsable principal real y un mensaje
+  adecuado cuando el expediente está cancelado.
+
+Validación de esta ampliación
+- 83 pruebas Node aprobadas (incluidas 6 nuevas de configuración, cookies y
+  entregas separadas). TypeScript de módulos y dependencias afectados aprobado.
+- 14 comprobaciones SQL de lanzamiento público/privado, firma, programación,
+  formularios y aislamiento, con rollback. Regresiones: portal 10, invitaciones
+  12, revisión/cierre y RLS 19; todos los datos SQL revertidos.
+- HTTP real sin sesión: código erróneo rechazado, código válido sin pedir login,
+  sesión móvil acotada creada, captura inexistente rechazada, portal bloqueado
+  sin prueba de vida, navegador nuevo requiere código y cookie de código no sirve
+  como autorización de identidad. Sin llamar al proveedor biométrico.
+- Worker real: firma HMAC inválida devuelve 404; firma válida procesa un lote
+  vacío con 200. Configuración en Vault y cron activo comprobados.
+- Navegador real: selección del titular, responsables, firma, envío programado,
+  confirmación, listado, búsqueda, filtro programados, vista previa y cancelación.
+  El resultado desaparece del filtro de programados sin enviar ningún correo.
+- No se repitieron biometrías reales ni firmas de documentos. La prueba positiva
+  de evidencia biométrica fue sintética dentro de una transacción con rollback;
+  no representa una validación del proveedor ni una firma humana.
+- Los dos expedientes de esta prueba quedaron cancelados, los enlaces revocados,
+  las sesiones móviles vencidas y las definiciones/formularios técnicos archivados.
+  El historial se conserva. No se enviaron correos nuevos ni se desplegó Next.js.
+
+Migraciones de esta ampliación
+- 20261110210929_case_launch_access_delivery_and_consultation.sql
+- 20261110211327_case_launch_delivery_hardening.sql
+- 20261110211628_case_launch_runtime_corrections.sql
+- 20261110211935_case_launch_participant_fields_and_signatures.sql
+- 20261110212550_case_launch_signature_trigger_privileges.sql
+- 20261110212949_case_launch_public_continuation.sql
+- 20261110213604_case_launch_public_form_receipts.sql
+
+Evidencia de esta ampliación
+- .tmp/case-launch-unit.log
+- .tmp/case-launch-types.log
+- .tmp/case-launch-lint.log
+- .tmp/expediente-lanzamiento-programado.png
+- .tmp/expedientes-consulta-validada.png
+
+Prueba real de invitación, carga y formulario (10 noviembre 2026)
+- Nueva definición técnica con un PDF solicitado y un formulario sintético.
+  Lanzamiento privado efectuado desde el wizard; destinatario único autorizado.
+- Proveedor de correo confirmó entrega real de la invitación privada.
+- Carga real desde el navegador: una recepción, SHA-256 del archivo original
+  coincidente y metadatos de cifrado presentes.
+- Respuesta real desde /form: guardada por form-submit, PDF generado y una sola
+  recepción inmutable asociada al expediente. Sin firmar documentos.
+- Portal privado muestra documento y formulario recibidos, avance 80% y estado
+  Listo para firma (antes de entregar: 40%; después del PDF solicitado: 60%).
+- Corrección de acceso privado: lectura SSR de cookies del usuario, separada
+  del cliente de servicio. Error temporal de Auth devuelve indisponibilidad;
+  no se interpreta como invitación inválida. Tres regresiones automatizadas.
+- Lanzamiento con código creado por RPC canónica y despachador real compartido:
+  enlace y código entregados en correos separados. Código comprobado desde el
+  navegador sin sesión de cuenta; acceso detenido correctamente en prueba de vida.
+- Captura móvil del expediente mantiene el origen que emitió su invitación,
+  para no saltar desde localhost o una vista previa a otro despliegue.
+  Reutiliza /captura-id-movil y el procesamiento biométrico de Firmar documento;
+  el modal muestra los pasos QR, captura móvil y retorno tras validación aprobada.
+- Consultar expedientes comprobado con la sesión real: fila privada al 80%,
+  Listo para firma, una invitación enviada; fila pública inicial al 0% y enviada.
+- Pendiente: captura biométrica humana del acceso con código, sus entregas y
+  su avance final en Consultar expedientes. No declarar E2E completo todavía.
+  El usuario indicó que de momento no puede utilizar la cámara. No se llamó al
+  proveedor con capturas sintéticas ni se concedió acceso público sin evidencia.
+  Las sesiones QR técnicas pendientes se cancelaron al terminar; al retomar se
+  genera otro QR. Para usar un teléfono se requiere un origen HTTPS accesible
+  desde ese dispositivo; localhost solo funciona en el equipo que lo ejecuta.
+- Pruebas actuales: 86 Node aprobadas; TypeScript y ESLint focalizados aprobados.
+- Evidencia: .tmp/e2e-case-flow-results.json y .tmp/e2e-privado-avance-80.png.
+  También .tmp/e2e-consulta-privado-80.png y .tmp/e2e-expediente-proceso-qr.png.
+  Se eliminó el archivo temporal que contenía los enlaces y códigos sin cifrar.
+  Se conservan los fixtures vigentes durante la captura humana; no hay despliegue
+  de Next.js, commit ni push en esta prueba.
+
+Separación del acceso de expedientes y formularios
+- CaseEntryGate utiliza CaseIdentityModal, dentro de components/case-files.
+  El componente de formularios deja de admitir invitaciones de expediente.
+- El transporte de expedientes solo inicia /api/public/case-entry con la
+  invitación de expediente y solo acepta el modo case_portal_liveness.
+- Formularios conserva su endpoint y el modo public_form_liveness. No se cambian
+  sus correos, códigos, respuestas ni reglas para acomodar el expediente.
+- Se comparte únicamente la infraestructura móvil de captura de identidad;
+  la autorización continúa ligada al módulo y a la invitación correspondientes.
+- 13 regresiones aprobadas, incluidas separación de dependencias, rechazo de
+  sesiones de otros módulos, creación inválida y errores de autorización.
+  TypeScript y lint focalizados aprobados. Biometría real pendiente de cámara.
+- Verificación en navegador del componente separado: título Verificar identidad
+  del expediente, QR generado y retorno al acceso del expediente al cerrar.
+  Evidencia: .tmp/expediente-identidad-separada.png. Sin capturar biometrías.
+
+Revisión de textos de invitaciones y portal del participante
+- Correo de invitación: participación y rol en el expediente, requisitos
+  asignados, vigencia de la invitación y acción Abrir expediente. El único
+  enlace de acción sigue siendo /expediente/<capacidad>.
+- Correo de código separado: identifica el expediente y su folio, explica que
+  se usa con el correo invitado en el portal del expediente y mantiene el enlace
+  personal fuera del mensaje del código.
+- Portal: participación, documentos solicitados, entrega al expediente y
+  actualización de avance. Los formularios son requisitos vinculados, con
+  acciones contextualizadas y retorno explícito al portal del expediente.
+- Se conservan permisos, integridad de entregas y aislamiento de módulos.
+  No se reenviaron invitaciones ni se alteraron mensajes ya enviados o congelados.
+- 33 regresiones aprobadas; TypeScript y lint focalizados aprobados.
+  Portal privado real comprobado al 80%, con documento y formulario recibidos.
+  Evidencia: .tmp/expediente-portal-textos-revisados.png.
+
+Enlace recibido, QR y plantilla visual compartida
+- Se comprobó el enlace y el código de los dos correos realmente entregados
+  en la última invitación de prueba, sin renovar esa invitación ni reenviarla.
+- En navegador: correo y código correctos abren automáticamente el QR de
+  CaseIdentityModal; la URL permanece en /expediente/<capacidad>. No se abre
+  ninguna ruta de formularios y el contenido sigue protegido por prueba de vida.
+- Caducidad de cuenta: se conserva el cierre de la sesión local vencida, pero
+  una respuesta tardía o el cierre comunicado por otra pestaña no reemplaza
+  la ruta independiente del expediente por el login. Las pantallas de cuenta
+  mantienen la redirección por caducidad. Sin cambiar la política del servidor.
+- Invitación y código ahora usan wrapDocuboxEmail, la envoltura visual común:
+  logo, tarjeta de 600 px, tipografía, detalles y pie legal. El contenido, las
+  acciones y la separación entre enlace y código pertenecen a Expedientes.
+- No se reutiliza el constructor ni las acciones de formularios. Se conserva
+  el origen local del enlace; los recursos de marca usan la configuración común.
+- Vistas previas con datos sintéticos revisadas en navegador. No se enviaron
+  nuevos correos en esta revisión ni se modificaron los mensajes ya entregados.
+- 51 pruebas aprobadas; TypeScript y lint focalizados aprobados.
+- Evidencia: .tmp/expediente-correo-codigo-qr-validado.png,
+  .tmp/expediente-correo-invitacion-plantilla.png y
+  .tmp/expediente-correo-codigo-plantilla.png. HTML de muestra en .tmp.
+- Se retiraron las vistas previas públicas temporales y el archivo local con
+  el código y enlace sin cifrar. Biometría real pendiente de cámara.
+- Cambios preparados en la versión local; no se desplegó Next.js ni el worker.
+
+Comprobación de la nueva invitación con plantilla común
+- Se verificaron las credenciales de la invitación más reciente contra los dos
+  mensajes realmente entregados por el proveedor. No hubo reenvíos ni renovaciones.
+- En navegador, introducir el correo invitado y su nuevo código mostró
+  automáticamente Verificar identidad del expediente con un QR válido.
+  La ruta permaneció en /expediente/<capacidad>; no se abrió ningún formulario.
+- Evidencia: .tmp/expediente-nueva-invitacion-qr-confirmado.png.
+  No se completó la biometría. Se eliminó el archivo temporal de credenciales.
+
+Revisión posterior a la identidad
+- Prueba de integración aislada: POST complete con evidencia aprobada simulada
+  en el límite proveedor/BD escribe la cookie HttpOnly del navegador; la siguiente
+  petición SSR real abre ParticipantWorkspace y muestra entrega de documentos,
+  formulario vinculado y avance. No se modifica ninguna invitación real.
+- Sin aprobación o sin la cookie del navegador correspondiente, el mismo
+  recorrido conserva la puerta de identidad y no muestra controles de entrega.
+- 16 comprobaciones de lanzamiento y 10 de portal ejecutadas contra las RPC
+  reales, con fixtures nuevos en el espacio autorizado y ROLLBACK. Incluyen
+  identidad, entrega pública idempotente, formulario público con identidad
+  heredada, recepción del PDF, continuación y solicitud durable de refresco.
+  La evidencia biométrica positiva en estas pruebas es sintética y revertida;
+  no equivale a una captura humana ni a una validación real del proveedor.
+- Consultar expedientes ahora vuelve a leer el listado al regresar al navegador
+  o a la pestaña visible. Agrupa los eventos de foco y visibilidad y cancela
+  callbacks al salir del espacio; no añade sondeo en segundo plano.
+- 48 pruebas de aplicación aprobadas; TypeScript y lint focalizados aprobados.
+  Evidencia: .tmp/case-post-identity-tests.log y pruebas case-post-identity,
+  case-consultation-refresh y tests/sql/case-launch-complete.sql.
+- Estado real actual: la invitación pública más reciente no tiene una identidad
+  aprobada; un intento tiene resultado de prueba de vida no aprobado. No se
+  alteró ese resultado ni se habilitó acceso sin evidencia. Sus entregas siguen
+  en cero. La prueba privada existente conserva un documento y un formulario
+  recibidos, con hash verificado y avance real de 80% (firma pendiente).
+- Pendiente para certificar todo el recorrido público real: captura humana
+  aprobada, entrega desde ese navegador y comprobación posterior del listado.
+  No se enviaron nuevos correos ni se desplegó la aplicación en esta revisión.
+
+Corrección de captura y rechazo de prueba de vida (10 noviembre 2026)
+- Se comprobó en el intento real que documento, rostro y CURP coinciden; la
+  prueba de vida fue negativa. El registro anterior no conservó el código del
+  proveedor, por lo que no permite atribuir ese rechazo a una causa más precisa.
+- Contrato contrastado con Face Liveness Detection de Nubarium:
+  https://documenter.nubarium.com/#c185ab95-bb0f-4142-ac03-c6fdebd3fcbb
+  Código 0 aprueba; 1/2/3 rechazan; 4/50/100 son errores de datos o servicio.
+  Respuestas ausentes, nulas o contradictorias no producen una aprobación.
+- La captura móvil compartida con Firmar documento envía el fotograma original,
+  sin invertir ni recortar a partir del óvalo CSS. El recorte anterior usaba
+  coordenadas que no contemplaban object-fit: cover y podía deformar la imagen.
+  Esto corrige la preparación de evidencia, sin afirmar que explique por sí
+  solo el rechazo biométrico anterior.
+- El rechazo definitivo 422 ahora lleva un motivo seguro, cierra el intento y
+  pide regresar para generar un QR nuevo. Ya no aparece como fallo al guardar
+  ni ofrece reenviar una sesión consumida. El QR del expediente muestra también
+  ese motivo. La comparación facial previa no se presenta como identidad aprobada.
+- Errores del proveedor conservan la sesión pendiente, sin registrar un falso
+  rechazo biométrico. Se guarda solo el código numérico junto al resumen existente;
+  no se agregan respuestas biométricas sin sanear a los mensajes de pantalla.
+- 32 pruebas de aplicación aprobadas, incluidas respuestas documentadas del
+  proveedor, fotografía sin transformación, los tres contextos de captura y la
+  apertura SSR del portal posterior al grant. Proveedor y BD simulados en las
+  pruebas positivas; no se crean aprobaciones biométricas en producción.
+  Evidencia: .tmp/identity-review-tests.log. TypeScript focalizado aprobado para
+  Expedientes y para la pantalla de captura y las rutas de identidad.
+- Comprobación HTTP local: una sesión inválida devuelve 404. La inspección del
+  navegador integrado quedó limitada por falta de respuesta del navegador.
+  La persona indicó no tener cámara disponible: la aprobación humana y el
+  recorrido público real siguen pendientes. Cambios locales, sin despliegue,
+  nuevos correos, migraciones ni modificación del resultado fallido anterior.
+
+Nueva invitación y comprobación posterior al QR (10 noviembre 2026)
+- Los dos mensajes de la nueva invitación se entregaron. El código recibido
+  abrió en navegador Verificar identidad del expediente con QR. La ruta se
+  mantuvo en /expediente/<capacidad>; evidencia visual:
+  .tmp/expediente-invitacion-corregida-qr-verificado.png.
+- La nueva invitación conserva un grant de código verificado, pero no tiene
+  ninguna captura biométrica aprobada. No se habilitó un grant artificial.
+- 42 pruebas de aplicación aprobadas: cookie posterior a la identidad y apertura
+  SSR del portal real con sus controles, validación de archivos, PDF inmutable,
+  separación de las rutas, cálculo del avance y refresco al volver a Consultar.
+  Evidencia: .tmp/case-portal-followthrough-tests.log. Proveedor y BD simulados
+  donde se prueba la aprobación positiva; no sustituyen una captura humana.
+- Se repitieron las 26 comprobaciones de las RPC de lanzamiento y portal en el
+  espacio de QA autorizado, con ROLLBACK. Incluyen entregas públicas tras la
+  aprobación aislada, herencia de identidad al formulario, recibos idempotentes,
+  PDF asociado y cola durable de actualización. No se enviaron correos en SQL.
+- Se corrigió un cálculo que otorgaba 40% sin entregas por contar las comprobaciones
+  sin incidencias/procesos fallidos como trabajo realizado. El porcentaje ahora
+  considera aportaciones, revisión, verificaciones, aprobación, firmas y etapas
+  aplicables. Los bloqueos siguen impidiendo el cierre; 100% queda reservado al
+  expediente cerrado y las condiciones de permisos y firma siguen vigentes.
+- Prueba del refresh real con límites externos simulados: 0% inicial, 50% tras
+  documento, sin incremento por formulario cuyo PDF no está terminado y 99% al
+  recibirlo, conservando el cierre manual pendiente.
+- Se releyó la evidencia sintética existente: el archivo canónico descifrado
+  coincide con el hash original, existe un único documento y un recibo de PDF
+  del formulario. Se actualizó únicamente la proyección de ese expediente privado
+  de QA: 67%, ready_to_sign, pendiente signature:e2e-form. No se firmó ni cerró.
+  La prueba pública real queda en 0%, sin documentos ni formularios recibidos.
+  Evidencia saneada: .tmp/case-post-identity-real-evidence.json.
+- El recorrido positivo con cámara de esta invitación pública permanece pendiente.
+  No se requieren migraciones para el ajuste; cambios de aplicación locales.

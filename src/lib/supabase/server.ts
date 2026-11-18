@@ -1,11 +1,18 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { fetchWithPasswordSignInTimeout } from './password-auth-fetch.ts';
 
 /** Apply one request deadline without replacing Supabase's auth or RLS behavior. */
-export function fetchWithRequestDeadline(deadline: AbortSignal): typeof fetch {
+export function fetchWithRequestDeadline(
+  deadline: AbortSignal,
+  fetchImpl: typeof fetch = fetch
+): typeof fetch {
   return (input, init) =>
-    fetch(input, {
+    fetchImpl(input, {
       ...init,
-      signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline,
+      signal: AbortSignal.any([
+        deadline,
+        ...(init?.signal ? [init.signal] : input instanceof Request ? [input.signal] : []),
+      ]),
     });
 }
 
@@ -45,12 +52,11 @@ export function createAnonClient(accessToken?: string, deadline?: AbortSignal) {
   }
   return createSupabaseClient(url, anonKey, {
     auth: { persistSession: false },
-    global:
-      accessToken || deadline
-        ? {
-            ...(accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : {}),
-            ...(deadline ? { fetch: fetchWithRequestDeadline(deadline) } : {}),
-          }
-        : undefined,
+    global: {
+      ...(accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : {}),
+      fetch: deadline
+        ? fetchWithRequestDeadline(deadline, fetchWithPasswordSignInTimeout)
+        : fetchWithPasswordSignInTimeout,
+    },
   });
 }

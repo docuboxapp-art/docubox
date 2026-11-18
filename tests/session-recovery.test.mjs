@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const middlewareSource = readFileSync('src/middleware.ts', 'utf8');
+const middlewareSource = readFileSync('src/proxy.ts', 'utf8');
 const recoveryScript = middlewareSource.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1];
 assert.ok(recoveryScript, 'the unavailable-session page needs its recovery script');
 

@@ -34,5 +34,9 @@ export default function PublicTokenLayout({
   void luciaScope;
   void compactAssistant;
 
-  return <div className="min-h-screen w-full bg-background dark:bg-background">{children}</div>;
+  return (
+    <div className="public-token-layout min-h-dvh w-full min-w-0 bg-background dark:bg-background">
+      {children}
+    </div>
+  );
 }

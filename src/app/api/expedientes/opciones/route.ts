@@ -91,20 +91,18 @@ export async function GET(request: NextRequest) {
     );
     const self = members.find((value) => value.user_id === actor.id);
     if (!self) throw new CaseRuntimeError('CASE_ACCESS_DENIED', 'No tienes acceso activo.', 403);
-    const profile = await service
+    const profileQuery = service
       .from('user_profiles')
       .select('id,full_name,email')
       .in(
         'id',
         members.map((member) => member.user_id)
       );
-    if (profile.error) throw profile.error;
-    const workspace = await service
+    const workspaceQuery = service
       .from('workspaces')
       .select('organization_settings')
       .eq('id', workspaceId)
       .single();
-    if (workspace.error) throw workspace.error;
     const documentsQuery = service
       .from('documentos')
       .select('id,nombre,estado,source_template_id')
@@ -114,8 +112,6 @@ export async function GET(request: NextRequest) {
       .order('updated_at', { ascending: false })
       .limit(100);
     if (!['owner', 'admin'].includes(self.role)) documentsQuery.eq('owner_id', actor.id);
-    const documents = caseId ? await documentsQuery : { data: [], error: null };
-    if (documents.error) throw documents.error;
     const formIds = draft.sections
       .flatMap((section) => section.items)
       .filter((item) => item.kind === 'form' && item.sourceId)
@@ -128,33 +124,65 @@ export async function GET(request: NextRequest) {
       .not('submitted_at', 'is', null)
       .not('pdf_output_hash', 'is', null)
       .limit(100);
-    const responses =
-      formIds.length && (subjectEmail || subjectUser)
-        ? await (subjectEmail
-            ? responseQuery.eq('respondent_email', subjectEmail.toLowerCase())
-            : responseQuery.eq('respondent_user_id', subjectUser))
-        : { data: [], error: null };
-    if (responses.error) throw responses.error;
-    const signatureSources = formIds.length
-      ? await service
-          .from('form_templates')
-          .select('id,allowed_signature_types,requires_signature')
-          .in('id', formIds)
-          .eq('workspace_id', workspaceId)
-      : { data: [], error: null };
-    if (signatureSources.error) throw signatureSources.error;
     const documentTemplateIds = draft.sections
       .flatMap((s) => s.items)
       .filter((i) => i.kind === 'document_template' && i.sourceId)
       .map((i) => i.sourceId!);
-    const documentMethods = documentTemplateIds.length
-      ? await service
-          .from('plantillas')
-          .select('requires_efirma')
-          .in('id', documentTemplateIds)
-          .eq('workspace_id', workspaceId)
-      : { data: [], error: null };
-    if (documentMethods.error) throw documentMethods.error;
+    // Membership and subject scope are established above. These independent,
+    // scoped reads need one network wave, rather than seven serial round trips.
+    const [
+      profile,
+      workspace,
+      documents,
+      responses,
+      signatureSources,
+      documentMethods,
+      verifications,
+    ] = await Promise.all([
+      profileQuery,
+      workspaceQuery,
+      caseId ? documentsQuery : { data: [], error: null },
+      formIds.length && (subjectEmail || subjectUser)
+        ? subjectEmail
+          ? responseQuery.eq('respondent_email', subjectEmail.toLowerCase())
+          : responseQuery.eq('respondent_user_id', subjectUser)
+        : { data: [], error: null },
+      formIds.length
+        ? service
+            .from('form_templates')
+            .select('id,allowed_signature_types,requires_signature')
+            .in('id', formIds)
+            .eq('workspace_id', workspaceId)
+        : { data: [], error: null },
+      documentTemplateIds.length
+        ? service
+            .from('plantillas')
+            .select('requires_efirma')
+            .in('id', documentTemplateIds)
+            .eq('workspace_id', workspaceId)
+        : { data: [], error: null },
+      subjectUser
+        ? service
+            .from('enrollment_results')
+            .select('id,created_at')
+            .eq('user_id', subjectUser)
+            .eq('status', 'completed')
+            .limit(20)
+        : { data: [], error: null },
+    ]);
+    for (const result of [
+      profile,
+      workspace,
+      documents,
+      responses,
+      signatureSources,
+      documentMethods,
+      verifications,
+    ]) {
+      if (result.error) throw result.error;
+    }
+    if (!workspace.data)
+      throw new CaseRuntimeError('CASE_LOAD_FAILED', 'No se pudo cargar el espacio de trabajo.', 503);
     const signatureOptions = ['click_sign', 'autografa_digital', 'efirma_sat'].filter(
       (method) =>
         (!documentMethods.data?.some((d) => d.requires_efirma) || method === 'efirma_sat') &&
@@ -170,15 +198,6 @@ export async function GET(request: NextRequest) {
           )
           .every((f) => f.allowed_signature_types?.includes(method))
     );
-    const verifications = subjectUser
-      ? await service
-          .from('enrollment_results')
-          .select('id,created_at')
-          .eq('user_id', subjectUser)
-          .eq('status', 'completed')
-          .limit(20)
-      : { data: [], error: null };
-    if (verifications.error) throw verifications.error;
     return NextResponse.json(
       {
         data: {

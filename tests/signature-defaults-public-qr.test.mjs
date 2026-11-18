@@ -16,7 +16,7 @@ const qrComponentPath = new URL(
   '../src/components/signatures/SignatureQrCode.tsx',
   import.meta.url
 );
-const middlewarePath = new URL('../src/middleware.ts', import.meta.url);
+const middlewarePath = new URL('../src/proxy.ts', import.meta.url);
 const selectorPaths = [
   '../src/app/mi-perfil/components/AutografaStampSelector.tsx',
   '../src/app/mi-perfil/components/EfirmaStampSelector.tsx',
@@ -107,7 +107,10 @@ test('all stamp previews use encoded QR modules and the public validator bypasse
   assert.match(stamp, /margin: 4/);
   assert.match(stamp, /width: 512/);
   assert.match(middleware, /'\/api\/public\/v1\/verifications\/'/);
-  for (const source of [signing, ...selectors]) {
+  const sharedStamp=await readFile(new URL('../src/components/signatures/SignatureStampDisplay.tsx',import.meta.url),'utf8');
+  assert.match(signing, /import \{ FittedSignatureStamp, SignatureStampDisplay/);
+  assert.match(signing, /<FittedSignatureStamp/);
+  for (const source of [sharedStamp, ...selectors]) {
     assert.match(source, /<SignatureQrCode/);
     assert.doesNotMatch(source, /viewBox="0 0 20 20"/);
   }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
+import ResponsiveSidebar from '@/components/ResponsiveSidebar';
 import {
   User,
   Building2,
@@ -7112,9 +7113,9 @@ export default function MiPerfilPage() {
   return (
     <AppLayout noPadding>
       <div className="-mx-4 -my-4 min-h-[calc(100vh-104px)] bg-[#F5F7FA] md:-my-6 dark:bg-slate-950">
-        <div className="flex min-h-[calc(100vh-104px)] w-full flex-col md:flex-row">
+        <div className="workspace-layout flex min-h-[calc(100vh-104px)] w-full flex-col lg:flex-row">
           {/* Internal profile navigation */}
-          <aside className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white md:w-60 md:border-b-0 md:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
+          <ResponsiveSidebar label="Secciones de mi perfil" className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white lg:w-60 lg:border-b-0 lg:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
             <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:gap-0.5 md:overflow-x-visible md:px-2.5 md:pb-3 md:pt-3">
               {sidebarSections.map((section, sectionIndex) => (
                 <div key={section.label} className="contents md:block">
@@ -7147,7 +7148,7 @@ export default function MiPerfilPage() {
                 </div>
               ))}
             </nav>
-          </aside>
+          </ResponsiveSidebar>
 
           {/* Main Content */}
           <main className="profile-content min-w-0 flex-1 px-4 py-5 sm:px-6 md:px-7 md:py-6 xl:px-8 dark:[&_.bg-gray-50]:bg-slate-800 dark:[&_.bg-gray-100]:bg-slate-800 dark:[&_.bg-white]:bg-slate-900 dark:[&_.border-border]:border-slate-700 [&_.rounded-xl]:rounded-lg">

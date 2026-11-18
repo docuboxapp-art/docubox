@@ -50,6 +50,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
+import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { FittedSignatureStamp, SignatureStampDisplay, type StampDisplayProps } from '@/components/signatures/SignatureStampDisplay';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
@@ -1227,6 +1228,8 @@ function EfirmaFirmarFlow({
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Ocultar contraseña de e.firma' : 'Mostrar contraseña de e.firma'}
+                  aria-pressed={showPassword}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -1419,6 +1422,7 @@ function PdfCanvas({
       canvas.width = Math.ceil(viewport.width * outputScale);
       canvas.height = Math.ceil(viewport.height * outputScale);
       canvas.style.width = `${viewport.width}px`;
+      canvas.dataset.previewZoom = String(zoom);
       canvas.style.height = `${viewport.height}px`;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -1506,7 +1510,11 @@ function PdfCanvas({
           <Loader2 className="animate-spin h-6 w-6 text-primary" />
         </div>
       )}
-      <canvas ref={canvasRef} style={{ display: error ? 'none' : 'block' }} />
+      <canvas
+        ref={canvasRef}
+        data-preview-ready={!rendering && !error}
+        style={{ display: error ? 'none' : 'block' }}
+      />
       {error && (
         <div
           className="flex flex-col items-center justify-center gap-4 bg-white px-6 text-center"
@@ -3871,6 +3879,8 @@ export default function FirmarDocumentoPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [showPdf, setShowPdf] = useState(true);
+  const [mobileSigningView, setMobileSigningView] = useState<'process' | 'document'>('process');
+  const signingModalViewportRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { isDark } = useTheme();
   const [showDocModal, setShowDocModal] = useState(false);
@@ -7234,7 +7244,7 @@ export default function FirmarDocumentoPage() {
 
     return (
       <div
-        className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-background'}`}
+        className={`document-signing-complete min-h-dvh flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-background'}`}
       >
         {/* ── Top Bar — step nav hidden on completado ──────────────────────── */}
         <header
@@ -7309,8 +7319,8 @@ export default function FirmarDocumentoPage() {
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
                   <div className="flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-border rounded-full px-3 py-1.5 shadow-md">
                     <button
-                      onClick={() => setZoom((z) => Math.max(50, z - 10))}
-                      disabled={zoom <= 50}
+                      onClick={() => setZoom((z) => Math.max(25, z - 10))}
+                      disabled={zoom <= 25}
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                     >
                       <svg
@@ -8522,7 +8532,8 @@ export default function FirmarDocumentoPage() {
   // ── Main layout ────────────────────────────────────────────────────────────
   return (
     <div
-      className={`flex h-screen flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}
+      data-mobile-view={mobileSigningView}
+      className={`document-signing-shell docubox-wizard flex h-dvh min-h-0 flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-950'}`}
     >
 
       {stampSelectorOpen && (
@@ -8705,18 +8716,19 @@ export default function FirmarDocumentoPage() {
 
       {/* Full-screen document modal — matches visor-documento style */}
       {showDocModal && document?.file_url && (
-        <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col">
+        <div className="signing-document-modal fixed inset-0 z-50 bg-gray-100 flex flex-col">
           {/* Top bar: close button */}
-          <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
+          <div className="signing-document-modal-toolbar absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
             <span className="text-sm font-medium text-foreground bg-white border border-border rounded-full px-3 py-1.5 shadow-sm truncate max-w-xs">
               {document.nombre}
             </span>
             <div className="flex items-center gap-2">
               {/* Zoom controls */}
+              <button type="button" onClick={() => setDocModalZoom(fitPreviewZoom(signingModalViewportRef.current, docModalZoom))} className="rounded-lg border border-border bg-white px-3 py-2 text-xs text-primary" aria-label="Ajustar documento ampliado al ancho">Ajustar</button>
               <div className="flex items-center gap-1 bg-white border border-border rounded-full px-3 py-1.5 shadow-sm">
                 <button
-                  onClick={() => setDocModalZoom((z) => Math.max(50, z - 10))}
-                  disabled={docModalZoom <= 50}
+                  onClick={() => setDocModalZoom((z) => Math.max(25, z - 10))}
+                  disabled={docModalZoom <= 25}
                   className="w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                   title="Reducir zoom"
                 >
@@ -8855,7 +8867,7 @@ export default function FirmarDocumentoPage() {
             </div>
           </div>
           {/* Modal body */}
-          <div className="flex-1 overflow-auto" style={{ paddingTop: '0px' }}>
+          <div ref={signingModalViewportRef} className="document-preview-scroll flex-1 overflow-auto" style={{ paddingTop: '0px' }}>
             <div className="flex items-start justify-center min-h-full min-w-full p-8 pt-16">
               {templateDocument ? (
                 <TemplateDocumentPreview
@@ -8935,10 +8947,14 @@ export default function FirmarDocumentoPage() {
         </div>
       </section>
 
-      <div className="flex flex-1 overflow-hidden">
+      <nav aria-label="Vistas del proceso de firma" className="signing-mobile-views border-b border-border bg-card px-4 py-2">
+        <button type="button" aria-pressed={mobileSigningView === 'process'} onClick={() => setMobileSigningView('process')}><PenLine size={16} />Proceso</button>
+        <button type="button" aria-pressed={mobileSigningView === 'document'} onClick={() => setMobileSigningView('document')}><FileText size={16} />Documento</button>
+      </nav>
+      <div className="signing-workspace flex min-h-0 flex-1 overflow-hidden">
         {/* PDF Viewer (left) */}
         <div
-          className={`hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}
+          className={`signing-pdf-pane hidden lg:flex flex-col border-r transition-all duration-300 ${showPdf ? 'w-[70%]' : 'w-0 overflow-hidden'} ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-border'}`}
         >
           {document.file_url && (
             <>
@@ -8964,7 +8980,7 @@ export default function FirmarDocumentoPage() {
                   <div
                     ref={docSheetRef}
                     data-doc-sheet-firmar="true"
-                    className="shadow-xl bg-white self-start relative"
+                    className="signing-document-sheet shadow-xl bg-white self-start relative"
                   >
                     {templateDocument ? (
                       <TemplateDocumentPreview
@@ -9032,11 +9048,12 @@ export default function FirmarDocumentoPage() {
                 </div>
 
                 {/* Overlay: Zoom + Pagination bar — bottom-center */}
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+                <div className="signing-pdf-pagination absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
                   <div className="flex items-center gap-1 bg-white/90 backdrop-blur-sm border border-border rounded-full px-3 py-1.5 shadow-md">
+                    <button type="button" onClick={() => setZoom(fitPreviewZoom(dropZoneRef.current, zoom))} className="rounded-md px-2 py-1 text-xs text-primary" aria-label="Ajustar documento al ancho">Ajustar</button>
                     <button
-                      onClick={() => setZoom((z) => Math.max(50, z - 10))}
-                      disabled={zoom <= 50}
+                      onClick={() => setZoom((z) => Math.max(25, z - 10))}
+                      disabled={zoom <= 25}
                       className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-40"
                       title="Reducir zoom"
                     >
@@ -9183,7 +9200,7 @@ export default function FirmarDocumentoPage() {
 
         {/* Right Panel */}
         <div
-          className={`lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}
+          className={`signing-process-pane lg:w-[30%] flex-1 lg:flex-none flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-white'}`}
         >
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -12031,7 +12048,7 @@ export default function FirmarDocumentoPage() {
 
           {/* ── Bottom Action Bar ──────────────────────────────────────────── */}
           <div
-            className={`border-t px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}
+            className={`signing-action-bar border-t px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-shrink-0 shadow-sm transition-colors duration-300 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-border bg-card'}`}
           >
             <div className="flex items-center gap-2">
               {step !== 'terminos' && (
@@ -12062,7 +12079,7 @@ export default function FirmarDocumentoPage() {
                   ) : (
                     <Save size={14} />
                   )}
-                  <span className="hidden sm:inline">Guardar avance</span>
+                  <span>Guardar avance</span>
                 </button>
               )}
             </div>
@@ -12105,7 +12122,7 @@ export default function FirmarDocumentoPage() {
                     (isEfirmaSAT &&
                       (!efirmaValidated || !efirmaCerB64 || !efirmaKeyMaterial || !efirmaPassword))
                   }
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
                     <>
@@ -12128,7 +12145,7 @@ export default function FirmarDocumentoPage() {
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || geoBlocked || geoLoading}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-violet-500 rounded-xl hover:bg-violet-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
                     <>

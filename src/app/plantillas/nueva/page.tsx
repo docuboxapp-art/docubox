@@ -4675,7 +4675,7 @@ function NuevaPlantillaPage() {
   return (
     <div
       ref={containerRef}
-      className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950"
+      className="docubox-wizard flex h-dvh flex-col overflow-hidden bg-slate-50 text-slate-950"
     >
       {/* Loading overlay when fetching existing template */}
       {isLoadingTemplate && (
