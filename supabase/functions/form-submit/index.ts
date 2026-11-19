@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
 import { requiresFormSignature } from '../_shared/form-signature-policy.ts';
 import { getClientIp } from '../_shared/client-ip.ts';
 import { formAccessDenial, publicFormCapabilityDenial } from '../_shared/form-access-policy.ts';
@@ -123,10 +123,11 @@ serve(async (req) => {
         template_id: tokenRow.template_id,
         workspace_id: tokenRow.form_templates.workspace_id,
         document_id: null,
+        status: 'submitted',
         response_data,
         field_hashes: fieldHashes,
         respondent_email: tokenRow.access_mode === 'public' ? tokenRow.recipient_email.trim().toLowerCase() : user!.email.trim().toLowerCase(),
-        respondent_user_id: tokenRow.access_mode === 'public' ? tokenRow.recipient_user_id : null,
+        respondent_user_id: tokenRow.access_mode === 'public' ? tokenRow.recipient_user_id : user!.id,
         ip_address: ipAddress,
         user_agent: userAgent,
         submitted_at: new Date().toISOString(),
@@ -135,7 +136,7 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
-      console.error('Form response insert failed:', insertError.code, insertError.message);
+      console.error('Form response insert failed:', insertError.code);
       return new Response(
         JSON.stringify({ error: insertError.code === '23505' ? 'Este formulario ya fue respondido por tu cuenta.' : 'Error al guardar la respuesta', code: insertError.code === '23505' ? 'ALREADY_RESPONDED' : 'SAVE_FAILED' }),
         { status: insertError.code === '23505' ? 409 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -200,9 +201,9 @@ serve(async (req) => {
         body: JSON.stringify({ response_id: responseRow.id }),
       });
       if (generatorResponse.ok) generatedPdf = await generatorResponse.json();
-      else console.error('PDF generator error:', await generatorResponse.text());
+      else console.error('PDF generator error:', generatorResponse.status);
     } catch (pdfError) {
-      console.error('PDF generator error:', pdfError);
+      console.error('PDF generator error:', pdfError instanceof Error ? pdfError.name : 'unknown');
     }
 
     // 7. Keep the chosen signing method with the generated PDF.
@@ -222,7 +223,7 @@ serve(async (req) => {
         require_liveness: tokenRow.require_liveness === true,
         expires_at: tokenRow.expires_at,
       });
-      if (signatureRequest.error) console.error('Signature request error:', signatureRequest.error);
+      if (signatureRequest.error) console.error('Signature request error:', signatureRequest.error.code);
     }
 
     // Save a copy of the generated PDF in Mi espacio. A failed promotion is
@@ -237,9 +238,9 @@ serve(async (req) => {
             headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''}` },
           });
           if (promotion.ok) documentId = (await promotion.json()).document_id || null;
-          else console.error('Document promotion error:', await promotion.text());
+          else console.error('Document promotion error:', promotion.status);
         }
-      } catch (promotionError) { console.error('Document promotion error:', promotionError); }
+      } catch (promotionError) { console.error('Document promotion error:', promotionError instanceof Error ? promotionError.name : 'unknown'); }
     }
 
     // 8. Trigger the legacy VPS mapper when a PDF base exists.
@@ -259,7 +260,7 @@ serve(async (req) => {
             }),
           });
         } catch (webhookErr) {
-          console.error('Webhook error:', webhookErr);
+          console.error('Webhook error:', webhookErr instanceof Error ? webhookErr.name : 'unknown');
           // Non-fatal: continue
         }
       }

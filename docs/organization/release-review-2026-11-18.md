@@ -2,6 +2,14 @@
 
 Las once migraciones de esta activación están aplicadas y verificadas en el proyecto principal. Pasaron las regresiones transaccionales con el esquema real y la prueba de Storage privado. Esto no certifica todos los proveedores externos ni los controles globales que siguen pendientes.
 
+## Funciones de Supabase sincronizadas
+
+También se revisaron los bundles desplegados, porque el historial SQL no refleja el código de Edge Functions. Cuatro funciones conservaban una firma forzada o código de recepción anterior. Se desplegaron `generate-form-token` v47, `get-form-schema` v41, `form-submit` v47 y `generate-form-pdf` v15, con `supabase-js` fijado en 2.119.0. Se conservó el ajuste previo `verify_jwt: false`: cada cuerpo mantiene sus controles de usuario, destinatario, capacidad pública o llamada interna; no se eliminó ninguna verificación.
+
+La recepción ahora guarda explícitamente `submitted` y el identificador del usuario privado verificado. Así el valor inicial `started` de la tabla no deja un envío real como borrador si el generador de PDF falla. Se sanearon los logs de errores para no imprimir mensajes del proveedor o respuestas privadas. El esquema, el lanzamiento, la recepción y el generador respetan la misma elección de firma opcional, manteniéndola activa cuando se omite.
+
+Nueve pruebas del handler real con fronteras de proveedor simuladas cubren firma opcional/predeterminada, sesión privada, destinatario, identidad pública obligatoria, expiración, duplicados, fallos de PDF y notificación sin respuestas. Las comprobaciones HTTP de las funciones desplegadas devolvieron los rechazos esperados: token inexistente 404 en recepción, ausencia de autenticación 401 en lanzamiento y generador, y token omitido 400 en lectura del esquema. No se invocó un envío de correo, una generación documental ni una firma real como parte de esas sondas.
+
 ## Activación y correcciones verificadas
 
 - Se recuperó la disponibilidad del conector SQL sin cambiar plan, cómputo, propietarios, contraseñas o configuración del proyecto. No se atribuye una causa definitiva al timeout anterior ni se garantiza que no vuelva a ocurrir.
@@ -57,7 +65,7 @@ Las pruebas de interfaz recorren las secciones y pestañas con componentes reale
 
 - Compilación de producción con Next.js 16.3.4 y TypeScript aprobada; entrada Proxy comprobada sin las advertencias anteriores del runtime Edge.
 - 26 recorridos de interfaz de Organización y 33 de Colabora aprobados con componentes reales y servidor sintético, incluyendo teléfono y tablet, persistencia al recargar, permisos y descarte de cambios.
-- La regresión final aprobó 427 pruebas, sin fallos ni omisiones, e incluye las pruebas reales de funciones y políticas PostgreSQL sobre PGlite, controles de API, sesión, tareas, formularios, expedientes y archivos sintéticos. No sustituye las pruebas con las políticas, usuarios y proveedores de producción.
+- La regresión final aprobó 470 pruebas, sin fallos ni omisiones, e incluye las pruebas reales de funciones y políticas PostgreSQL sobre PGlite, controles de API y Edge Functions, sesión, tareas, formularios, expedientes y archivos sintéticos. No sustituye las pruebas con las políticas, usuarios y proveedores de producción.
 - El control de Chrome pudo leer la consola con la sesión del usuario, pero dos intentos de interacción fallaron con `failed to activate captured window`. No se confirmó ninguna mutación real mediante ese navegador.
 
 ## Historial aplicado y salida
