@@ -1,5 +1,7 @@
 # Docubox Colabora - inventario de implementacion
 
+> Actualización: las migraciones se aplicaron y la regresión transaccional en Supabase pasó. El estado actual y los límites se detallan en [la revisión de Organización](../organization/release-review-2026-11-18.md).
+
 ## Segunda fase local
 
 Los pendientes de workers, acciones masivas de tareas y exportaciones tienen implementación y pruebas aisladas. Se añadieron paginación y filtros de tareas, revalidación de permisos por acción, mutación e historial en transacción, notificación agrupada de reasignaciones y descargas CSV/PDF/XLSX. La [evidencia y los pendientes actuales](../organization/completion-second-phase.md) distinguen este código de la activación SQL y de la cobertura global que aún falta.
@@ -7,7 +9,7 @@ Los pendientes de workers, acciones masivas de tareas y exportaciones tienen imp
 ## Revisión funcional del 17 de noviembre de 2026
 
 El estado siguiente distingue el código local de la activación en Supabase. La migración
-`20261118005751_colabora_request_forms_and_delivery.sql` **todavía no está aplicada en el proyecto**.
+`20261118161912_colabora_request_forms_and_delivery.sql` **todavía no está aplicada en el proyecto**.
 El conector SQL agotó el tiempo de conexión y la CLI respondió 403 por permisos insuficientes.
 Las validaciones remotas históricas documentadas más abajo no cubren esta migración.
 

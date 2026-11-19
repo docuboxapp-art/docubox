@@ -3,6 +3,48 @@
 BEGIN READ ONLY;
 SET LOCAL statement_timeout='8s';
 
+-- Fail the preflight rather than merely printing a false metadata row.
+DO $preflight$
+DECLARE item record; target regprocedure;
+BEGIN
+ FOR item IN SELECT * FROM(VALUES
+  ('public.save_organization_unit_bundle(uuid,jsonb,uuid[])',true),
+  ('public.save_organization_role_bundle(uuid,jsonb,uuid[])',true),
+  ('public.get_my_organization_permissions(uuid)',true),
+  ('public.get_user_workspace_ids()',true),
+  ('public.get_my_collaboration_access(uuid)',true),
+  ('public.organization_resource_scope_version(uuid)',true),
+  ('public.organization_can_access_resource(uuid,text,text,uuid)',true),
+  ('public.organization_can_create_resource(uuid,text,text,uuid[],uuid[],uuid)',true),
+  ('public.colabora_forms_overview(uuid)',true),
+  ('public.organization_directory_upload_available(uuid)',true),
+  ('public.finalize_organization_directory_evidence(uuid,uuid,uuid,jsonb)',false),
+  ('public.organization_authorize_automation_action(uuid,text,text,uuid,uuid)',false),
+  ('public.colabora_mutate_task(uuid,uuid,uuid,text,integer,jsonb,text)',false),
+  ('public.colabora_bulk_mutate_tasks(uuid,uuid,jsonb,text,jsonb)',false)
+ ) t(signature,browser_callable) LOOP
+  target:=to_regprocedure(item.signature);
+  IF target IS NULL OR has_function_privilege('anon',target,'EXECUTE') IS DISTINCT FROM false
+   OR has_function_privilege('authenticated',target,'EXECUTE') IS DISTINCT FROM item.browser_callable THEN
+   RAISE EXCEPTION 'Release function privilege mismatch: %',item.signature;
+  END IF;
+ END LOOP;
+ IF has_function_privilege('authenticated','public.bootstrap_business_organization(uuid,uuid)','EXECUTE') THEN
+  RAISE EXCEPTION 'Provisioning helper exposed to browser';
+ END IF;
+ IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.proname LIKE '%organization%' AND has_function_privilege('anon',p.oid,'EXECUTE')) THEN
+  RAISE EXCEPTION 'Anonymous organization RPC exposed';
+ END IF;
+ IF has_table_privilege('authenticated','public.tareas','INSERT') OR has_table_privilege('authenticated','public.tareas','UPDATE') OR has_table_privilege('authenticated','public.tareas','DELETE') THEN
+  RAISE EXCEPTION 'Direct task writes exposed';
+ END IF;
+ IF (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname='organization_resource_scope' AND permissive='RESTRICTIVE' AND cmd='SELECT')<>33 THEN
+  RAISE EXCEPTION 'Resource policies missing or changed';
+ END IF;
+END;
+$preflight$;
+
 WITH required(name) AS (VALUES
  ('workspaces'),('workspace_members'),('organization_invitations'),
  ('organization_units'),('organization_unit_members'),('organization_roles'),

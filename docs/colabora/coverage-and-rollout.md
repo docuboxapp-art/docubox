@@ -1,5 +1,7 @@
 # Docubox Colabora - cobertura y salida controlada
 
+> Activación actual: las migraciones y las regresiones reales de Supabase están documentadas en [la revisión de Organización](../organization/release-review-2026-11-18.md). La organización existente conserva Colabora en solo lectura por el vencimiento de su prueba.
+
 > Actualización del 17 de noviembre de 2026: las nuevas conexiones de formularios y solicitudes
 > están implementadas y verificadas localmente. Su migración está pendiente por falta de acceso
 > SQL operativo a Supabase; no se deben considerar habilitadas ni verificadas en producción.
@@ -9,28 +11,28 @@
 
 La especificacion enumera `COL-00` a `COL-18`: son 19 experiencias funcionales. Los 20 puntos del documento son criterios de aceptacion, no 20 rutas independientes.
 
-| ID      | Clasificacion  | Experiencia                | Ruta o integracion                                                          | Estado                                           |
-| ------- | -------------- | -------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
-| COL-00  | COMPARTIDA     | Activacion y configuracion | `/app-market`, `/colabora/configuracion-inicial`, `/colabora/configuracion` | Implementada                                     |
-| COL-01  | COLABORA       | Centro de trabajo          | `/colabora`                                                                 | Implementada                                     |
-| COL-02  | COLABORA       | Bandeja de tareas          | `/colabora/tareas`                                                          | Implementada; faltan vistas masivas avanzadas    |
-| COL-03  | COLABORA       | Detalle de tarea           | `/colabora/tareas/:id`                                                      | Implementada                                     |
-| COL-04  | COLABORA       | Bandeja de revisiones      | `/colabora/revisiones`                                                      | Implementada                                     |
-| COL-05  | COLABORA       | Estudio de revision        | `/documentos/:id/revision`                                                  | Implementada                                     |
-| COL-06  | COLABORA       | Versiones                  | `/documentos/:id/versiones`                                                 | Implementada; comparacion medida e idempotente   |
-| COL-07  | COLABORA       | Espacios                   | `/colabora/espacios`                                                        | Implementada                                     |
-| COL-08  | COLABORA       | Detalle de espacio         | `/colabora/espacios/:id`                                                    | Implementada con recursos canonicos              |
-| COL-09  | COLABORA       | Calendario                 | `/colabora/calendario`                                                      | Implementada                                     |
-| COL-10  | COLABORA       | Actividad                  | `/colabora/actividad`                                                       | Implementada                                     |
-| COL-11  | COLABORA       | Solicitudes                | `/colabora/solicitudes`                                                     | Implementada                                     |
-| COL-12  | COLABORA       | Detalle de solicitud       | `/colabora/solicitudes/:id`, `/solicitud/:token`                            | Implementada                                     |
-| COL-13  | COLABORA PRO   | Salas externas             | `/colabora/salas`, `/colabora/salas/:id`                                    | Implementada con bloqueo previo a datos          |
-| COL-14  | COLABORA PRO   | Portal externo             | `/sala/:token`                                                              | Implementada                                     |
-| COL-15  | COLABORA PRO   | Automatizaciones           | `/colabora/automatizaciones`, detalle y worker interno                      | Implementada con cola, reintentos e idempotencia |
-| COL-15P | COLABORA PRO   | Flujos avanzados           | Recursos Pro bajo `/colabora`                                               | Implementada                                     |
-| COL-16  | MIXTA          | Reportes                   | `/colabora/reportes`                                                        | Basico Standard; SLA y salas solo Pro            |
-| COL-17  | COLABORA PRO   | Funciones Pro              | negociaciones, comites y cierres bajo `/colabora`                           | Implementada con `PRO_PLAN_REQUIRED`              |
-| COL-18  | COLABORA PRO   | LucIA                      | asistente global existente con gating de Colabora                           | Integrada, sin asistente duplicado               |
+| ID      | Clasificacion | Experiencia                | Ruta o integracion                                                          | Estado                                           |
+| ------- | ------------- | -------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| COL-00  | COMPARTIDA    | Activacion y configuracion | `/app-market`, `/colabora/configuracion-inicial`, `/colabora/configuracion` | Implementada                                     |
+| COL-01  | COLABORA      | Centro de trabajo          | `/colabora`                                                                 | Implementada                                     |
+| COL-02  | COLABORA      | Bandeja de tareas          | `/colabora/tareas`                                                          | Implementada; faltan vistas masivas avanzadas    |
+| COL-03  | COLABORA      | Detalle de tarea           | `/colabora/tareas/:id`                                                      | Implementada                                     |
+| COL-04  | COLABORA      | Bandeja de revisiones      | `/colabora/revisiones`                                                      | Implementada                                     |
+| COL-05  | COLABORA      | Estudio de revision        | `/documentos/:id/revision`                                                  | Implementada                                     |
+| COL-06  | COLABORA      | Versiones                  | `/documentos/:id/versiones`                                                 | Implementada; comparacion medida e idempotente   |
+| COL-07  | COLABORA      | Espacios                   | `/colabora/espacios`                                                        | Implementada                                     |
+| COL-08  | COLABORA      | Detalle de espacio         | `/colabora/espacios/:id`                                                    | Implementada con recursos canonicos              |
+| COL-09  | COLABORA      | Calendario                 | `/colabora/calendario`                                                      | Implementada                                     |
+| COL-10  | COLABORA      | Actividad                  | `/colabora/actividad`                                                       | Implementada                                     |
+| COL-11  | COLABORA      | Solicitudes                | `/colabora/solicitudes`                                                     | Implementada                                     |
+| COL-12  | COLABORA      | Detalle de solicitud       | `/colabora/solicitudes/:id`, `/solicitud/:token`                            | Implementada                                     |
+| COL-13  | COLABORA PRO  | Salas externas             | `/colabora/salas`, `/colabora/salas/:id`                                    | Implementada con bloqueo previo a datos          |
+| COL-14  | COLABORA PRO  | Portal externo             | `/sala/:token`                                                              | Implementada                                     |
+| COL-15  | COLABORA PRO  | Automatizaciones           | `/colabora/automatizaciones`, detalle y worker interno                      | Implementada con cola, reintentos e idempotencia |
+| COL-15P | COLABORA PRO  | Flujos avanzados           | Recursos Pro bajo `/colabora`                                               | Implementada                                     |
+| COL-16  | MIXTA         | Reportes                   | `/colabora/reportes`                                                        | Basico Standard; SLA y salas solo Pro            |
+| COL-17  | COLABORA PRO  | Funciones Pro              | negociaciones, comites y cierres bajo `/colabora`                           | Implementada con `PRO_PLAN_REQUIRED`             |
+| COL-18  | COLABORA PRO  | LucIA                      | asistente global existente con gating de Colabora                           | Integrada, sin asistente duplicado               |
 
 ## Orden de salida recomendado
 

@@ -1,5 +1,7 @@
 # Primera fase de alcances de Organización y Colabora
 
+> Actualización: las migraciones se aplicaron y la regresión transaccional en Supabase pasó. El estado actual y los límites se detallan en [la revisión de activación](./release-review-2026-11-18.md).
+
 Estado: implementación local y pruebas aisladas terminadas. Activación y validación en Supabase pendientes. Esta fase no cierra todos los pendientes de los dos módulos.
 
 Actualización posterior: la [segunda fase](./completion-second-phase.md) conecta workers, bajas, mutaciones atómicas de tareas, acciones masivas y exportaciones. Sus resultados y pendientes sustituyen los puntos correspondientes de este inventario histórico.
@@ -37,7 +39,7 @@ No se enviaron correos reales, ejecutaron firmas, modificaron planes, desplegaro
 
 1. Recuperar acceso SQL al proyecto Supabase `kbjejiclhgjmiasauxyr`. El plano de control respondió `ACTIVE_HEALTHY`, pero SQL y asesores agotaron el tiempo de conexión. La CLI tampoco tenía privilegios de consulta; no se eludió esa restricción.
 2. Inspeccionar el esquema real y las concesiones de roles base, y reconciliar el historial antes de aplicar cambios. No conceder permisos generales para compensar un rol limitado.
-3. Revisar y aplicar primero `20261118005751_colabora_request_forms_and_delivery.sql`, pendiente de la entrega anterior, y después `20261118041214_organization_scoped_resource_access.sql`.
+3. Revisar y aplicar primero `20261118161912_colabora_request_forms_and_delivery.sql`, pendiente de la entrega anterior, y después `20261118161923_organization_scoped_resource_access.sql`.
 4. Verificar la versión de políticas con un JWT de miembro activo, las concesiones de funciones y tablas, las políticas existentes y los asesores de seguridad. Las migraciones deben preceder al despliegue del código que las requiere.
 5. Probar con dos organizaciones reales, roles propios/asignados/equipo/unidades, miembro suspendido, caducidad y permisos distintos de lectura/escritura. Comprobar también los flujos personales de tareas.
 6. Medir los planes y la latencia del listado y de sus totales en el proyecto actual antes de habilitarlo ampliamente. El evaluador de contexto realiza consultas por recurso; no se aumentó el plan de cómputo.

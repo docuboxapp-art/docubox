@@ -23,7 +23,7 @@ export async function initializeOrganizationScopesFixture(db) {
  DO $$DECLARE t text;BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND (tablename LIKE 'collaboration_%' OR tablename LIKE 'task_%' OR tablename='tareas') LOOP EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);EXECUTE format('CREATE POLICY fixture_existing_read ON public.%I FOR SELECT TO authenticated USING(true)',t);END LOOP;END$$;`);
   await db.exec(
     await readFile(
-      'supabase/migrations/20261118041214_organization_scoped_resource_access.sql',
+      'supabase/migrations/20261118161923_organization_scoped_resource_access.sql',
       'utf8'
     )
   );
@@ -32,7 +32,7 @@ export async function initializeOrganizationScopesFixture(db) {
     CREATE TABLE organization_member_offboarding_jobs(id uuid PRIMARY KEY,workspace_id uuid,requested_by uuid,status text);`);
   await db.exec(
     await readFile(
-      'supabase/migrations/20261118054913_organization_worker_permissions_and_task_details.sql',
+      'supabase/migrations/20261118161926_organization_worker_permissions_and_task_details.sql',
       'utf8'
     )
   );
@@ -54,11 +54,11 @@ export async function initializeOrganizationScopesFixture(db) {
     ALTER TABLE task_checklist_items ADD COLUMN IF NOT EXISTS done boolean DEFAULT false;
     ALTER TABLE task_history ADD COLUMN IF NOT EXISTS action text,ADD COLUMN IF NOT EXISTS actor_name text,ADD COLUMN IF NOT EXISTS metadata jsonb;`);
   await db.exec(
-    await readFile('supabase/migrations/20261118055514_colabora_atomic_task_actions.sql', 'utf8')
+    await readFile('supabase/migrations/20261118161934_colabora_atomic_task_actions.sql', 'utf8')
   );
   await db.exec(
     await readFile(
-      'supabase/migrations/20261118063411_organization_permission_query_optimization.sql',
+      'supabase/migrations/20261118161937_organization_permission_query_optimization.sql',
       'utf8'
     )
   );
@@ -67,7 +67,7 @@ export async function initializeOrganizationScopesFixture(db) {
     ALTER TABLE organization_audit_events ADD COLUMN severity text;`);
   await db.exec(
     await readFile(
-      'supabase/migrations/20261118063916_organization_directory_upload_finalize.sql',
+      'supabase/migrations/20261118161939_organization_directory_upload_finalize.sql',
       'utf8'
     )
   );

@@ -1,6 +1,8 @@
 # Segunda fase de Organización y Colabora
 
-Estado: código y pruebas aisladas preparados. Las migraciones de esta entrega y de la primera fase siguen sin aplicarse en Supabase. No se declara terminado todo el entorno.
+> Actualización: las migraciones se aplicaron y la regresión transaccional en Supabase pasó. El estado actual y los límites se detallan en [la revisión de activación](./release-review-2026-11-18.md).
+
+Estado original de esta fase, antes de la activación posterior: código y pruebas aisladas preparados. Las migraciones de esta entrega y de la primera fase siguen sin aplicarse en Supabase. No se declara terminado todo el entorno.
 
 ## Implementación
 
@@ -46,10 +48,10 @@ El proyecto `kbjejiclhgjmiasauxyr` respondió `ACTIVE_HEALTHY` por el plano de c
 
 No se aplicaron migraciones, modificaron planes, hicieron commits, enviaron cambios a GitHub ni desplegaron cambios en Vercel. La base debe recuperarse e inspeccionarse antes de aplicar, en este orden:
 
-1. `20261118005751_colabora_request_forms_and_delivery.sql`
-2. `20261118041214_organization_scoped_resource_access.sql`
-3. `20261118054913_organization_worker_permissions_and_task_details.sql`
-4. `20261118055514_colabora_atomic_task_actions.sql`
+1. `20261118161912_colabora_request_forms_and_delivery.sql`
+2. `20261118161923_organization_scoped_resource_access.sql`
+3. `20261118161926_organization_worker_permissions_and_task_details.sql`
+4. `20261118161934_colabora_atomic_task_actions.sql`
 
 Después deben comprobarse las políticas originales, roles base, privilegios de funciones y tablas, asesores de seguridad y rendimiento. La activación SQL debe preceder al despliegue del código que depende de ella. Las funciones ausentes no tienen un fallback que conceda acceso amplio.
 

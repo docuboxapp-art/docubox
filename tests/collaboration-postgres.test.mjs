@@ -98,7 +98,7 @@ async function issue(r, s) {
 async function respond(r, t) {
   const tok = await first('SELECT id FROM form_tokens WHERE token=$1', [t.token]);
   const row = await first(
-    'INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes) VALUES($1,$2,$3,\'{"name":"Synthetic"}\',\'{}\') RETURNING *',
+    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) VALUES($1,$2,$3,'{\"name\":\"Synthetic\"}','{}','submitted') RETURNING *",
     [tok.id, formId, ws]
   );
   await db.query('UPDATE form_tokens SET used_at=now() WHERE id=$1', [tok.id]);
@@ -247,6 +247,111 @@ test('canonical form responses update progress and preserve the original receipt
   );
 });
 
+test('saving and editing form progress does not deliver or freeze the requirement', async () => {
+  const r = await request([formItem()]),
+    s = await session(r),
+    issued = await issue(r, s);
+  const tok = await first('SELECT id FROM form_tokens WHERE token=$1', [issued.token]);
+  const draft = await first(
+    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) VALUES($1,$2,$3,'{}','{}','started') RETURNING id",
+    [tok.id, formId, ws]
+  );
+  await db.query(
+    'UPDATE form_responses SET status=\'in_progress\',response_data=\'{"name":"Saved progress"}\' WHERE id=$1',
+    [draft.id]
+  );
+  let item = await first(
+    'SELECT status,form_response_id FROM collaboration_request_items WHERE id=$1',
+    [r.items[0].id]
+  );
+  assert.equal(item.status, 'pending');
+  assert.equal(item.form_response_id, null);
+  assert.equal(
+    Number(
+      (
+        await first('SELECT response_count FROM colabora_forms_overview($1) WHERE id=$2', [
+          ws,
+          formId,
+        ])
+      ).response_count
+    ),
+    0
+  );
+  await fails(
+    'SELECT colabora_submit_request($1,$2)',
+    [r.requestHash, s],
+    /request_required_items_pending/
+  );
+  await db.query(
+    'UPDATE form_responses SET status=\'submitted\',response_data=\'{"name":"Final response"}\' WHERE id=$1',
+    [draft.id]
+  );
+  item = await first(
+    'SELECT status,form_response_id FROM collaboration_request_items WHERE id=$1',
+    [r.items[0].id]
+  );
+  assert.equal(item.status, 'uploaded');
+  assert.equal(item.form_response_id, draft.id);
+  assert.equal(
+    Number(
+      (
+        await first('SELECT response_count FROM colabora_forms_overview($1) WHERE id=$2', [
+          ws,
+          formId,
+        ])
+      ).response_count
+    ),
+    1
+  );
+  await fails(
+    "UPDATE form_responses SET status='in_progress' WHERE id=$1",
+    [draft.id],
+    /request_form_receipt_immutable/
+  );
+  await fails(
+    "UPDATE form_responses SET response_data='{}' WHERE id=$1",
+    [draft.id],
+    /request_form_receipt_immutable/
+  );
+  await db.query('SELECT colabora_submit_request($1,$2)', [r.requestHash, s]);
+  await review(r, r.items[0].id);
+  assert.equal(
+    (await first('SELECT status FROM collaboration_document_requests WHERE id=$1', [r.row.id]))
+      .status,
+    'completed'
+  );
+});
+
+test('a cancelled response cannot be received, submitted or approved as a form delivery', async () => {
+  const r = await request([formItem()]),
+    s = await session(r),
+    issued = await issue(r, s);
+  const tok = await first('SELECT id FROM form_tokens WHERE token=$1', [issued.token]);
+  const response = await first(
+    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) VALUES($1,$2,$3,'{}','{}','cancelled') RETURNING id",
+    [tok.id, formId, ws]
+  );
+  assert.equal(
+    (await first('SELECT status FROM collaboration_request_items WHERE id=$1', [r.items[0].id]))
+      .status,
+    'pending'
+  );
+  await fails(
+    'SELECT colabora_submit_request($1,$2)',
+    [r.requestHash, s],
+    /request_required_items_pending/
+  );
+  await db.query(
+    "UPDATE collaboration_request_items SET form_response_id=$1,status='uploaded' WHERE id=$2",
+    [response.id, r.items[0].id]
+  );
+  await fails(
+    'SELECT colabora_review_request_item($1,$2,$3,$4,$5)',
+    [ws, actor, r.row.id, 'approve_item', r.items[0].id],
+    /form_response_required/
+  );
+});
+
 test('a second response cannot overwrite the evidence already received for a requirement', async () => {
   const r = await request([formItem()]);
   const s = await session(r);
@@ -254,7 +359,7 @@ test('a second response cannot overwrite the evidence already received for a req
   const original = await respond(r, t);
   const tok = await first('SELECT id FROM form_tokens WHERE token=$1', [t.token]);
   await fails(
-    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes) VALUES($1,$2,$3,'{}','{}')",
+    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) VALUES($1,$2,$3,'{}','{}','submitted')",
     [tok.id, formId, ws],
     /request_form_receipt_exists/
   );
@@ -480,7 +585,7 @@ test('a changed published form cannot accept a receipt from the previous version
   ]);
   const tok = await first('SELECT id FROM form_tokens WHERE token=$1', [t.token]);
   await fails(
-    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes) VALUES($1,$2,$3,'{}','{}')",
+    "INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) VALUES($1,$2,$3,'{}','{}','submitted')",
     [tok.id, formId, ws],
     /request_form_revision_changed/
   );
@@ -585,7 +690,7 @@ test('OTP delivery is limited atomically and a renewed challenge revokes previou
 
 test('form overview counts beyond the REST row limit without disclosing answers', async () => {
   await db.query(
-    "WITH issued AS (INSERT INTO form_tokens(template_id,recipient_email,token,expires_at,access_mode) SELECT $1,'recipient@example.invalid','qa-'||gen_random_uuid()::text,now()+interval '1 day','private' FROM generate_series(1,1005) RETURNING id) INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes) SELECT id,$1,$2,'{}','{}' FROM issued",
+    "WITH issued AS (INSERT INTO form_tokens(template_id,recipient_email,token,expires_at,access_mode) SELECT $1,'recipient@example.invalid','qa-'||gen_random_uuid()::text,now()+interval '1 day','private' FROM generate_series(1,1005) RETURNING id) INSERT INTO form_responses(token_id,template_id,workspace_id,response_data,field_hashes,status) SELECT id,$1,$2,'{}','{}','submitted' FROM issued",
     [formId, ws]
   );
   const row = await first('SELECT * FROM colabora_forms_overview($1)', [ws]);

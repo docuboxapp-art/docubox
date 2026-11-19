@@ -28,7 +28,7 @@ export async function initializeColaboraFixture(db) {
   await db.exec(formSql.slice(0, formSql.indexOf('-- Indexes')));
   await db.exec(`ALTER TABLE form_templates ADD COLUMN version_number integer DEFAULT 1,ADD COLUMN revision_number integer DEFAULT 1,ADD COLUMN allowed_signature_types text[] DEFAULT ARRAY['click_sign'];
  ALTER TABLE form_tokens ADD COLUMN recipient_user_id uuid,ADD COLUMN access_mode text DEFAULT 'private',ADD COLUMN signature_type text,ADD COLUMN require_liveness boolean DEFAULT false,ADD COLUMN launched_by_user_id uuid,ADD COLUMN launcher_name text,ADD COLUMN sent_to_self boolean DEFAULT false;
- ALTER TABLE form_responses ADD COLUMN status text DEFAULT 'submitted';`);
+ ALTER TABLE form_responses ADD COLUMN status text DEFAULT 'started';`);
   const reviews = await readFile(
     'supabase/migrations/20260816120000_colabora_tasks_and_reviews.sql',
     'utf8'
@@ -65,7 +65,13 @@ export async function initializeColaboraFixture(db) {
   );
   await db.exec(
     await readFile(
-      'supabase/migrations/20261118005751_colabora_request_forms_and_delivery.sql',
+      'supabase/migrations/20261118161912_colabora_request_forms_and_delivery.sql',
+      'utf8'
+    )
+  );
+  await db.exec(
+    await readFile(
+      'supabase/migrations/20261119230641_colabora_form_draft_receipt_boundary.sql',
       'utf8'
     )
   );

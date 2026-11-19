@@ -70,11 +70,13 @@ BEGIN
   EXCEPTION WHEN check_violation THEN NULL; END;
   SELECT name INTO before_name FROM public.organization_units WHERE id=v_unit;
   IF before_name<>'QA rollback team' THEN RAISE EXCEPTION 'Partial team update survived'; END IF;
-  v_role:=public.save_organization_role_bundle(ws,jsonb_build_object('name','QA rollback role','scope_type','team'),ARRAY[v_permission]);
+  -- Administrative permissions require organization scope; limited resource
+  -- scopes are exercised separately by the resource-boundary regression.
+  v_role:=public.save_organization_role_bundle(ws,jsonb_build_object('name','QA rollback role','scope_type','organization'),ARRAY[v_permission]);
   IF NOT EXISTS(SELECT 1 FROM public.organization_role_permissions rp WHERE rp.role_id=v_role AND rp.permission_id=v_permission) THEN
     RAISE EXCEPTION 'Permission IDs were not converted to keys'; END IF;
   BEGIN
-    PERFORM public.save_organization_role_bundle(ws,jsonb_build_object('id',v_role,'name','Must roll back','scope_type','team'),ARRAY[gen_random_uuid()]);
+    PERFORM public.save_organization_role_bundle(ws,jsonb_build_object('id',v_role,'name','Must roll back','scope_type','organization'),ARRAY[gen_random_uuid()]);
     RAISE EXCEPTION 'Unknown permission accepted';
   EXCEPTION WHEN check_violation THEN NULL; END;
   IF (SELECT name FROM public.organization_roles WHERE id=v_role)<>'QA rollback role' THEN

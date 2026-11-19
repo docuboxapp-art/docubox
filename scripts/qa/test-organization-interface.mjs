@@ -152,6 +152,8 @@ permissions.push({
   category: 'Colabora',
   description: 'Editar trabajo autorizado.',
 });
+const retentionPolicies = [];
+let delegationPolicy = { mode: 'DISABLED', allowed_member_ids: [], allowed_roles: [] };
 const directoryEvidenceRows = [],
   uploadRequests = [];
 let preparedEvidence;
@@ -159,7 +161,7 @@ const stubs = {
   'next/link': `import React from 'react';export default function Link({prefetch,...props}){return React.createElement('a',props);}`,
   'next/navigation': `const search=new URLSearchParams(location.search);export const usePathname=()=>location.pathname;export const useSearchParams=()=>search;export const useParams=()=>({section:location.pathname.split('/')[2]});export const useRouter=()=>({push:path=>location.assign(path),refresh:()=>location.reload()});`,
   '@/components/AppLayout': `import React from 'react';export default function Layout({children}){return React.createElement('div',{className:'px-4 py-4 md:py-6 w-full min-w-0'},children);}`,
-  '@/contexts/AuthContext': `export const useAuth=()=>({session:{access_token:'synthetic'},user:{id:'${owner}'}});`,
+  '@/contexts/AuthContext': `const value={session:{access_token:'synthetic'},user:{id:'${owner}'}};export const useAuth=()=>value;`,
   '@/contexts/WorkspaceContext': `const ws={id:'${ws}',name:'Organización de ejemplo',workspaceType:'business',role:new URLSearchParams(location.search).has('readonly')?'member':'owner'};export const useWorkspace=()=>({activeWorkspace:ws,loading:false,refreshWorkspaces:async()=>{}});`,
   '@/lib/supabase/client': `const client={storage:{from(){return {uploadToSignedUrl:async(path,token,file)=>{window.__organizationUploadSize=file.size;return {error:null}}}}},rpc(fn){const execute=()=>fetch('/api/qa/rpc?fn='+fn).then(r=>r.json());const q={abortSignal(){return q},then(resolve,reject){return execute().then(resolve,reject)}};return q},from(table){let signal;const execute=()=>fetch('/api/qa/dashboard?table='+table+'&fail='+(location.search.includes('summary_error')?'1':'0'),{signal}).then(r=>r.json());const q={insert(){return q},select(){return q},eq(){return q},in(){return q},gt(){return q},gte(){return q},lte(){return q},is(){return q},or(){return q},order(){return q},range(){return q},limit(){return q},abortSignal(value){signal=value;return q},single:execute,maybeSingle:execute,then(resolve,reject){return execute().then(resolve,reject)}};return q}};export const createClient=()=>client;`,
 };
@@ -303,6 +305,19 @@ const server = createServer(async (request, response) => {
       let raw = '';
       for await (const chunk of request) raw += chunk;
       const body = raw ? JSON.parse(raw) : {};
+      if (url.pathname === '/api/organizacion/retention-policies') {
+        if (request.method === 'POST') {
+          const row = { ...body, id: crypto.randomUUID(), version: 1, status: 'active' };
+          retentionPolicies.push(row);
+          send({ success: true, data: row });
+        } else send({ success: true, enabled: true, data: retentionPolicies });
+        return;
+      }
+      if (url.pathname === '/api/organizacion/delegation-policy') {
+        if (request.method === 'PATCH') delegationPolicy = body;
+        send({ success: true, data: delegationPolicy });
+        return;
+      }
       if (url.pathname === '/api/organizacion/directory-evidence/upload') {
         uploadRequests.push({ method: request.method, bytes: Buffer.byteLength(raw) });
         if (request.method === 'POST') {
@@ -925,6 +940,25 @@ try {
   results.push(
     'carga directa de 5 MB; solicitudes JSON pequeñas y evidencia conservada al recargar'
   );
+  await page.goto(base + '/organizacion/seguridad');
+  await page.getByRole('tab', { name: 'Retención', exact: true }).click();
+  await page.getByRole('button', { name: 'Nueva política', exact: true }).click();
+  await page.getByLabel('Nombre', { exact: true }).fill('QA retención interna');
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await page.getByText('QA retención interna', { exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('tab', { name: 'Retención', exact: true }).click();
+  await page.getByText('QA retención interna', { exact: true }).waitFor();
+  assert.equal(retentionPolicies.length, 1);
+  results.push('crear política de retención y conservarla al recargar');
+  await page.getByRole('tab', { name: 'Delegación', exact: true }).click();
+  await page.getByRole('button', { name: /Miembros de la organización Permite delegar/ }).click();
+  await page.getByRole('button', { name: 'Guardar política', exact: true }).click();
+  await page.getByText('Política de delegación actualizada.', { exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('tab', { name: 'Delegación', exact: true }).click();
+  assert.equal(delegationPolicy.mode, 'ORGANIZATION_ONLY');
+  results.push('guardar delegación interna y conservarla al recargar');
   assert.deepEqual(errors, []);
   await writeFile(
     `${output}/results.json`,
