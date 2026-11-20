@@ -1,5 +1,7 @@
 'use client';
 
+import { deferRead } from '@/lib/client/defer-read';
+
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
@@ -212,9 +214,7 @@ export default function OrganizationMemberDetail({ memberId }: { memberId: strin
     }
   }, [workspaceId, api, accessToken]);
 
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
+  useEffect(() => deferRead(load), [load]);
 
   const executeAction = async (action: string, values: Row = {}, reauthToken?: string) => {
     if (!workspaceId) return;

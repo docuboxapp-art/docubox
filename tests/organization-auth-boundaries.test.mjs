@@ -133,6 +133,37 @@ test('business authorization checks permission against the requested workspace',
     },
   ]);
 });
+
+test('sharing an in-flight Auth lookup still checks each workspace permission independently', async () => {
+  const h = setup();
+  let finish;
+  let lookups = 0;
+  h.client.auth.getUser = () => {
+    lookups++;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  h.client.rpc = async (name, args) => {
+    h.rpc.push({ name, args });
+    return { data: args.ws_id === 'allowed', error: null };
+  };
+  const pending = Promise.allSettled([
+    authorizeOrganizationRequest(request(), 'allowed', 'teams.read'),
+    authorizeOrganizationRequest(request(), 'denied', 'teams.read'),
+  ]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(lookups, 1);
+  finish({ data: { user: { id: 'actor' } }, error: null });
+  const [allowed, denied] = await pending;
+  assert.equal(allowed.status, 'fulfilled');
+  assert.equal(denied.status, 'rejected');
+  assert.equal(denied.reason.status, 403);
+  assert.deepEqual(
+    h.rpc.map((call) => call.args.ws_id),
+    ['allowed', 'denied']
+  );
+});
 test('known database denials have safe actionable messages', async () => {
   const response = organizationApiFailure({ message: 'organization_unit_member_scope_invalid' });
   assert.equal(response.status, 422);
@@ -158,7 +189,16 @@ test('password confirmation keeps provider outages separate from an incorrect pa
   await verifyOrganizationPassword('actor', 'example@example.invalid', 'synthetic');
 });
 
-test('validation, duplicate and invalid-reference errors remain actionable without database details',async()=>{
- const invalid=z.object({name:z.string().min(1)}).safeParse({name:''});assert.equal(organizationApiFailure(invalid.error).status,422);
- for(const [code,status] of [['23505',409],['23514',422],['23503',422]]){const response=organizationApiFailure({code,message:'private provider detail'});assert.equal(response.status,status);assert.doesNotMatch(JSON.stringify(await response.json()),/private provider detail/);}
+test('validation, duplicate and invalid-reference errors remain actionable without database details', async () => {
+  const invalid = z.object({ name: z.string().min(1) }).safeParse({ name: '' });
+  assert.equal(organizationApiFailure(invalid.error).status, 422);
+  for (const [code, status] of [
+    ['23505', 409],
+    ['23514', 422],
+    ['23503', 422],
+  ]) {
+    const response = organizationApiFailure({ code, message: 'private provider detail' });
+    assert.equal(response.status, status);
+    assert.doesNotMatch(JSON.stringify(await response.json()), /private provider detail/);
+  }
 });

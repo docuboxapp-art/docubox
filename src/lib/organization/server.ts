@@ -2,6 +2,7 @@ import { createHash, createCipheriv, randomBytes } from 'crypto';
 import { ZodError } from 'zod';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { getUserForRequest } from '@/lib/supabase/user-request.server';
 
 export class OrganizationApiError extends Error {
   status: number;
@@ -30,7 +31,11 @@ export async function authenticateOrganizationRequest(request: Request) {
     );
 
   const userClient = createAnonClient(token);
-  const { data: authData, error: authError } = await userClient.auth.getUser(token).catch(() => ({
+  const { data: authData, error: authError } = await getUserForRequest(
+    userClient,
+    token,
+    `${url}\0${anonKey}`
+  ).catch(() => ({
     data: { user: null },
     error: { status: 503 },
   }));

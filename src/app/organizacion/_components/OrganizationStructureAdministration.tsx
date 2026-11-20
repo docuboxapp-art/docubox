@@ -1,5 +1,7 @@
 'use client';
 
+import { deferRead } from '@/lib/client/defer-read';
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
@@ -166,9 +168,7 @@ export default function OrganizationStructureAdministration({ section }: { secti
     }
   }, [workspaceId, request, section, accessToken]);
 
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
+  useEffect(() => deferRead(load), [load]);
 
   const selectUnit = (unit: Row) => {
     setSelectedId(unit.id);

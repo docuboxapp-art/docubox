@@ -1,5 +1,7 @@
 'use client';
 
+import { deferRead } from '@/lib/client/defer-read';
+
 import {
   collaborationFieldLabels,
   collaborationLabels,
@@ -128,9 +130,7 @@ export default function ColaboraDetailPage() {
       setLoading(false);
     }
   }, [workspaceId, api, id, proAvailable, section]);
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
+  useEffect(() => deferRead(load), [load]);
   useEffect(() => {
     if (section !== 'espacios' || !workspaceId || !proAvailable) return;
     api<{ data: typeof workspaceMembers }>(

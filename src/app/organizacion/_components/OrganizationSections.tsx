@@ -1,5 +1,7 @@
 'use client';
 
+import { deferRead } from '@/lib/client/defer-read';
+
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
@@ -351,9 +353,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
     }
   }, [workspaceId, section, accessToken, supabase, setRecord]);
 
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
+  useEffect(() => deferRead(load), [load]);
 
   useEffect(() => {
     if (!workspaceId || elevatedRole) return;
