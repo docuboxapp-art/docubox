@@ -56,7 +56,9 @@ export async function notifyOrganizationSecurityEvent(
       if (!rules.data?.length) continue;
       const members = await service
         .from('workspace_members')
-        .select('user_id,role,access_expires_at,user_profiles(email)')
+        .select(
+          'user_id,role,access_expires_at,user_profiles!workspace_members_user_id_fkey(email)'
+        )
         .eq('workspace_id', workspaceId)
         .eq('status', 'active');
       if (members.error) throw members.error;

@@ -27,7 +27,7 @@ const memberColumns = [
   'suspended_at',
   'offboarded_at',
   'last_access_at',
-  'user_profiles(id,full_name,email,avatar_url,telefono,mfa_enabled,mfa_method,mfa_enrolled_at,created_at)',
+  'user_profiles!workspace_members_user_id_fkey(id,full_name,email,avatar_url,telefono,mfa_enabled,mfa_method,mfa_enrolled_at,created_at)',
 ].join(',');
 
 function log(event: string, values: Record<string, unknown>) {

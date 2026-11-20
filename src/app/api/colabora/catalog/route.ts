@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       templates: { name: 'plantillas', columns: 'id,nombre,estado,updated_at' },
       members: {
         name: 'workspace_members',
-        columns: 'id,user_id,role,user_profiles(full_name,email)',
+        columns: 'id,user_id,role,user_profiles!workspace_members_user_id_fkey(full_name,email)',
       },
     };
     const config = tables[type];

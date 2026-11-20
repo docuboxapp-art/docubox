@@ -96,8 +96,17 @@ function harness(overrides = {}) {
       const q = { table, filters: [], columns: '' };
       h.queries.push(q);
       const result = () => ({
-        data: table === 'organization_permissions' ? h.catalog : [],
-        error: null,
+        data:
+          table === 'organization_permissions'
+            ? h.catalog
+            : table === 'workspace_members'
+              ? h.memberRecords || []
+              : [],
+        // workspace_members also references the inviter's user profile.
+        error:
+          table === 'workspace_members' && /\buser_profiles\(/.test(q.columns)
+            ? { code: 'PGRST201', message: 'Multiple profile relationships' }
+            : null,
       });
       const chain = {
         insert(values) {
@@ -274,6 +283,32 @@ test('read-only team list has no management capability', async () => {
   );
   assert.equal(response.status, 200);
   assert.equal((await response.json()).capabilities.canManage, false);
+});
+
+test('team and member lists resolve the member profile when an inviter relationship also exists', async () => {
+  const memberRecords = [
+    {
+      id,
+      role: 'owner',
+      status: 'active',
+      user_profiles: { full_name: 'Member', email: 'member@example.invalid' },
+    },
+  ];
+  for (const [handler, path, field] of [
+    [structure, 'structure?resource=units&', 'members'],
+    [members, 'members?', 'data'],
+  ]) {
+    const h = harness({ memberRecords });
+    const response = await handler.GET(
+      new Request(`http://localhost/api/organizacion/${path}workspace_id=${ws}`)
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json())[field], memberRecords);
+    assert.match(
+      h.queries.find((q) => q.table === 'workspace_members').columns,
+      /user_profiles!workspace_members_user_id_fkey\(/
+    );
+  }
 });
 test('workspace denial stops reads and writes', async () => {
   const h = harness({ denied: true });

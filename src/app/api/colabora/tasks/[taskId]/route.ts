@@ -101,7 +101,7 @@ export async function GET(request: Request, context: { params: Promise<{ taskId:
           .eq('tarea_id', taskId),
         service
           .from('task_collaborators')
-          .select('*,user_profiles(full_name,email)')
+          .select('*,user_profiles!task_collaborators_user_id_fkey(full_name,email)')
           .eq('workspace_id', workspaceId)
           .eq('task_id', taskId),
       ]);

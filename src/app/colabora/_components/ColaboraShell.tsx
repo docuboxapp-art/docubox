@@ -15,7 +15,7 @@ function ShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { activeWorkspace, loading: workspaceLoading, refreshWorkspaces } = useWorkspace();
-  const { access, loading, refresh, can } = useCollaboration();
+  const { access, loading, error: accessError, refresh, can } = useCollaboration();
   const api = useCollaborationApi();
   const [activating, setActivating] = useState(false);
   const [activationError, setActivationError] = useState('');
@@ -145,6 +145,31 @@ function ShellContent({ children }: { children: ReactNode }) {
               Volver al inicio
             </Link>
           </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (accessError) {
+    return (
+      <AppLayout noPadding>
+        <div className="grid min-h-[420px] place-items-center px-4">
+          <section
+            role="alert"
+            className="w-full max-w-lg rounded-lg border border-border bg-background p-6"
+          >
+            <h1 className="text-lg font-medium text-foreground">
+              Acceso temporalmente no disponible
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">{accessError}</p>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white"
+            >
+              Reintentar
+            </button>
+          </section>
         </div>
       </AppLayout>
     );

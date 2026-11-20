@@ -130,7 +130,7 @@ export async function GET(request: Request) {
         .order('name'),
       service
         .from('workspace_members')
-        .select('id,role,status,user_profiles(full_name,email)')
+        .select('id,role,status,user_profiles!workspace_members_user_id_fkey(full_name,email)')
         .eq('workspace_id', workspaceId)
         .eq('status', 'active')
         .order('joined_at'),

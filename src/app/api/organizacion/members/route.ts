@@ -10,7 +10,7 @@ export async function GET(request: Request) {
       service
         .from('workspace_members')
         .select(
-          'id,user_id,role,status,job_title,mfa_required,biometric_required,access_expires_at,joined_at,user_profiles(full_name,email,avatar_url)'
+          'id,user_id,role,status,job_title,mfa_required,biometric_required,access_expires_at,joined_at,user_profiles!workspace_members_user_id_fkey(full_name,email,avatar_url)'
         )
         .eq('workspace_id', workspaceId)
         .order('joined_at'),

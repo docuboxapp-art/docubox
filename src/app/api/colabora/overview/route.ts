@@ -82,7 +82,7 @@ export async function GET(request: Request) {
         .limit(12),
       service
         .from('workspace_members')
-        .select('id,user_id,role,user_profiles(full_name,email)')
+        .select('id,user_id,role,user_profiles!workspace_members_user_id_fkey(full_name,email)')
         .eq('workspace_id', workspaceId)
         .eq('status', 'active'),
     ]);

@@ -82,7 +82,7 @@
     "test:colabora": "node --test tests/collaboration-functional-api.test.mjs tests/collaboration-postgres.test.mjs src/lib/collaboration/domain.test.ts src/lib/collaboration/automation.test.ts",
     "test:colabora:interface": "node scripts/qa/test-colabora-interface.mjs",
     "test:organization:scopes": "node --test tests/organization-resource-scopes-postgres.test.mjs tests/organization-resource-access-api.test.mjs src/lib/organization/resource-scope.test.ts",
-    "test:organization:completion": "node --test tests/organization-colabora-completion.test.mjs tests/collaboration-functional-api.test.mjs tests/organization-resource-scopes-postgres.test.mjs tests/organization-resource-access-api.test.mjs src/lib/organization/resource-scope.test.ts tests/organization-directory-upload.test.mjs tests/organization-rpc-privileges-postgres.test.mjs tests/organization-active-membership-postgres.test.mjs tests/organization-trigger-shapes-postgres.test.mjs tests/colabora-form-submit-edge.test.mjs"
+    "test:organization:completion": "node --test tests/organization-colabora-completion.test.mjs tests/collaboration-functional-api.test.mjs tests/collaboration-access-recovery.test.mjs tests/organization-api-flows.test.mjs tests/organization-resource-scopes-postgres.test.mjs tests/organization-resource-access-api.test.mjs src/lib/organization/resource-scope.test.ts tests/organization-directory-upload.test.mjs tests/organization-rpc-privileges-postgres.test.mjs tests/organization-active-membership-postgres.test.mjs tests/organization-trigger-shapes-postgres.test.mjs tests/colabora-form-submit-edge.test.mjs"
   },
   "overrides": {
     "esbuild": "0.28.2"

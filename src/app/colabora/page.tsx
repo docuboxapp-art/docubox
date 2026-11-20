@@ -13,6 +13,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useCollaboration } from '@/contexts/CollaborationContext';
 import { useCollaborationApi } from '@/lib/collaboration/client';
 
 type Overview = {
@@ -65,6 +66,7 @@ function date(value: string | null) {
 
 export default function ColaboraDashboardPage() {
   const { activeWorkspace } = useWorkspace();
+  const { can } = useCollaboration();
   const api = useCollaborationApi();
   const [data, setData] = useState(emptyOverview);
   const [loading, setLoading] = useState(true);
@@ -156,12 +158,14 @@ export default function ColaboraDashboardPage() {
             Prioridades, revisiones y actividad que requieren seguimiento.
           </p>
         </div>
-        <Link
-          href="/colabora/tareas?new=1"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white"
-        >
-          Crear tarea
-        </Link>
+        {can('tasks.create', true) && (
+          <Link
+            href="/colabora/tareas?new=1"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white"
+          >
+            Crear tarea
+          </Link>
+        )}
       </div>
 
       <section className="grid overflow-hidden rounded-lg border border-border bg-background sm:grid-cols-2 xl:grid-cols-6 sm:divide-x divide-border">

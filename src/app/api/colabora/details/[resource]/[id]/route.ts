@@ -249,7 +249,7 @@ export async function GET(
         await Promise.all([
           service
             .from('collaboration_space_members')
-            .select('*,user_profiles(full_name,email)')
+            .select('*,user_profiles!collaboration_space_members_user_id_fkey(full_name,email)')
             .eq('workspace_id', workspaceId)
             .eq('space_id', id),
           service

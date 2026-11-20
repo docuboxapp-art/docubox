@@ -103,7 +103,7 @@ export async function GET(request: Request) {
             relation === 'evidence'
               ? 'id,display_name'
               : relation === 'members'
-                ? 'id,user_profiles(full_name,email)'
+                ? 'id,user_profiles!workspace_members_user_id_fkey(full_name,email)'
                 : relation === 'people'
                   ? 'id,full_name'
                   : relation === 'certificates'

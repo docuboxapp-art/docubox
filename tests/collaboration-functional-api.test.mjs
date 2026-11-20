@@ -46,6 +46,7 @@ const milestones = await bundle(
   'colabora-milestones-qa'
 );
 const catalog = await bundle('src/app/api/colabora/catalog/route.ts', 'colabora-catalog-qa');
+const overview = await bundle('src/app/api/colabora/overview/route.ts', 'colabora-overview-qa');
 const resources = await bundle(
   'src/app/api/colabora/resources/[resource]/route.ts',
   'colabora-resources-qa'
@@ -118,6 +119,17 @@ function setup(tables = {}) {
         h.queries.push(trace);
         let changes, insert;
         const result = () => {
+          if (
+            ['workspace_members', 'task_collaborators', 'collaboration_space_members'].includes(
+              table
+            ) &&
+            /\buser_profiles\(/.test(trace.columns)
+          )
+            return {
+              data: null,
+              error: { code: 'PGRST201', message: 'Multiple profile relationships' },
+              count: null,
+            };
           let rows = (h.tables[table] || []).filter((row) =>
             trace.filters.every(([op, key, value]) =>
               op === 'eq'
@@ -827,4 +839,30 @@ test('task pagination and priority use the caller RLS and validated query criter
     new Request(`http://localhost/api/colabora/tasks?workspace_id=${ws}&page=-1`)
   );
   assert.equal(invalid.status, 422);
+});
+
+test('Colabora member catalog and dashboard select the participant profile rather than the inviter', async () => {
+  const row = {
+    id,
+    user_id: actor,
+    workspace_id: ws,
+    role: 'owner',
+    status: 'active',
+    user_profiles: { full_name: 'Member', email: 'member@example.invalid' },
+  };
+  for (const [handler, path, dashboard] of [
+    [catalog, 'catalog?type=members&', false],
+    [overview, 'overview?', true],
+  ]) {
+    const h = setup({ workspace_members: [row] });
+    const response = await handler.GET(
+      new Request(`http://localhost/api/colabora/${path}workspace_id=${ws}`)
+    );
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.deepEqual(dashboard ? payload.data.members : payload.data, [row]);
+    const query = h.queries.find((q) => q.table === 'workspace_members');
+    assert.equal(query.who, 'user');
+    assert.match(query.columns, /user_profiles!workspace_members_user_id_fkey\(/);
+  }
 });

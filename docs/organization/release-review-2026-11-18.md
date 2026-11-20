@@ -1,5 +1,7 @@
 # Revisión de Organización y activación de Supabase
 
+Actualización del 20 de noviembre: se realizó un recorrido con sesión real, se corrigieron relaciones ambiguas de perfiles y la recuperación visual del acceso a Colabora. Los resultados y sus límites están en la [comprobación de sesión](session-verification-2026-11-20.md). La matriz siguiente conserva el alcance de la activación original.
+
 Las once migraciones de esta activación están aplicadas y verificadas en el proyecto principal. Pasaron las regresiones transaccionales con el esquema real y la prueba de Storage privado. Esto no certifica todos los proveedores externos ni los controles globales que siguen pendientes.
 
 ## Funciones de Supabase sincronizadas
