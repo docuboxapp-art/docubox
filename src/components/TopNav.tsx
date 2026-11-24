@@ -1267,7 +1267,7 @@ export default function TopNav() {
             <button
               title="Centro de ayuda"
               aria-label="Centro de ayuda"
-              onClick={() => router.push('/ayuda-firmado')}
+              onClick={() => router.push('/centro-ayuda')}
               className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-primary/10 hover:text-primary md:flex"
             >
               <HelpCircle className="h-5 w-5" />

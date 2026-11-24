@@ -16,6 +16,7 @@ import {
 
 import PublicTokenLayout from '@/components/PublicTokenLayout';
 import AppLogo from '@/components/ui/AppLogo';
+import { contextualHelpHref } from '@/lib/help/model';
 
 interface ParticipantInfo {
   documentName: string;
@@ -115,13 +116,6 @@ export default function PortalParticipantePage() {
           description: 'He firmado previamente pero no recuerdo mi contraseña.',
           onClick: () => router.push('/olvide-contrasena'),
         },
-        {
-          id: 'help',
-          icon: CircleHelp,
-          title: 'Solicitar ayuda',
-          description: 'Necesito ayuda con el proceso de participación en el documento.',
-          onClick: () => router.push('/ayuda-firmado'),
-        },
       ]
     : [
         {
@@ -131,14 +125,15 @@ export default function PortalParticipantePage() {
           description: `Regístrate para revisar y ${actionLabel} el documento.`,
           onClick: () => router.push(`/registro-participante/${token}`),
         },
-        {
-          id: 'help',
-          icon: CircleHelp,
-          title: 'Solicitar ayuda',
-          description: 'Necesito ayuda con el proceso de participación en el documento.',
-          onClick: () => router.push('/ayuda-firmado'),
-        },
       ];
+
+  const helpOption = {
+    id: 'help',
+    icon: CircleHelp,
+    title: 'Solicitar ayuda',
+    description: 'Consulta cómo abrir la invitación y completar tu participación.',
+    href: contextualHelpHref(),
+  };
 
   return (
     <PublicTokenLayout token={token} luciaScope="external_participant" compactAssistant>
@@ -245,15 +240,11 @@ export default function PortalParticipantePage() {
 
                 {!loading && <section aria-label="Opciones para continuar">
                   <div className={`grid gap-3 ${isRegistered ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-                    {options.map((option) => {
+                    {[...options, helpOption].map((option) => {
                       const Icon = option.icon;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={option.onClick}
-                          className="group flex min-h-[142px] flex-col items-start border border-slate-200 bg-white p-5 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
+                      const style = 'group flex min-h-[142px] flex-col items-start border border-slate-200 bg-white p-5 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
+                      const content = (
+                        <>
                           <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/15 bg-primary/5 text-primary">
                             <Icon size={19} aria-hidden="true" />
                           </span>
@@ -272,6 +263,16 @@ export default function PortalParticipantePage() {
                               aria-hidden="true"
                             />
                           </span>
+                        </>
+                      );
+                      return 'href' in option ? (
+                        <a key={option.id} href={option.href} target="_blank" rel="noopener noreferrer"
+                          className={style} aria-label="Solicitar ayuda (abre en otra pestaña)">
+                          {content}
+                        </a>
+                      ) : (
+                        <button key={option.id} type="button" className={style} onClick={option.onClick}>
+                          {content}
                         </button>
                       );
                     })}

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowRight, FileText, KeyRound, Loader2, UserPlus } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
 import PublicTokenLayout from '@/components/PublicTokenLayout';
+import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { createClient } from '@/lib/supabase/client';
 
 type Invitation = {
@@ -58,7 +59,10 @@ export default function FormInvitationPortal() {
     <PublicTokenLayout token={token} luciaScope="external_participant" compactAssistant>
       <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
         <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
-          <AppLogo />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <AppLogo />
+            <ContextHelpLink slug="crear-lanzar-y-responder-formularios">Ayuda para responder</ContextHelpLink>
+          </div>
           {loading ? (
             <p className="mt-8 flex items-center gap-2 text-sm text-slate-500">
               <Loader2 size={17} className="animate-spin" /> Cargando invitación…

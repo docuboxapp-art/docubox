@@ -30,8 +30,15 @@ const nextConfig = {
       bodySizeLimit: '25mb',
     },
   },
+  async redirects() {
+    return [{ source: '/ayuda-firmado', destination: '/centro-ayuda', permanent: true }];
+  },
   async headers() {
     return [
+      {
+        source: '/centro-ayuda/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
       {
         source: '/visor-documento/:path*',
         headers: [

@@ -1,6 +1,7 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { fetchWithCompleteResponseTimeout } from '@/lib/supabase/password-auth-fetch';
+import { isHelpApi, isHelpPage } from '@/lib/help/model';
 import {
   emitObservedEvent,
   type ObservedOutcome,
@@ -181,6 +182,7 @@ async function kioskRequestBodyMatchesScope(request: NextRequest, documentId: st
 
 async function isAllowedKioskApi(request: NextRequest, scope: KioskMiddlewareScope) {
   const path = request.nextUrl.pathname;
+  if (isHelpApi(path)) return true;
   if (path === '/api/firma-presencial/context') return true;
   if (path === '/api/firma-presencial/recover') return true;
   if (path === `/api/firma-presencial/${request.cookies.get(KIOSK_COOKIE_NAME)?.value}`)
@@ -215,7 +217,7 @@ function isAllowedKioskPage(pathname: string, scope: KioskMiddlewareScope) {
     pathname === '/olvide-contrasena' ||
     pathname === '/verificar-correo' ||
     pathname === '/register-device' ||
-    pathname === '/ayuda-firmado' ||
+    isHelpPage(pathname) ||
     pathname.startsWith('/auth/')
   ) {
     return true;
@@ -747,7 +749,7 @@ async function handleMiddlewareRequest(
     return withMiddlewareTiming(NextResponse.redirect(homeUrl, 308), startedAt);
   }
 
-  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+  if (isHelpPage(pathname) || isHelpApi(pathname) || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return withMiddlewareTiming(NextResponse.next(), startedAt);
   }
 

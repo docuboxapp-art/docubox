@@ -60,6 +60,7 @@ import { getDefaultSignatureStampStyle } from '@/lib/signatures/stamp-sizing';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
@@ -8597,7 +8598,10 @@ export default function VisorDocumentoPage() {
                 </>
               ) : document.additional_access_level && activeTab === 'descargas' ? (
                 <>
-                  <div className="viewer-panel-header"><span className="viewer-panel-title">Descargas</span></div>
+                  <div className="viewer-panel-header flex-wrap gap-2">
+                    <span className="viewer-panel-title">Descargas</span>
+                    <ContextHelpLink slug="descargar-documentos-y-constancias">Guía de descargas</ContextHelpLink>
+                  </div>
                   <div className="flex-1 overflow-y-auto p-4">
                     <div className="rounded-md border border-slate-200 bg-white p-4">
                       <p className="text-sm font-semibold text-slate-900">Documento firmado</p>
@@ -8612,7 +8616,10 @@ export default function VisorDocumentoPage() {
                 </>
               ) : document.additional_access_level === 'evidence' && activeTab === 'auditoria' ? (
                 <>
-                  <div className="viewer-panel-header"><span className="viewer-panel-title">Auditoría</span></div>
+                  <div className="viewer-panel-header flex-wrap gap-2">
+                    <span className="viewer-panel-title">Auditoría</span>
+                    <ContextHelpLink slug="que-evidencias-genera-docubox">Conocer estas evidencias</ContextHelpLink>
+                  </div>
                   <div className="flex-1 space-y-4 overflow-y-auto p-4">
                     <div className="rounded-md border border-slate-200 bg-white p-4">
                       <h3 className="text-sm font-semibold text-slate-900">Evidencia del documento</h3>
@@ -8657,10 +8664,15 @@ export default function VisorDocumentoPage() {
               ) : activeTab === 'descargas' || activeTab === 'auditoria' ? (
                 /* ── Descargas y auditoría ──────────────────────────────── */
                 <div className="flex flex-col h-full min-h-0">
-                  <div className="viewer-panel-header">
+                  <div className="viewer-panel-header flex-wrap gap-2">
                     <span className="viewer-panel-title">
                       {activeTab === 'auditoria' ? 'Auditoría' : 'Descargas'}
                     </span>
+                    {activeTab === 'auditoria' ? (
+                      <ContextHelpLink slug="que-evidencias-genera-docubox">Conocer estas evidencias</ContextHelpLink>
+                    ) : (
+                      <ContextHelpLink slug="descargar-documentos-y-constancias">Guía de descargas</ContextHelpLink>
+                    )}
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="flex flex-col gap-4 p-4">

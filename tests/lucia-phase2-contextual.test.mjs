@@ -111,6 +111,7 @@ test('redirect aliases resolve to canonical routes and are never primary modules
     ['/mis-tareas', '/inicio'],
     ['/mis-tareas/automatizaciones', '/inicio'],
     ['/participation-requests', '/mis-solicitudes'],
+    ['/ayuda-firmado', '/centro-ayuda'],
     ['/notifications', '/notificaciones'],
     ['/notificationes', '/notificaciones'],
     ['/sign-up-login-screen', '/login'],

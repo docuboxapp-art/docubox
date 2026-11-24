@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { KeyRound, Loader2, ShieldCheck, LogIn, UserPlus } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
+import ContextHelpLink from '@/components/help/ContextHelpLink';
 import CaseIdentityModal from '@/components/case-files/CaseIdentityModal';
 import { createClient } from '@/lib/supabase/client';
 type Entry = {
@@ -88,6 +89,7 @@ export default function CaseEntryGate({ token, initial }: { token: string; initi
           {entry.mode === 'public' ? 'Acceso con código' : 'Invitación privada'}
         </span>
         <h1 className="mt-4 text-2xl font-semibold">Abrir expediente</h1>
+        <ContextHelpLink slug="integrar-un-expediente" className="mt-2">Ayuda con el acceso al expediente</ContextHelpLink>
         {entry.needsCode ? (
           <div className="mt-5 space-y-4">
             <p className="text-sm leading-6 text-slate-500">

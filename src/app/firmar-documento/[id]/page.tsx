@@ -50,6 +50,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
+import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { FittedSignatureStamp, SignatureStampDisplay, type StampDisplayProps } from '@/components/signatures/SignatureStampDisplay';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
@@ -997,6 +998,7 @@ function EfirmaFirmarFlow({
                 ? 'Tu perfil tiene una e.firma cifrada. Puedes utilizarla ingresando su contraseña o cargar nuevamente tus archivos.'
                 : 'Puedes guardar tu llave cifrada para futuras firmas. El cifrado y la firma se realizan en este dispositivo; la contraseña no se almacena.'}
             </p>
+            <ContextHelpLink slug="firmar-con-efirma">Guía de e.firma SAT</ContextHelpLink>
             {geoDenied && (
               <div
                 className={`flex items-start gap-3 p-3 rounded-lg border ${isDark ? 'bg-amber-900/20 border-amber-700/50' : 'bg-amber-50 border-amber-200'}`}
@@ -7067,6 +7069,7 @@ export default function FirmarDocumentoPage() {
                   Se enviará un código de verificación a{' '}
                   <span className="font-semibold">{user?.email}</span>
                 </p>
+                <ContextHelpLink slug="no-recibo-el-codigo" className="mt-2">No recibo mi código</ContextHelpLink>
               </div>
 
               {!proteccionOtpSent ? (
@@ -9220,6 +9223,12 @@ export default function FirmarDocumentoPage() {
                         ? 'Tus respuestas ya están guardadas. Revisa el PDF y acepta las condiciones para firmarlo en el campo previsto.'
                         : 'Antes de continuar, revisa y acepta los términos de participación.'}
                     </p>
+                    <ContextHelpLink
+                      slug={isFormResponseDocument ? 'crear-lanzar-y-responder-formularios' : 'firmar-un-documento'}
+                      className="mt-2"
+                    >
+                      Ver guía de participación
+                    </ContextHelpLink>
                   </div>
 
                   {document.workspace_id &&

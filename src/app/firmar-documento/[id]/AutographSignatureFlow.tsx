@@ -22,6 +22,7 @@ import {
   Shrink,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { autographSignatureCapabilities } from '@/lib/signatures/autographSignatureCapabilities';
 import QRCode from 'qrcode';
 
@@ -4440,6 +4441,7 @@ export default function AutographSignatureFlow({
           <p className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
             Verificación OTP — Confirmación de firma
           </p>
+          <ContextHelpLink slug="no-recibo-el-codigo" className="mt-1">No recibo mi código</ContextHelpLink>
         </div>
         <div className="p-4 space-y-3">
           {otpSending && (

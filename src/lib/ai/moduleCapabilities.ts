@@ -1159,24 +1159,30 @@ const deterministicVerification = defineModule(
 const signingHelp = defineModule(
   {
     moduleKey: 'signing_help',
-    moduleName: 'Ayuda de firma',
+    moduleName: 'Centro de ayuda Docubox',
     scope: 'signing',
-    purpose: 'Explicar de forma general los métodos y pasos de firma.',
+    purpose: 'Consultar las guías públicas publicadas en el Centro de ayuda.',
     entities: ['help_content'],
     dataSources: ['application_help'],
     requiredContext: ['route_context'],
-    suggestedPrompts: [
-      'Explícame la e.firma SAT',
-      '¿Cómo funciona la firma autógrafa?',
-      '¿Para qué sirve el OTP?',
-    ],
-    allowedReadActions: ['explicar métodos de firma'],
+    suggestedPrompts: [],
+    allowedReadActions: [],
     disallowedActions: NEVER_WRITE,
     sensitiveFields: ['otp', 'efirma_password', 'private_key'],
     evidenceRequirements: ['contenido de ayuda aprobado'],
-    assistantPlacement: 'floating',
+    accessMode: 'public_deterministic',
+    luciaMode: 'disabled',
+    assistantPlacement: 'none',
   },
-  ['/ayuda-firmado']
+  [
+    '/centro-ayuda',
+    '/centro-ayuda/guias',
+    '/centro-ayuda/tutoriales',
+    '/centro-ayuda/legal-y-seguridad',
+    '/centro-ayuda/buscar',
+    '/centro-ayuda/categorias/[slug]',
+    '/centro-ayuda/articulos/[slug]',
+  ]
 );
 
 const redirectAliases = defineModule(
@@ -1204,6 +1210,7 @@ const redirectAliases = defineModule(
     { routePattern: '/mis-tareas', canonicalRoute: '/inicio' },
     { routePattern: '/mis-tareas/automatizaciones', canonicalRoute: '/inicio' },
     { routePattern: '/participation-requests', canonicalRoute: '/mis-solicitudes' },
+    { routePattern: '/ayuda-firmado', canonicalRoute: '/centro-ayuda' },
     { routePattern: '/notifications', canonicalRoute: '/notificaciones' },
     { routePattern: '/notificationes', canonicalRoute: '/notificaciones' },
     { routePattern: '/sign-up-login-screen', canonicalRoute: '/login' },
