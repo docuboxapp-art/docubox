@@ -1,4 +1,65 @@
 /* Responsive surfaces share the desktop data, actions and saved preferences. */
+:root {
+  --app-page-gutter: 1rem;
+  --app-page-top: 1rem;
+  --app-page-max-width: 1600px;
+}
+
+:root:has(.app-page-frame, .app-page-gutters) {
+  scrollbar-gutter: stable;
+}
+
+.app-page-frame,
+.app-page-gutters {
+  padding-inline: var(--app-page-gutter);
+}
+
+.app-page-frame,
+.app-page-top {
+  padding-block-start: var(--app-page-top);
+}
+
+.app-page-frame {
+  padding-block-end: var(--app-page-top);
+}
+
+.app-page-width {
+  width: 100%;
+  min-width: 0;
+  max-width: var(--app-page-max-width);
+  margin-inline: auto;
+}
+
+.app-page-frame.app-page-width {
+  max-width: calc(var(--app-page-max-width) + 2 * var(--app-page-gutter));
+}
+
+.app-page-bleed {
+  margin: -1rem;
+  min-height: calc(100dvh - var(--app-header-height));
+}
+
+@media (min-width: 640px) {
+  :root {
+    --app-page-gutter: 1.25rem;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --app-page-top: 1.25rem;
+  }
+  .app-page-bleed {
+    margin-block: -1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --app-page-gutter: 1.5rem;
+  }
+}
+
 .responsive-sidebar-trigger {
   display: none;
 }
@@ -77,9 +138,6 @@
   .app-topnav :where(button, a) {
     -webkit-tap-highlight-color: transparent;
   }
-  .app-content {
-    padding-inline: 16px;
-  }
   .responsive-sidebar {
     width: 100% !important;
     max-height: none !important;
@@ -87,6 +145,9 @@
     border-bottom: 1px solid hsl(var(--border));
     padding: 0;
     background: hsl(var(--card));
+  }
+  .responsive-sidebar.workspace-sidebar {
+    border: 1px solid hsl(var(--border));
   }
   .responsive-sidebar-trigger {
     display: flex;

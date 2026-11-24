@@ -53,6 +53,28 @@ export const ACTIVITY_STATE_LABELS: Record<ActivityState, string> = {
   failed: 'Problemas de envío',
 };
 export const activityTime = (value?: string | null) => (value ? Date.parse(value) || 0 : 0);
+export type ActivityDateField = 'sent' | 'updated' | 'expires' | 'scheduled';
+export function activityDate(item: ActivityItem, field: ActivityDateField = 'sent') {
+  return field === 'updated'
+    ? item.updatedAt
+    : field === 'expires'
+      ? item.expiresAt
+      : field === 'scheduled'
+        ? item.scheduledAt || null
+        : item.sentAt;
+}
+
+export function matchesActivityState(item: ActivityItem, state: string, now = Date.now()) {
+  const terminal = ['completed', 'expired', 'cancelled'].includes(item.state);
+  if (state === 'active')
+    return ['pending', 'in_progress', 'signature', 'observed'].includes(item.state);
+  if (state === 'urgent') return !terminal && item.priority === 'urgent';
+  if (state === 'due') {
+    const expires = activityTime(item.expiresAt);
+    return !terminal && expires > now && expires <= now + 72 * 60 * 60 * 1000;
+  }
+  return !state || item.state === state;
+}
 export const recipientKey = (formId: string, email: string) =>
   `${formId}:${email.trim().toLowerCase()}`;
 
@@ -121,12 +143,16 @@ export function filterActivity(
   criteria: {
     search: string;
     state: string;
-    access: string;
-    workspace: string;
+    access?: string;
+    workspace?: string;
     from: string;
     to: string;
     sort: string;
-  }
+    priority?: string;
+    dateField?: ActivityDateField;
+    period?: string;
+  },
+  now = Date.now()
 ) {
   const normalize = (text: string) =>
     text
@@ -134,6 +160,11 @@ export function filterActivity(
       .replace(/[\u0300-\u036f]/g, '')
       .toLocaleLowerCase('es');
   const search = normalize(criteria.search.trim());
+  const hasPeriod = !!criteria.period && criteria.period !== 'all';
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (criteria.period && ['7', '30', '365'].includes(criteria.period))
+    start.setDate(start.getDate() - (Number(criteria.period) - 1));
   return items
     .filter(
       (item) =>
@@ -141,20 +172,35 @@ export function filterActivity(
           normalize(
             [item.title, item.reference, item.person, item.email, item.role].join(' ')
           ).includes(search)) &&
-        (!criteria.state || item.state === criteria.state) &&
+        matchesActivityState(item, criteria.state, now) &&
+        (!criteria.priority || item.priority === criteria.priority) &&
         (!criteria.access || item.access === criteria.access) &&
         (!criteria.workspace || item.workspaceId === criteria.workspace) &&
-        (!criteria.from || activityTime(item.sentAt) >= Date.parse(`${criteria.from}T00:00:00`)) &&
-        (!criteria.to || activityTime(item.sentAt) <= Date.parse(`${criteria.to}T23:59:59.999`))
+        (!criteria.from ||
+          activityTime(activityDate(item, criteria.dateField)) >=
+            Date.parse(`${criteria.from}T00:00:00`)) &&
+        (!criteria.to ||
+          (activityTime(activityDate(item, criteria.dateField)) > 0 &&
+            activityTime(activityDate(item, criteria.dateField)) <=
+              Date.parse(`${criteria.to}T23:59:59.999`))) &&
+        (!hasPeriod ||
+          (activityTime(activityDate(item, criteria.dateField)) >= start.getTime() &&
+            activityTime(activityDate(item, criteria.dateField)) <= now))
     )
-    .sort((a, b) =>
-      criteria.sort === 'name'
-        ? a.title.localeCompare(b.title, 'es')
-        : criteria.sort === 'oldest'
-          ? activityTime(a.sentAt) - activityTime(b.sentAt)
-          : criteria.sort === 'urgent'
-            ? Number(b.priority === 'urgent') - Number(a.priority === 'urgent') ||
-              activityTime(b.sentAt) - activityTime(a.sentAt)
-            : activityTime(b.sentAt) - activityTime(a.sentAt)
-    );
+    .sort((a, b) => {
+      if (criteria.sort === 'name') return a.title.localeCompare(b.title, 'es');
+      const first = activityTime(activityDate(a, criteria.dateField));
+      const second = activityTime(activityDate(b, criteria.dateField));
+      const byDate =
+        !first && second
+          ? 1
+          : first && !second
+            ? -1
+            : criteria.sort === 'oldest'
+              ? first - second
+              : second - first;
+      return criteria.sort === 'urgent'
+        ? Number(b.priority === 'urgent') - Number(a.priority === 'urgent') || byDate
+        : byDate;
+    });
 }

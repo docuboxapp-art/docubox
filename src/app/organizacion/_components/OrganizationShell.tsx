@@ -181,8 +181,8 @@ export default function OrganizationShell({ children }: { children: ReactNode })
   }
 
   return (
-    <AppLayout noPadding>
-      <div className="organization-console -mx-4 -my-4 md:-my-6 min-h-[calc(100vh-104px)] bg-slate-50 dark:bg-background">
+    <AppLayout>
+      <div className="organization-console bg-slate-50 dark:bg-background">
         <header className="organization-header bg-background border-b border-border px-5 lg:px-7 py-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
@@ -198,7 +198,7 @@ export default function OrganizationShell({ children }: { children: ReactNode })
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <Link
-                href="/mis-documentos"
+                href="/mi-espacio"
                 prefetch={false}
                 className="organization-workspace-link hidden xl:inline-flex"
               >

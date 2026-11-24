@@ -106,6 +106,7 @@ test('every capability contains the complete Phase 2 contract and read-only acti
 test('redirect aliases resolve to canonical routes and are never primary modules', () => {
   const expected = new Map([
     ['/documents-dashboard', '/inicio'],
+    ['/mis-documentos', '/mi-espacio'],
     ['/pending-tasks', '/inicio'],
     ['/mis-tareas', '/inicio'],
     ['/mis-tareas/automatizaciones', '/inicio'],

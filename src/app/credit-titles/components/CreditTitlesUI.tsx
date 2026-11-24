@@ -27,9 +27,9 @@ const navItems = [
 export function CreditTitlesWorkspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
-    <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] dark:bg-background md:-my-6">
-      <div className="mx-auto grid w-full max-w-[1720px] lg:grid-cols-[232px_minmax(0,1fr)]">
-        <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-slate-200 bg-white px-3 py-5 dark:border-border dark:bg-card lg:block">
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+      <div className="app-page-width grid gap-6 lg:grid-cols-[232px_minmax(0,1fr)]">
+        <aside className="hidden border-r border-slate-200 bg-white px-3 py-5 dark:border-border dark:bg-card lg:block">
           <div className="mb-4 flex items-center gap-3 px-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700">
               <Landmark size={18} />
@@ -64,7 +64,7 @@ export function CreditTitlesWorkspace({ children }: { children: React.ReactNode 
             El registro electronico es la fuente de verdad. El PDF es su representacion verificable.
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">
+        <main className="min-w-0">
           <div
             role="status"
             className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"

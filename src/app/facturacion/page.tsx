@@ -1146,8 +1146,8 @@ export default function FacturacionPage() {
   }, [fetchSubscription, fetchHistory]);
 
   return (
-    <AppLayout noPadding>
-      <div className="px-4 sm:px-6 lg:px-8 pt-2 pb-4 md:pb-6 space-y-6 w-full min-h-[calc(100vh-8rem)]">
+    <AppLayout>
+      <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

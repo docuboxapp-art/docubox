@@ -298,8 +298,8 @@ function ResponsesContent() {
   if (!formId || (!loading && unavailable))
     return (
       <AppLayout noPadding>
-        <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-          <div className="mx-auto w-full max-w-[1600px]">
+        <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+          <div className="app-page-width">
             <Link
               href="/formularios"
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground"
@@ -317,8 +317,8 @@ function ResponsesContent() {
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <header className="mx-auto mb-4 flex w-full max-w-[1600px] items-center justify-between gap-4 border-b border-slate-200 pb-4 dark:border-border">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <header className="app-page-width mb-4 flex items-center justify-between gap-4 border-b border-slate-200 pb-4 dark:border-border">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950 dark:text-foreground">
               Respuestas
@@ -334,7 +334,7 @@ function ResponsesContent() {
             <X size={16} /> Cerrar
           </Link>
         </header>
-        <div className="mx-auto grid w-full max-w-[1600px] gap-4 pb-5 xl:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="app-page-width grid gap-4 pb-5 xl:grid-cols-[minmax(0,1fr)_460px]">
           <section
             aria-label="Lista de respuestas"
             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"

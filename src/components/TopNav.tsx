@@ -74,7 +74,7 @@ import {
 
 const BASE_NAV_TABS = [
   { href: '/inicio', label: 'Inicio', icon: Home },
-  { href: '/mis-documentos', label: 'Mi Espacio', icon: FileText },
+  { href: '/mi-espacio', label: 'Mi Espacio', icon: FileText },
   { href: '/mis-solicitudes', label: 'Solicitudes Enviadas', icon: Send },
   { href: '/mis-participaciones', label: 'Mis Participaciones', icon: FileSignature },
   { href: '/contactos', label: 'Mis Contactos', icon: Users },
@@ -95,7 +95,7 @@ const BASE_SIDEBAR_NAV_SECTIONS = [
     label: 'Principal',
     items: [
       { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/mis-documentos', icon: FolderOpen, label: 'Mi Espacio' },
+      { href: '/mi-espacio', icon: FolderOpen, label: 'Mi Espacio' },
     ],
   },
   {
@@ -185,7 +185,7 @@ export default function TopNav() {
   } = useLuciaAssistant();
   const usesWorkspaceChrome =
     pathname === '/inicio' ||
-    pathname === '/mis-documentos' ||
+    pathname === '/mi-espacio' ||
     pathname === '/mis-solicitudes' ||
     pathname === '/mis-participaciones' ||
     pathname === '/plantillas' ||
@@ -453,7 +453,7 @@ export default function TopNav() {
     if (base === '/inicio' && !href.includes('?')) {
       return pathname === '/inicio';
     }
-    if (base === '/mis-documentos' && pathname.startsWith('/visor-documento/')) {
+    if (base === '/mi-espacio' && pathname.startsWith('/visor-documento/')) {
       return true;
     }
     if (base === '/organizacion') {
@@ -611,7 +611,7 @@ export default function TopNav() {
               : item.parent_id
                 ? 'Subcarpeta'
                 : 'Carpeta',
-            href: `/mis-documentos?carpeta=${encodeURIComponent(item.id)}`,
+            href: `/mi-espacio?carpeta=${encodeURIComponent(item.id)}`,
           })
         );
         const contactResults: GlobalSearchResult[] = (contactsResponse.data || []).map(
@@ -1455,16 +1455,18 @@ export default function TopNav() {
                   setAvatarOpen(!avatarOpen);
                   setBellOpen(false);
                 }}
-                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-primary/10 hover:text-primary"
+                className={`group flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-150 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${avatarOpen ? 'bg-primary/10' : ''}`}
                 title="Mi cuenta"
                 aria-label="Mi cuenta"
+                aria-expanded={avatarOpen}
+                aria-controls="account-menu"
               >
                 <UserAvatar
                   src={userAvatarUrl}
                   alt={`Foto de ${userFullName}`}
-                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center bg-primary"
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center bg-gradient-to-br from-primary-500 to-primary-700 shadow-sm ring-1 ring-primary/15 ring-offset-2 ring-offset-background transition-shadow duration-150 group-hover:shadow-md group-hover:ring-primary/30"
                   fallback={
-                    <span className="text-[9px] font-600 leading-none text-white">
+                    <span className="select-none text-[11px] font-600 leading-none tracking-[0.01em] text-white">
                       {userInitials || 'U'}
                     </span>
                   }
@@ -1472,7 +1474,10 @@ export default function TopNav() {
               </button>
 
               {avatarOpen && (
-                <div className="absolute right-0 top-12 z-50 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900">
+                <div
+                  id="account-menu"
+                  className="absolute right-0 top-12 z-50 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_16px_38px_-20px_rgba(30,107,255,0.32)] dark:border-slate-700 dark:bg-slate-900"
+                >
                   <div className="px-4 py-3 border-b border-border">
                     <p className="break-words text-sm font-600 leading-5 text-foreground">
                       {userFullName}

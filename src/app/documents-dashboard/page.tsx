@@ -505,7 +505,7 @@ export default function DocumentsDashboardPage() {
       icon: <FileText size={18} className="text-primary" />,
       label: 'Crear desde Plantilla',
       sub: 'Usa un formato predefinido',
-      href: '/mis-documentos',
+      href: '/mi-espacio',
     },
   ];
 
@@ -751,10 +751,10 @@ export default function DocumentsDashboardPage() {
     .sort((a, b) => a.order - b.order);
 
   return (
-    <AppLayout topBanner={<VerificationProgressBar />}>
+    <AppLayout noPadding topBanner={<VerificationProgressBar />}>
       {/* Main content grid — widgets remain unchanged */}
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-8rem)] bg-[#f6f8fb] px-4 py-4 sm:-mx-6 sm:px-5 md:-my-6 lg:-mx-8 lg:px-6 xl:-mx-10 xl:px-7">
-        <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* ── Left column (70%) ── */}
           <div className="min-w-0 space-y-4">
             {/* Greeting + actions */}

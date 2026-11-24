@@ -18,7 +18,7 @@ if (!token) {
   const paths = {
     inicio: ['/inicio', '/api/documentos/mis-participaciones?view=dashboard'],
     mis_documentos: [
-      '/mis-documentos',
+      '/mi-espacio',
       '/api/documentos/listar?tipo=todos',
       '/api/documentos/mis-participaciones?exclude_owned=true&view=list',
       '/api/documentos/carpetas',

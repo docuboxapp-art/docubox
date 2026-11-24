@@ -51,7 +51,7 @@ export default function SharedDocumentsPage() {
   }, [user]);
 
   return <AppLayout>
-    <div className="mx-auto w-full max-w-5xl px-5 py-6">
+      <div>
       <h1 className="text-xl font-semibold text-slate-900">Compartidos conmigo</h1>
       {loading ? <div className="mt-8 flex items-center gap-2 text-sm text-slate-500"><RefreshCw size={16} className="animate-spin" /> Cargando documentos…</div>
         : error ? <p className="mt-6 text-sm text-red-700" role="alert">{error}</p>

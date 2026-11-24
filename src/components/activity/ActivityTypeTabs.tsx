@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { ClipboardList, FileText, FolderKanban } from 'lucide-react';
+import SectionTabs from '@/components/workspaces/SectionTabs';
 import type { ActivityMode } from '@/lib/activity/model';
 export default function ActivityTypeTabs({
   mode,
@@ -11,9 +12,9 @@ export default function ActivityTypeTabs({
 }) {
   const path = mode === 'sent' ? '/mis-solicitudes' : '/mis-participaciones';
   return (
-    <nav
-      aria-label={mode === 'sent' ? 'Tipo de solicitudes enviadas' : 'Tipo de participaciones'}
-      className="mb-4 flex w-full flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-border dark:bg-card"
+    <SectionTabs
+      label={mode === 'sent' ? 'Tipo de solicitudes enviadas' : 'Tipo de participaciones'}
+      className="mb-4 h-14 rounded-lg border"
     >
       {(
         [
@@ -45,12 +46,12 @@ export default function ActivityTypeTabs({
               );
           }}
           aria-current={active === kind ? 'page' : undefined}
-          className={`inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:flex-none sm:px-5 sm:text-sm ${active === kind ? 'bg-blue-50 text-primary dark:bg-primary/15' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-muted'}`}
+          className={`flex min-h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40 motion-reduce:transition-none sm:flex-none sm:px-4 sm:text-[13px] ${active === kind ? 'bg-primary text-white shadow-sm focus-visible:ring-white/70' : 'text-slate-600 hover:bg-white/80 hover:text-primary dark:text-slate-300 dark:hover:bg-primary/15 dark:hover:text-white'}`}
         >
-          <Icon size={16} className="hidden shrink-0 sm:block" aria-hidden="true" />
+          <Icon size={15} className="hidden shrink-0 sm:block" aria-hidden="true" />
           {label}
         </Link>
       ))}
-    </nav>
+    </SectionTabs>
   );
 }

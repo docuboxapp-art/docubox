@@ -493,9 +493,9 @@ function NotificationsContent() {
   };
 
   return (
-    <AppLayout>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-8rem)] bg-slate-50 px-4 py-5 sm:-mx-6 sm:px-6 md:-my-6 lg:-mx-8 lg:px-8 xl:-mx-10 xl:px-10 dark:bg-background">
-        <div className="mx-auto w-full max-w-[1520px]">
+    <AppLayout noPadding>
+      <div className="app-page-bleed app-page-frame bg-slate-50 dark:bg-background">
+        <div className="app-page-width">
           {/* Header */}
           <header className="mb-5 flex flex-col gap-4 border-b border-slate-200/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">

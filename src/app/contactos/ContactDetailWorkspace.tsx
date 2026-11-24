@@ -697,8 +697,8 @@ export default function ContactDetailWorkspace({
   );
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-5 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1700px]">
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+      <div className="app-page-width">
         <button
           type="button"
           onClick={onClose}

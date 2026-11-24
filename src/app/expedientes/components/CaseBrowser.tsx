@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
@@ -18,7 +18,6 @@ import {
   FolderKanban,
   Folder,
   FolderPlus,
-  FilePlus,
   Zap,
   LayoutGrid,
   LayoutList,
@@ -44,6 +43,7 @@ const CustomizeCaseView = dynamic(
 import AppLayout from '@/components/AppLayout';
 import ResponsiveSidebar from '@/components/ResponsiveSidebar';
 import WorkspaceTabs from '@/components/workspaces/WorkspaceTabs';
+import WorkspaceLayout from '@/components/workspaces/WorkspaceLayout';
 import WorkspacePageHeader from '@/components/workspaces/WorkspacePageHeader';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { caseRequest } from '@/lib/case-files/runtime-client';
@@ -138,9 +138,12 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
-  const [data, setData] = useState<Result | null>(null);
+  const [listing, setListing] = useState<{ key: string; result: Result } | null>(null);
+  const data = listing?.result;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [moreStatus, setMoreStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const moreTarget = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<CaseBrowserRow | null>(null);
   const [favoriteBusy, setFavoriteBusy] = useState<string | null>(null);
@@ -148,6 +151,39 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const [wide, setWide] = useState(false);
   const [appliedOpen, setAppliedOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const workspaceId = activeWorkspace?.id;
+  const requestParams = new URLSearchParams({
+    workspaceId: workspaceId || '',
+    page: String(page),
+    q: search,
+    estado: status,
+    vista: scope,
+    orden: sort,
+    fecha: completed ? 'cierre' : 'apertura',
+  });
+  for (const [key, value] of Object.entries({
+    tipo: type,
+    categoria: category,
+    subtipo: subtype,
+    responsable: responsible,
+    carpeta: folderId,
+    desde: from,
+    hasta: to,
+    acceso: access,
+    prioridad: priority,
+    etiqueta: tag,
+    envio: scheduled ? 'scheduled' : '',
+  }))
+    if (value) requestParams.set(key, value);
+  const queryString = requestParams.toString();
+  const requestKey = `${queryString}:${refresh}`;
+  const moreFailed = moreStatus === 'error';
+  const hasMore =
+    !completed &&
+    !loading &&
+    listing?.key === requestKey &&
+    data !== undefined &&
+    data.page * data.pageSize < data.total;
 
   useEffect(() => {
     if (!wide) return;
@@ -174,45 +210,23 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     return subscribeToCaseListReturn(() => setRefresh((value) => value + 1));
   }, [activeWorkspace?.id]);
   useEffect(() => {
-    if (!activeWorkspace?.id) return;
+    if (!workspaceId) return;
     let live = true;
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError('');
-      const p = new URLSearchParams({
-        workspaceId: activeWorkspace.id,
-        page: String(page),
-        q: search,
-        estado: status,
-        vista: scope,
-        orden: sort,
-        fecha: completed ? 'cierre' : 'apertura',
-      });
-      for (const [key, value] of Object.entries({
-        tipo: type,
-        categoria: category,
-        subtipo: subtype,
-        responsable: responsible,
-        carpeta: folderId,
-        desde: from,
-        hasta: to,
-        acceso: access,
-        prioridad: priority,
-        etiqueta: tag,
-        envio: scheduled ? 'scheduled' : '',
-      }))
-        if (value) p.set(key, value);
-      caseRequest<Result>(`/api/expedientes/consultar?${p}`)
+      setMoreStatus('idle');
+      caseRequest<Result>(`/api/expedientes/consultar?${queryString}`)
         .then((result) => {
           if (!live) return;
-          setData(result);
+          setListing({ key: requestKey, result });
           setSelectedId((current) =>
             result.items.some((row) => row.id === current) ? current : result.items[0]?.id || null
           );
         })
         .catch((cause) => {
           if (live) {
-            setData(null);
+            setListing(null);
             setError(
               cause instanceof Error && cause.message === 'SESSION_POLICY_UNAVAILABLE'
                 ? 'El servicio de sesión no está disponible temporalmente. Reintenta en unos momentos.'
@@ -230,27 +244,48 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       live = false;
       window.clearTimeout(timer);
     };
-  }, [
-    activeWorkspace?.id,
-    page,
-    search,
-    status,
-    scope,
-    sort,
-    type,
-    category,
-    subtype,
-    responsible,
-    folderId,
-    from,
-    to,
-    access,
-    priority,
-    tag,
-    scheduled,
-    refresh,
-    completed,
-  ]);
+  }, [queryString, requestKey, workspaceId]);
+
+  useEffect(() => {
+    const target = moreTarget.current;
+    if (!hasMore || !data || !target || moreFailed) return;
+    let live = true;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!live || !entry?.isIntersecting) return;
+        observer.disconnect();
+        setMoreStatus('loading');
+        const params = new URLSearchParams(queryString);
+        params.set('page', String(data.page + 1));
+        caseRequest<Result>(`/api/expedientes/consultar?${params}`)
+          .then((result) => {
+            if (!live) return;
+            setMoreStatus('idle');
+            setListing((current) => {
+              if (!current || current.key !== requestKey || current.result !== data) return current;
+              const existing = new Set(data.items.map((row) => row.id));
+              return {
+                key: requestKey,
+                result: {
+                  ...result,
+                  items: [...data.items, ...result.items.filter((row) => !existing.has(row.id))],
+                },
+              };
+            });
+          })
+          .catch(() => {
+            if (live) setMoreStatus('error');
+          });
+      },
+      { rootMargin: '0px 0px 160px' }
+    );
+    observer.observe(target);
+    return () => {
+      live = false;
+      observer.disconnect();
+    };
+    // Only an error pauses the observer. The loading indicator must not cancel its request.
+  }, [data, hasMore, moreFailed, queryString, requestKey]);
 
   function change(setter: (value: string) => void, value: string) {
     setter(value);
@@ -886,21 +921,63 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       </table>
     </div>
   );
+  const caseHeading = (
+    <WorkspacePageHeader
+      title={completed ? 'Expedientes completados' : 'Expedientes'}
+      description={
+        completed
+          ? `${data?.templates.find((t) => t.id === type)?.name || 'Expedientes'} · ${data?.total ?? '…'} registros`
+          : undefined
+      }
+    >
+      {completed ? (
+        <Link href="/expedientes" className={`${control} inline-flex items-center gap-2`}>
+          <X size={15} />
+          Cerrar
+        </Link>
+      ) : (
+        <>
+          <button
+            disabled={!folders.ready}
+            onClick={() => {
+              setFolderName('');
+              setFolderDescription('');
+              setFolderError('');
+              setFolderDialog(true);
+            }}
+            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FolderPlus size={16} className="text-primary" />
+            Crear Carpeta
+          </button>
+          <Link
+            href="/expedientes/lanzar"
+            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+          >
+            <Send size={16} className="text-primary" />
+            Lanzar Expediente
+          </Link>
+        </>
+      )}
+    </WorkspacePageHeader>
+  );
+
   return (
-    <AppLayout noPadding>
-      <div
-        className={
+    <AppLayout noPadding={wide || !completed}>
+      <WorkspaceLayout
+        standaloneClassName={
           wide
             ? 'fixed inset-0 z-[100] flex overflow-y-auto bg-[#f6f8fb] dark:bg-background'
             : completed
-              ? 'mx-auto max-w-[1800px] py-2'
-              : 'workspace-layout -mx-4 -my-4 flex min-h-[calc(100dvh-104px)] flex-col bg-[#f6f8fb] md:-my-6 lg:flex-row dark:bg-background'
+              ? 'w-full'
+              : undefined
         }
       >
+        {!completed && !wide && <WorkspaceTabs active="expedientes" heading={caseHeading} />}
         {!completed && !wide && (
           <ResponsiveSidebar
             label="Filtros y carpetas de expedientes"
-            className="w-full shrink-0 border-b border-slate-200 bg-white p-3 lg:w-60 lg:border-b-0 lg:border-r 2xl:w-64 dark:border-border dark:bg-card"
+            className="workspace-sidebar w-60 shrink-0 rounded-lg border border-slate-200 bg-white p-3 lg:pt-5 xl:col-start-1 xl:row-start-2 xl:mb-5 xl:mt-4 2xl:w-64 dark:border-border dark:bg-card"
           >
             {[
               {
@@ -1016,55 +1093,10 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
           className={
             completed && !wide
               ? ''
-              : 'min-w-0 flex-1 px-4 pb-4 pt-4 sm:px-5 md:pb-5 lg:px-6 xl:px-7'
+              : `min-w-0 flex-1 pb-4 pt-4 md:pb-5 xl:col-start-2 xl:row-start-2 ${wide ? 'px-4 sm:px-5 lg:px-6 xl:px-7' : ''}`
           }
         >
-          <WorkspacePageHeader
-            title={completed ? 'Expedientes completados' : 'Expedientes'}
-            description={
-              completed
-                ? `${data?.templates.find((t) => t.id === type)?.name || 'Expedientes'} · ${data?.total ?? '…'} registros`
-                : undefined
-            }
-          >
-            {completed ? (
-              <Link href="/expedientes" className={`${control} inline-flex items-center gap-2`}>
-                <X size={15} />
-                Cerrar
-              </Link>
-            ) : (
-              <>
-                <button
-                  disabled={!folders.ready}
-                  onClick={() => {
-                    setFolderName('');
-                    setFolderDescription('');
-                    setFolderError('');
-                    setFolderDialog(true);
-                  }}
-                  className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <FolderPlus size={16} className="text-primary" />
-                  Crear Carpeta
-                </button>
-                <Link
-                  href="/expedientes/nuevo"
-                  className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-medium text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"
-                >
-                  <FilePlus size={16} />
-                  Crear Expediente
-                </Link>
-                <Link
-                  href="/expedientes/lanzar"
-                  className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
-                >
-                  <Send size={16} className="text-primary" />
-                  Lanzar Expediente
-                </Link>
-              </>
-            )}
-          </WorkspacePageHeader>
-          {!completed && <WorkspaceTabs active="expedientes" />}
+          {(completed || wide) && caseHeading}
           {viewPreferences.error && !completed && (
             <p role="alert" className="mb-4 text-sm text-amber-700">
               {viewPreferences.error}{' '}
@@ -1112,11 +1144,31 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
               <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
                 {list}
               </section>
-              {paging}
+              {hasMore && (
+                <div ref={moreTarget} className="min-h-px pt-2 text-center text-sm text-slate-500">
+                  {moreStatus === 'loading' && (
+                    <p role="status" className="py-2">
+                      Cargando más expedientes…
+                    </p>
+                  )}
+                  {moreStatus === 'error' && (
+                    <div className="py-2">
+                      <p role="alert">No se pudieron cargar más expedientes.</p>
+                      <button
+                        type="button"
+                        className="mt-1 text-primary hover:underline"
+                        onClick={() => setMoreStatus('idle')}
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </main>
-      </div>
+      </WorkspaceLayout>
       {customizeOpen && (
         <CustomizeCaseView
           open

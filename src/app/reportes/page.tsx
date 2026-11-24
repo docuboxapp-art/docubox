@@ -7,6 +7,7 @@ import { BarChart3, ChevronDown, ChevronUp, FileText, LayoutGrid, List, Pencil, 
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BUILTIN_REPORTS, DATASETS, datasetIds, type DatasetId, type ReportDefinition } from '@/lib/reporting/catalog';
 import { safeConfig } from '@/lib/reporting/engine';
@@ -21,7 +22,7 @@ export default function ReportesPage() {
   const [saved, setSaved] = useState<ReportDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [summaryOpen, setSummaryOpen] = useState(true);
+  const [summaryOpen, toggleSummary] = useSummaryExpansion('reports-summary-metrics', true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summary, setSummary] = useState<{ documents: number | null; tasks: number | null }>({ documents: null, tasks: null });
   const [query, setQuery] = useState('');
@@ -80,14 +81,14 @@ export default function ReportesPage() {
     if (removeError) setError('No se pudo eliminar el informe.'); else void load();
   };
 
-  return <AppLayout noPadding><main className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-5 sm:px-6 md:-my-6">
-    <div className="mx-auto max-w-[1600px] space-y-4">
+  return <AppLayout><main>
+    <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 pb-4">
         <div><h1 className="text-2xl font-semibold text-slate-950">Reportes</h1><p className="mt-1 text-sm text-slate-500">Consulta informes del espacio y crea análisis con datos actualizados.</p></div>
         <Link href="/reportes/constructor" className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"><Plus size={16} />Crear informe</Link>
       </header>
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <button type="button" onClick={() => setSummaryOpen(value => !value)} aria-expanded={summaryOpen} className="flex w-full items-center text-left"><span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de reportes</span><span className="text-xs text-slate-500">Datos del espacio de trabajo actual.</span></span><span className="mr-3 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{BUILTIN_REPORTS.length + saved.length} informes</span>{summaryOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+        <button type="button" onClick={toggleSummary} aria-expanded={summaryOpen} className="flex w-full items-center text-left"><span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de reportes</span><span className="text-xs text-slate-500">Datos del espacio de trabajo actual.</span></span><span className="mr-3 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{BUILTIN_REPORTS.length + saved.length} informes</span>{summaryOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
         {summaryOpen && <div className="mt-4 grid gap-3 sm:grid-cols-3">{[
           { label: 'Informes disponibles', value: BUILTIN_REPORTS.length + saved.length, icon: BarChart3, color: 'text-blue-600 bg-blue-50' },
           { label: 'Documentos analizados', value: summaryLoading ? '…' : summary.documents ?? '—', icon: FileText, color: 'text-indigo-600 bg-indigo-50' },

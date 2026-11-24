@@ -13,8 +13,8 @@ const toneClasses: Record<TrafficLight, { badge: string; dot: string; bar: strin
 
 export function CaseWorkspace({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 text-slate-950 dark:bg-background dark:text-foreground sm:px-5 md:-my-6 md:py-5 lg:px-6">
-      <main className="mx-auto w-full max-w-[1560px] min-[1920px]:max-w-[1800px]">
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] text-slate-950 dark:bg-background dark:text-foreground">
+      <main className="app-page-width">
         {children}
       </main>
     </div>

@@ -465,7 +465,7 @@ function LaunchCase({ templateId }: { templateId: string }) {
           <p className="w-full text-sm text-slate-500 lg:hidden">{activeStep.description}</p>
         </div>
       </section>
-      <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      <main ref={mainRef} className="app-page-frame min-h-0 flex-1 overflow-y-auto">
         {launchedId ? (
           <div className="mx-auto max-w-3xl space-y-4">
             <section className={cardClass}>

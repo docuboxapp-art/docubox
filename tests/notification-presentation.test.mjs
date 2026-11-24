@@ -31,5 +31,5 @@ test('routes notifications to existing destinations', () => {
   assert.equal(notificationDestination({ event_type: 'case_file.created' }), '/expedientes');
   assert.equal(notificationDestination({ type: 'request' }), '/mis-participaciones');
   assert.equal(notificationDestination({ entity_type: 'document', entity_id: '11111111-1111-4111-8111-111111111111' }), '/visor-documento/11111111-1111-4111-8111-111111111111');
-  assert.equal(notificationDestination({ type: 'document', action_url: '/mis-tareas?task=1' }), '/mis-documentos');
+  assert.equal(notificationDestination({ type: 'document', action_url: '/mis-tareas?task=1' }), '/mi-espacio');
 });

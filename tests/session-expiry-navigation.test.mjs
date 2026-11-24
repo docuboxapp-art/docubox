@@ -23,7 +23,7 @@ test('late account expiry callbacks use the current route and preserve the case 
   assert.deepEqual(redirects, ['/login?reason=session-expired']);
 });
 test('other protected account routes retain the expiry redirect', () => {
-  for (const pathname of ['/expedientes', '/formularios', '/mis-documentos', '/configuracion']) {
+  for (const pathname of ['/expedientes', '/formularios', '/mi-espacio', '/configuracion']) {
     const redirects = [];
     redirectExpiredAccountSession({ pathname, assign: (path) => redirects.push(path) });
     assert.deepEqual(redirects, ['/login?reason=session-expired']);

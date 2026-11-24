@@ -241,8 +241,8 @@ function ShellContent({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppLayout noPadding>
-      <div className="colabora-console -mx-4 -my-4 min-h-[calc(100vh-104px)] bg-slate-50 md:-my-6 dark:bg-background">
+    <AppLayout>
+      <div className="colabora-console bg-slate-50 dark:bg-background">
         <header className="border-b border-border bg-background px-5 py-5 lg:px-7">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

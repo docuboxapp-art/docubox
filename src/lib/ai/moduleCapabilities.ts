@@ -206,7 +206,7 @@ const documents = defineModule(
       'versiones o eventos reales',
     ],
   },
-  ['/mis-documentos', '/documentos/[documentId]/revision', '/documentos/[documentId]/versiones']
+  ['/mi-espacio', '/documentos/[documentId]/revision', '/documentos/[documentId]/versiones']
 );
 
 const sharedDocuments = defineModule(
@@ -1199,6 +1199,7 @@ const redirectAliases = defineModule(
   },
   [
     { routePattern: '/documents-dashboard', canonicalRoute: '/inicio' },
+    { routePattern: '/mis-documentos', canonicalRoute: '/mi-espacio' },
     { routePattern: '/pending-tasks', canonicalRoute: '/inicio' },
     { routePattern: '/mis-tareas', canonicalRoute: '/inicio' },
     { routePattern: '/mis-tareas/automatizaciones', canonicalRoute: '/inicio' },

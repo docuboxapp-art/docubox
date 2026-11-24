@@ -6133,9 +6133,9 @@ export default function VisorDocumentoPage() {
   const PDF_SHEET_REF_WIDTH = 800;
 
   return (
-    <AppLayout>
+    <AppLayout noPadding>
       <div
-        className={`document-viewer-shell -mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 sm:-mx-6 md:-my-6 lg:-mx-8 xl:-mx-10 ${sidebarOpen ? 'with-sidebar' : ''}`}
+        className={`document-viewer-shell -mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 md:-my-6 ${sidebarOpen ? 'with-sidebar' : ''}`}
       >
         {/* Document Top Bar */}
         <div className="viewer-document-header flex min-h-16 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:flex-nowrap md:px-5">
@@ -6192,7 +6192,7 @@ export default function VisorDocumentoPage() {
               <div className="ml-auto flex flex-shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => (isEnProgreso ? router.back() : router.push('/mis-documentos'))}
+                  onClick={() => (isEnProgreso ? router.back() : router.push('/mi-espacio'))}
                   className={`flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-600 transition-colors ${
                     isEnProgreso
                       ? 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800'

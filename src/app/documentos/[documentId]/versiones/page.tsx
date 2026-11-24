@@ -110,8 +110,8 @@ export default function VersionComparatorPage({
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-64px)] bg-slate-50 p-5 md:-my-6 lg:p-7 dark:bg-background">
-        <div className="mx-auto max-w-[1450px] space-y-5">
+      <div className="app-page-bleed app-page-frame bg-slate-50 dark:bg-background">
+        <div className="app-page-width space-y-5">
           <div>
             <Link
               href={`/documentos/${documentId}/revision`}

@@ -118,7 +118,7 @@ export function GeneralSettings() {
   const selectedType = types.find((item) => item.id === settings.documentTypeId);
   const selectedTags = tags.filter((item) => settings.tagIds.includes(item.id));
   return (
-    <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="app-page-frame app-page-width grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
         <div className="mb-5">
           <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
@@ -519,7 +519,7 @@ export function FormAppearanceSettings({
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.85fr)]">
+    <div className="app-page-frame app-page-width grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.85fr)]">
       <div className="min-w-0 space-y-5">
         <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
           <h2 className="text-base font-medium text-slate-950 dark:text-foreground">
@@ -816,7 +816,7 @@ export function PdfSettings({ onSaveForm }: { onSaveForm: () => Promise<string |
     }
   };
   return (
-    <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 items-start gap-5 p-5 sm:p-8 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.85fr)]">
+    <div className="app-page-frame app-page-width grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.85fr)]">
       <div className="min-w-0 space-y-5">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
           <h2 className="text-base font-medium text-slate-950 dark:text-foreground">

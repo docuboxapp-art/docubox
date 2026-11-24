@@ -207,7 +207,7 @@ export default function ExpedienteDetailPage() {
             </p>
             <button
               type="button"
-              onClick={() => router.push('/mis-documentos?pestana=expedientes')}
+              onClick={() => router.push('/mi-espacio?pestana=expedientes')}
               className="mt-5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white"
             >
               Volver a mis expedientes
@@ -222,7 +222,7 @@ export default function ExpedienteDetailPage() {
     <AppLayout noPadding>
       <CaseWorkspace>
         <button
-          onClick={() => router.push('/mis-documentos?pestana=expedientes')}
+          onClick={() => router.push('/mi-espacio?pestana=expedientes')}
           className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-primary"
         >
           <ArrowLeft size={14} /> Mis expedientes

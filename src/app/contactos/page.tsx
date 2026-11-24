@@ -874,8 +874,8 @@ export default function ContactosPage() {
 
   return (
     <AppLayout noPadding>
-      <div className={(isWideView ? 'fixed inset-0 z-[100] overflow-y-auto' : '-mx-4 -my-4 min-h-[calc(100vh-4rem)] md:-my-6') + ' bg-[#f6f8fb]'}>
-        <div className={'mx-auto min-w-0 w-full px-4 py-4 sm:px-5 md:py-5 lg:px-6 ' + (isWideView ? '' : 'max-w-[1560px] min-[1920px]:max-w-[1800px]')}>
+      <div className={`app-page-frame bg-[#f6f8fb] dark:bg-background ${isWideView ? 'fixed inset-0 z-[100] overflow-y-auto' : 'app-page-bleed'}`}>
+        <div className={isWideView ? 'min-w-0 w-full' : 'app-page-width'}>
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div><h1 className="text-2xl font-600 text-slate-950">Contactos</h1><p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta los documentos compartidos.</p></div>
             <button type="button" onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"><Plus size={16} /> Agregar contacto</button>

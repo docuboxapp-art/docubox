@@ -99,8 +99,8 @@
     font-weight: 500 !important;
   }
 
-  .mis-documentos-filters button,
-  .mis-documentos-filters button * {
+  :is(.mis-documentos-filters, .activity-filters) button,
+  :is(.mis-documentos-filters, .activity-filters) button * {
     font-weight: 400 !important;
   }
 

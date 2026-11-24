@@ -1033,8 +1033,8 @@ export default function NuevoExpedientePage() {
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {activeStep.id === 'general' && (
-          <div className="w-full overflow-y-auto px-4 py-6 lg:px-6">
-            <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="app-page-frame w-full overflow-y-auto">
+            <div className="app-page-width grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
               <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
                 <div className="mb-5">
                   <h2 className="text-base font-medium">Propiedades del expediente</h2>
@@ -1713,7 +1713,7 @@ export default function NuevoExpedientePage() {
         )}
 
         {activeStep.id === 'preview' && (
-          <div className="w-full overflow-y-auto px-4 py-6 lg:px-6">
+          <div className="app-page-frame w-full overflow-y-auto">
             <div
               className={`mx-auto space-y-4 rounded-xl p-4 ${draft.appearance.width === 'wide' ? 'max-w-[1480px]' : 'max-w-[1100px]'}`}
               style={{ backgroundColor: draft.appearance.backgroundColor }}
@@ -1910,7 +1910,7 @@ export default function NuevoExpedientePage() {
         )}
 
         {activeStep.id === 'publish' && (
-          <div className="w-full overflow-y-auto px-4 py-6 lg:px-6">
+          <div className="app-page-frame w-full overflow-y-auto">
             <div className="mx-auto grid max-w-[1100px] gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
               <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-border dark:bg-card">
                 <h2 className="text-lg font-semibold">Publicación</h2>

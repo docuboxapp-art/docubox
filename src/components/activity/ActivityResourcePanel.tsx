@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
+  Calendar,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -14,9 +16,10 @@ import {
   LayoutGrid,
   LayoutList,
   Loader2,
-  RefreshCw,
+  ArrowUpDown,
   Search,
   Send,
+  User,
   Zap,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
@@ -26,6 +29,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   ACTIVITY_STATE_LABELS,
   filterActivity,
+  matchesActivityState,
   type ActivityAction,
   type ActivityItem,
   type ActivityKind,
@@ -33,6 +37,16 @@ import {
   type ActivityState,
 } from '@/lib/activity/model';
 import ActivityTypeTabs from './ActivityTypeTabs';
+import ActivityViewTabs from './ActivityViewTabs';
+import { ActivityBoard, ActivityCalendar } from './ActivityAlternateViews';
+import {
+  ACTIVITY_TERMINAL_STATES,
+  activityStateDateField,
+  activityTimelineDate,
+  initialActivityPeriod,
+  moveActivityCalendar,
+  type ActivityCalendarView,
+} from '@/lib/activity/views';
 import { activityErrorMessage } from '@/lib/activity/request-error';
 
 const control =
@@ -52,6 +66,17 @@ const tones: Record<ActivityState, string> = {
   signature: 'bg-amber-50 text-amber-700',
   paused: 'bg-slate-100 text-slate-600',
   failed: 'bg-red-50 text-red-700',
+};
+const activityActionStyle =
+  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40';
+const inlineActionStyle =
+  'border border-slate-200 bg-white font-medium text-primary hover:bg-blue-50 dark:border-border dark:bg-card';
+const boardActionStyle = 'w-full bg-primary font-semibold text-white hover:bg-primary/90';
+const boardCardTones: Partial<Record<ActivityState, string>> = {
+  completed: 'border-emerald-200/70 from-emerald-50/50 dark:from-emerald-950/30',
+  expired: 'border-amber-200/70 from-amber-50/50 dark:from-amber-950/30',
+  observed: 'border-red-200/70 from-red-50/50 dark:from-red-950/30',
+  failed: 'border-red-200/70 from-red-50/50 dark:from-red-950/30',
 };
 async function activityRequest<T>(url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const {
@@ -95,19 +120,22 @@ export default function ActivityResourcePanel({
   const loading = !user?.id || data?.key !== requestKey;
   const error = data?.key === requestKey ? data.error : '';
   const [grid, setGrid] = useState(false);
+  const [view, setView] = useState<'lista' | 'tablero' | 'calendario'>('lista');
+  const [calendarView, setCalendarView] = useState<ActivityCalendarView>('mes');
+  const [selectedCalendarDate, setCalendarDate] = useState<Date | null>(null);
+  const [selectedBoardDate, setBoardDate] = useState<Date | null>(null);
+  const [calendarState, setCalendarState] = useState('');
   const [page, setPage] = useState(1);
   const [criteria, setCriteria] = useState({
     search: '',
     state: '',
-    access: '',
-    workspace: '',
     from: '',
     to: '',
     sort: 'recent',
+    period: 'all',
   });
   const items = data?.userId === user?.id ? data?.items || [] : [];
   const Icon = kind === 'formularios' ? ClipboardList : FolderKanban;
-  const singular = kind === 'formularios' ? 'formulario' : 'expediente';
   const title = mode === 'sent' ? 'Solicitudes enviadas' : 'Mis participaciones';
   useEffect(() => {
     if (!user?.id) return;
@@ -139,17 +167,47 @@ export default function ActivityResourcePanel({
     setCriteria((current) => ({ ...current, [key]: value }));
     setPage(1);
   }
-  const filtered = filterActivity(items, criteria);
+  const filtered = filterActivity(items, {
+    ...criteria,
+    dateField: criteria.period === 'all' ? 'sent' : activityStateDateField(criteria.state),
+    from: criteria.period === 'custom' ? criteria.from : '',
+    to: criteria.period === 'custom' ? criteria.to : '',
+    period: criteria.period === 'custom' ? 'all' : criteria.period,
+  });
   const totalPages = Math.max(1, Math.ceil(filtered.length / 20));
   const currentPage = Math.min(page, totalPages);
   const visible = filtered.slice((currentPage - 1) * 20, currentPage * 20);
-  const states = Object.entries(ACTIVITY_STATE_LABELS).filter(([state]) =>
-    items.some((item) => item.state === state)
-  );
-  const workspaces = [
-    ...new Map(items.map((item) => [item.workspaceId, item.workspace])).entries(),
+  const states = [
+    ['', 'Todos'],
+    ['in_progress', 'En progreso'],
+    ...(kind === 'expedientes' ? [['urgent', 'Urgentes']] : []),
+    ['due', 'Próximos a vencer'],
+    ...(kind === 'formularios' ? [['pending', 'Pendientes']] : []),
+    ['completed', 'Completados'],
+    ['expired', 'Vencidos'],
+    ['cancelled', 'Cancelados'],
+    ...(['signature', 'observed', 'scheduled', 'paused', 'failed'] as const)
+      .filter((state) => items.some((item) => item.state === state))
+      .map((state) => [state, ACTIVITY_STATE_LABELS[state]]),
   ];
-  const activeFilters = Object.entries(criteria).some(([key, value]) => key !== 'sort' && !!value);
+  const boardDate =
+    selectedBoardDate ?? initialActivityPeriod(view === 'tablero' ? items : [], 'mes');
+  const boardItems =
+    view === 'tablero'
+      ? items.filter((item) => {
+          const day = activityTimelineDate(item);
+          return (
+            day?.getMonth() === boardDate.getMonth() &&
+            day.getFullYear() === boardDate.getFullYear()
+          );
+        })
+      : [];
+  const calendarField = calendarState === 'due' ? 'expires' : undefined;
+  const calendarItems =
+    view === 'calendario' ? items.filter((item) => matchesActivityState(item, calendarState)) : [];
+  const calendarDate =
+    selectedCalendarDate ?? initialActivityPeriod(calendarItems, calendarView, calendarField);
+  const activeFilters = !!(criteria.search || criteria.state || criteria.period !== 'all');
   async function open(item: ActivityItem, action: ActivityAction) {
     if (!action.open || action.disabledReason) return;
     setBusy(item.id);
@@ -169,17 +227,20 @@ export default function ActivityResourcePanel({
       setBusy(null);
     }
   }
-  const actions = (item: ActivityItem) => (
+  const actions = (item: ActivityItem, board = false) => (
     <div className="flex flex-wrap items-center gap-2">
-      {item.actions.map((action) =>
-        action.href ? (
+      {item.actions.map((action, index) => {
+        const style =
+          board && index === 0 && !action.disabledReason ? boardActionStyle : inlineActionStyle;
+        return action.href ? (
           <Link
             key={action.label}
             href={action.href}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-blue-50 dark:border-border dark:bg-card"
+            prefetch={false}
+            className={`${activityActionStyle} ${style}`}
           >
             {action.label}
-            <ChevronRight size={14} />
+            <ChevronRight size={14} aria-hidden="true" />
           </Link>
         ) : (
           <button
@@ -188,14 +249,14 @@ export default function ActivityResourcePanel({
             disabled={busy !== null || !!action.disabledReason}
             title={action.disabledReason}
             onClick={() => void open(item, action)}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:opacity-70 dark:border-border dark:bg-card"
+            className={`${activityActionStyle} ${style} disabled:cursor-not-allowed disabled:opacity-60`}
           >
             {busy === item.id ? <Loader2 size={14} className="animate-spin" /> : null}
             {action.label}
-            <ChevronRight size={14} />
+            <ChevronRight size={14} aria-hidden="true" />
           </button>
-        )
-      )}
+        );
+      })}
     </div>
   );
   const stateBadge = (item: ActivityItem) => (
@@ -226,10 +287,119 @@ export default function ActivityResourcePanel({
     ) : (
       <span className="text-xs text-slate-500">{item.detail}</span>
     );
+  const card = (item: ActivityItem, compact = false) => (
+    <article
+      key={item.id}
+      className={`min-w-0 rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card ${compact ? 'p-2' : 'p-4'}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {!compact && <Icon size={18} className="shrink-0 text-primary" />}
+        {stateBadge(item)}
+      </div>
+      <h3
+        className={`mt-2 break-words font-medium text-slate-900 dark:text-foreground ${compact ? 'text-xs' : 'text-sm'}`}
+      >
+        {item.title}
+      </h3>
+      {item.priority === 'urgent' && (
+        <span className="mt-1 inline-flex items-center gap-1 text-xs text-orange-600">
+          <Zap size={12} />
+          Urgente
+        </span>
+      )}
+      <p className="mt-2 break-words text-xs text-slate-500">{item.person}</p>
+      {!compact && (
+        <>
+          <p className="mt-1 break-words text-xs text-slate-400">{item.role}</p>
+          <p className="mt-1 break-all text-xs text-slate-400">
+            {item.reference || item.workspace}
+          </p>
+          <p className="mt-3 text-xs text-slate-500">
+            {mode === 'sent' ? 'Envío' : 'Recibido'}: {date(item.sentAt)}
+          </p>
+          {item.scheduledAt && (
+            <p className="mt-1 text-xs text-indigo-600">Programado: {date(item.scheduledAt)}</p>
+          )}
+          {item.expiresAt && (
+            <p className="mt-1 text-xs text-slate-500">Vence: {date(item.expiresAt)}</p>
+          )}
+          <div className="my-3">{progress(item)}</div>
+        </>
+      )}
+      <div className="mt-3">{actions(item)}</div>
+    </article>
+  );
+  const boardCard = (item: ActivityItem) => {
+    const expiresSoon = matchesActivityState(item, 'due');
+    const timing =
+      item.state === 'scheduled' && item.scheduledAt
+        ? `Programado: ${date(item.scheduledAt)}`
+        : item.state === 'completed'
+          ? `Última actividad: ${date(item.updatedAt)}`
+          : item.expiresAt
+            ? `${item.state === 'expired' ? 'Venció' : 'Vence'}: ${date(item.expiresAt)}`
+            : 'Sin vencimiento';
+    return (
+      <article
+        key={item.id}
+        className={`flex min-w-0 flex-col gap-3 rounded-lg border bg-gradient-to-br via-white to-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300 dark:border-border dark:via-card dark:to-card ${boardCardTones[item.state] ?? 'border-slate-200/90 from-primary/5'}`}
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tones[item.state]}`}
+          >
+            <Icon size={18} aria-hidden="true" />
+          </span>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${expiresSoon ? 'bg-amber-100 text-amber-800' : tones[item.state]}`}
+          >
+            {expiresSoon && <Clock size={12} aria-hidden="true" />}
+            {expiresSoon ? 'Próximo a vencer' : item.stateLabel}
+          </span>
+          {item.priority === 'urgent' && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[11px] text-red-600">
+              <AlertTriangle size={11} aria-hidden="true" /> Urgente
+            </span>
+          )}
+        </div>
+        <div className="min-w-0">
+          <h3
+            className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground"
+            title={item.title}
+          >
+            {item.title}
+          </h3>
+          <p className="mt-1 break-words text-[11px] text-muted-foreground">
+            {[
+              item.reference || item.workspace,
+              `${mode === 'sent' ? 'Envío' : 'Recibido'}: ${date(item.sentAt)}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+        <div className="space-y-2 border-t border-slate-200/70 pt-3 dark:border-border">
+          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <User size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 break-words">
+              {item.person}
+              {item.role && <span className="block">{item.role}</span>}
+            </span>
+          </p>
+          {progress(item)}
+        </div>
+        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Calendar size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{timing}</span>
+        </p>
+        {actions(item, true)}
+      </article>
+    );
+  };
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100dvh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6 dark:bg-background">
-        <div className="mx-auto w-full max-w-[1600px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width">
           <header className="mb-4 border-b border-slate-200/80 pb-4">
             <h1 className="text-2xl font-600 leading-tight text-slate-950 dark:text-foreground">
               {title}
@@ -241,30 +411,18 @@ export default function ActivityResourcePanel({
             </p>
           </header>
           <ActivityTypeTabs mode={mode} active={kind} />
-          <div className="mb-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-border dark:bg-card">
-            <span
-              className={`rounded-lg p-2 ${kind === 'formularios' ? 'bg-indigo-50 text-indigo-600' : 'bg-blue-50 text-primary'}`}
-            >
-              <Icon size={19} />
-            </span>
-            <div>
-              <h2 className="text-sm font-medium text-slate-900 dark:text-foreground">
-                {kind === 'formularios' ? 'Formularios' : 'Expedientes'}{' '}
-                {mode === 'sent' ? 'enviados' : 'en los que participas'}
-              </h2>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                {kind === 'formularios'
-                  ? 'Respuestas y firmas de formularios independientes. Los vinculados a un expediente se atienden desde su expediente.'
-                  : mode === 'received'
-                    ? 'Invitaciones recibidas y responsabilidades de administración, revisión, aprobación o cierre que tienes asignadas.'
-                    : 'Seguimiento de los expedientes que lanzaste y de sus invitaciones a participantes.'}
-              </p>
-            </div>
-          </div>
           <ActivitySummary
             id={`${mode}-${kind}-summary`}
             title={mode === 'sent' ? 'Resumen de solicitudes' : 'Resumen de participaciones'}
-            description={`Estado de tus ${kind}.`}
+            description={
+              mode === 'received'
+                ? kind === 'formularios'
+                  ? 'Respuestas y firmas de formularios independientes. Los vinculados a un expediente se atienden desde su expediente.'
+                  : 'Invitaciones recibidas y responsabilidades de administración, revisión, aprobación o cierre que tienes asignadas.'
+                : kind === 'formularios'
+                  ? 'Consulta las respuestas y firmas de los formularios que enviaste. Los formularios vinculados se consultan desde su expediente.'
+                  : 'Consulta el avance de los expedientes que lanzaste y el estado de las invitaciones a sus participantes.'
+            }
             metrics={[
               {
                 label: mode === 'sent' ? 'Solicitudes enviadas' : 'Participaciones',
@@ -296,147 +454,201 @@ export default function ActivityResourcePanel({
           />
           <section
             aria-label={`Filtros de ${kind}`}
-            className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-border dark:bg-card"
+            className="mb-4 overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
           >
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-40 flex-1">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-3 top-2.5 text-slate-400"
-                />
-                <input
-                  aria-label={`Buscar ${kind}`}
-                  placeholder={`Buscar por ${singular}, nombre, correo o folio…`}
-                  value={criteria.search}
-                  onChange={(event) => change('search', event.target.value)}
-                  className={`${control} w-full pl-9`}
-                />
-              </div>
-              <select
-                aria-label="Ordenar"
-                value={criteria.sort}
-                onChange={(event) => change('sort', event.target.value)}
-                className={control}
-              >
-                <option value="recent">Más recientes</option>
-                <option value="oldest">Más antiguos</option>
-                <option value="name">Nombre A–Z</option>
-                {kind === 'expedientes' && <option value="urgent">Urgentes primero</option>}
-              </select>
-              <div className="flex rounded-md border border-slate-200 p-0.5">
-                <button
-                  type="button"
-                  aria-label="Vista lista"
-                  aria-pressed={!grid}
-                  onClick={() => setGrid(false)}
-                  className={`rounded p-2 ${!grid ? 'bg-slate-100 text-slate-900' : 'text-slate-400'}`}
-                >
-                  <LayoutList size={16} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Vista cuadrícula"
-                  aria-pressed={grid}
-                  onClick={() => setGrid(true)}
-                  className={`rounded p-2 ${grid ? 'bg-slate-100 text-slate-900' : 'text-slate-400'}`}
-                >
-                  <LayoutGrid size={16} />
-                </button>
-              </div>
-              <button
-                type="button"
-                aria-label="Actualizar bandeja"
-                disabled={loading}
-                onClick={() => setRefresh((value) => value + 1)}
-                className={`${control} px-2.5`}
-              >
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-              </button>
-            </div>
-            <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Estado
-                <select
-                  value={criteria.state}
-                  onChange={(event) => change('state', event.target.value)}
-                  className={control}
-                >
-                  <option value="">Todos los estados</option>
-                  {states.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Acceso
-                <select
-                  value={criteria.access}
-                  onChange={(event) => change('access', event.target.value)}
-                  className={control}
-                >
-                  <option value="">Todas las modalidades</option>
-                  <option value="private">Privado</option>
-                  <option value="public">Con código</option>
-                </select>
-              </label>
-              <label className="flex min-w-0 flex-col gap-1 text-xs text-slate-500">
-                Espacio de trabajo
-                <select
-                  value={criteria.workspace}
-                  onChange={(event) => change('workspace', event.target.value)}
-                  className={`${control} max-w-60`}
-                >
-                  <option value="">Todos mis espacios</option>
-                  {workspaces.map(([id, name]) => (
-                    <option key={id} value={id}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                {mode === 'sent' ? 'Envío desde' : 'Recibido desde'}
-                <input
-                  type="date"
-                  value={criteria.from}
-                  max={criteria.to || undefined}
-                  onChange={(event) => change('from', event.target.value)}
-                  className={control}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate-500">
-                Hasta
-                <input
-                  type="date"
-                  value={criteria.to}
-                  min={criteria.from || undefined}
-                  onChange={(event) => change('to', event.target.value)}
-                  className={control}
-                />
-              </label>
-              {activeFilters && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCriteria({
-                      search: '',
-                      state: '',
-                      access: '',
-                      workspace: '',
-                      from: '',
-                      to: '',
-                      sort: 'recent',
-                    });
-                    setPage(1);
-                  }}
-                  className="min-h-9 px-2 text-xs text-primary hover:underline"
-                >
-                  Limpiar filtros
-                </button>
+            <div className="flex flex-col items-start justify-between gap-3 p-3 sm:flex-row sm:items-center">
+              <ActivityViewTabs value={view} onChange={setView} />
+              {view === 'lista' && (
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
+                  <div className="relative min-w-32 flex-1 lg:w-72">
+                    <Search
+                      size={15}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <input
+                      aria-label={`Buscar ${kind}`}
+                      placeholder="Buscar..."
+                      value={criteria.search}
+                      onChange={(event) => change('search', event.target.value)}
+                      className={`${control} w-full bg-slate-50/70 pl-9`}
+                    />
+                  </div>
+                  <div className="relative">
+                    <ArrowUpDown
+                      size={15}
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500"
+                      aria-hidden="true"
+                    />
+                    <select
+                      aria-label="Ordenar por fecha"
+                      value={criteria.sort}
+                      onChange={(event) => change('sort', event.target.value)}
+                      className={`${control} pl-8`}
+                    >
+                      <option value="recent">Más recientes</option>
+                      <option value="oldest">Más antiguos</option>
+                    </select>
+                  </div>
+                  <div className="flex h-9 items-center rounded-md border border-slate-200 p-0.5 dark:border-border">
+                    <button
+                      type="button"
+                      aria-label="Vista lista"
+                      aria-pressed={!grid}
+                      onClick={() => setGrid(false)}
+                      className={`flex h-7 w-8 items-center justify-center rounded ${!grid ? 'bg-muted text-foreground' : 'text-slate-400 hover:bg-muted/50'}`}
+                    >
+                      <LayoutList size={16} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Vista cuadrícula"
+                      aria-pressed={grid}
+                      onClick={() => setGrid(true)}
+                      className={`flex h-7 w-8 items-center justify-center rounded ${grid ? 'bg-primary text-white' : 'text-slate-400 hover:bg-muted/50'}`}
+                    >
+                      <LayoutGrid size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {view === 'tablero' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500">Periodo</span>
+                  <div className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-card px-2 dark:border-border">
+                    <button
+                      type="button"
+                      aria-label="Mes anterior"
+                      onClick={() =>
+                        setBoardDate((current) =>
+                          moveActivityCalendar(current ?? boardDate, 'mes', -1)
+                        )
+                      }
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span
+                      className="min-w-[110px] text-center text-xs font-medium"
+                      aria-live="polite"
+                    >
+                      {boardDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Mes siguiente"
+                      onClick={() =>
+                        setBoardDate((current) =>
+                          moveActivityCalendar(current ?? boardDate, 'mes', 1)
+                        )
+                      }
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {view === 'calendario' && (
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  Periodo
+                  <select
+                    aria-label="Periodo del calendario"
+                    value={calendarView}
+                    onChange={(event) =>
+                      setCalendarView(event.target.value as ActivityCalendarView)
+                    }
+                    className={control}
+                  >
+                    <option value="mes">Mes</option>
+                    <option value="semana">Semana</option>
+                    <option value="dia">Día</option>
+                  </select>
+                </label>
               )}
             </div>
+            {view !== 'tablero' && (
+              <div className="activity-filters flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-border dark:bg-muted/20">
+                <div
+                  role="group"
+                  aria-label="Estados de la bandeja"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {states.map(([value, label]) => {
+                    const selected = (view === 'lista' ? criteria.state : calendarState) === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => {
+                          if (view === 'calendario') {
+                            if (value !== calendarState) setCalendarDate(null);
+                            setCalendarState(value);
+                            return;
+                          }
+                          setCriteria((current) => ({
+                            ...current,
+                            state: value,
+                            period: 'all',
+                            from: '',
+                            to: '',
+                          }));
+                          setPage(1);
+                        }}
+                        className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${selected ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-muted-foreground'}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {view === 'lista' && ACTIVITY_TERMINAL_STATES.includes(criteria.state) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      Periodo
+                      <select
+                        aria-label="Periodo del estado"
+                        value={criteria.period}
+                        onChange={(event) => change('period', event.target.value)}
+                        className={`${control} h-8 text-xs`}
+                      >
+                        <option value="all">Cualquier fecha</option>
+                        <option value="365">Último año</option>
+                        <option value="30">Últimos 30 días</option>
+                        <option value="7">Últimos 7 días</option>
+                        <option value="today">Hoy</option>
+                        <option value="custom">Rango personalizado</option>
+                      </select>
+                    </label>
+                    {criteria.period === 'custom' && (
+                      <>
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Desde
+                          <input
+                            type="date"
+                            value={criteria.from}
+                            max={criteria.to || undefined}
+                            onChange={(event) => change('from', event.target.value)}
+                            className={`${control} h-8 text-xs`}
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Hasta
+                          <input
+                            type="date"
+                            value={criteria.to}
+                            min={criteria.from || undefined}
+                            onChange={(event) => change('to', event.target.value)}
+                            className={`${control} h-8 text-xs`}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
           {actionError && (
             <p
@@ -448,7 +660,11 @@ export default function ActivityResourcePanel({
           )}
           <section
             aria-label={`Listado de ${kind}`}
-            className="min-h-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card"
+            className={
+              view === 'tablero' && !loading && !error && boardItems.length
+                ? 'min-w-0'
+                : 'min-h-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card'
+            }
           >
             {loading ? (
               <p
@@ -469,49 +685,41 @@ export default function ActivityResourcePanel({
                   Reintentar
                 </button>
               </div>
-            ) : !visible.length ? (
+            ) : view === 'tablero' && boardItems.length ? (
+              <ActivityBoard items={boardItems} kind={kind} mode={mode} renderItem={boardCard} />
+            ) : view === 'calendario' ? (
+              <ActivityCalendar
+                items={calendarItems}
+                field={calendarField}
+                anchor={calendarDate}
+                view={calendarView}
+                onDateChange={setCalendarDate}
+                onViewChange={setCalendarView}
+                renderItem={card}
+              />
+            ) : view === 'tablero' || !visible.length ? (
               <div className="flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center">
                 <Icon size={30} className="mb-3 text-slate-300" />
                 <h2 className="text-sm font-medium text-slate-900 dark:text-foreground">
-                  {activeFilters
-                    ? 'No hay resultados con estos filtros'
-                    : `Aún no tienes ${kind} ${mode === 'sent' ? 'enviados' : 'en esta bandeja'}`}
+                  {view === 'tablero'
+                    ? `No hay ${kind} en este periodo`
+                    : activeFilters
+                      ? 'No hay resultados con estos filtros'
+                      : `Aún no tienes ${kind} ${mode === 'sent' ? 'enviados' : 'en esta bandeja'}`}
                 </h2>
                 <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">
-                  {activeFilters
-                    ? 'Ajusta los criterios para consultar otros registros.'
-                    : mode === 'sent'
-                      ? `Los lanzamientos de ${kind} aparecerán aquí para darles seguimiento.`
-                      : `Aquí aparecerán las invitaciones y participaciones de ${kind} asociadas a tu cuenta.`}
+                  {view === 'tablero'
+                    ? 'Selecciona otro mes para consultar su actividad.'
+                    : activeFilters
+                      ? 'Ajusta los criterios para consultar otros registros.'
+                      : mode === 'sent'
+                        ? `Los lanzamientos de ${kind} aparecerán aquí para darles seguimiento.`
+                        : `Aquí aparecerán las invitaciones y participaciones de ${kind} asociadas a tu cuenta.`}
                 </p>
               </div>
             ) : grid ? (
               <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
-                {visible.map((item) => (
-                  <article
-                    key={item.id}
-                    className="min-w-0 rounded-lg border border-slate-200 p-4 dark:border-border"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <Icon size={20} className="shrink-0 text-primary" />
-                      {stateBadge(item)}
-                    </div>
-                    <h3 className="mt-3 break-words text-sm font-medium">{item.title}</h3>
-                    {item.reference && (
-                      <p className="mt-1 break-all text-xs text-slate-400">{item.reference}</p>
-                    )}
-                    <p className="mt-3 break-words text-xs text-slate-600">{item.person}</p>
-                    <p className="mt-1 break-words text-xs text-slate-400">{item.role}</p>
-                    <p className="mt-3 text-xs text-slate-500">{date(item.sentAt)}</p>
-                    {item.state === 'scheduled' && item.scheduledAt && (
-                      <p className="mt-1 text-xs text-indigo-600">
-                        Programado: {date(item.scheduledAt)}
-                      </p>
-                    )}
-                    <div className="my-3">{progress(item)}</div>
-                    {actions(item)}
-                  </article>
-                ))}
+                {visible.map((item) => card(item))}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -613,36 +821,40 @@ export default function ActivityResourcePanel({
               </div>
             )}
           </section>
-          {!loading && !error && (
+          {!loading && !error && view !== 'calendario' && (
             <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
               <span>
-                {filtered.length
-                  ? `Mostrando ${(currentPage - 1) * 20 + 1}–${Math.min(currentPage * 20, filtered.length)} de ${filtered.length} ${kind}`
-                  : `0 ${kind}`}
+                {view !== 'lista'
+                  ? `${boardItems.length} ${kind} en este periodo`
+                  : filtered.length
+                    ? `Mostrando ${(currentPage - 1) * 20 + 1}–${Math.min(currentPage * 20, filtered.length)} de ${filtered.length} ${kind}`
+                    : `0 ${kind}`}
               </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Página anterior"
-                  disabled={currentPage === 1}
-                  onClick={() => setPage(currentPage - 1)}
-                  className={`${control} px-2 disabled:opacity-40`}
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <span>
-                  {currentPage} de {totalPages}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Página siguiente"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setPage(currentPage + 1)}
-                  className={`${control} px-2 disabled:opacity-40`}
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
+              {view === 'lista' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="Página anterior"
+                    disabled={currentPage === 1}
+                    onClick={() => setPage(currentPage - 1)}
+                    className={`${control} px-2 disabled:opacity-40`}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span>
+                    {currentPage} de {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Página siguiente"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setPage(currentPage + 1)}
+                    className={`${control} px-2 disabled:opacity-40`}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
             </footer>
           )}
         </div>

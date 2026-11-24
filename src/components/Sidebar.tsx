@@ -46,7 +46,7 @@ const BASE_NAV_SECTIONS = [
     label: 'Principal',
     items: [
       { href: '/inicio', icon: LayoutDashboard, label: 'Dashboard', badge: null },
-      { href: '/mis-documentos', icon: FolderOpen, label: 'Mi Espacio', badge: null },
+      { href: '/mi-espacio', icon: FolderOpen, label: 'Mi Espacio', badge: null },
       { href: '/compartidos-conmigo', icon: Files, label: 'Compartidos conmigo', badge: null },
     ],
   },

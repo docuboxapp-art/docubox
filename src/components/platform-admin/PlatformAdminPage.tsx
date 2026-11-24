@@ -973,7 +973,7 @@ export default async function PlatformAdminPage({ params }: PageProps) {
   const overview = key === '' ? await loadPlatformOverview() : null;
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="app-page-frame app-page-width">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase text-blue-600">Control Plane</p>

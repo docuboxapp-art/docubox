@@ -24,7 +24,9 @@ export default function WorkspacePageHeader({
   return (
     <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
-        <h1 className="flex items-center gap-2 text-2xl font-600 text-slate-950">{title}</h1>
+        <h1 className="text-2xl font-600 leading-tight text-slate-950 dark:text-foreground">
+          {title}
+        </h1>
         <p className="mt-1 text-sm text-slate-500">
           {description ?? (
             <>

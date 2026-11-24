@@ -12,5 +12,5 @@ export default async function ConsultCasePage({
     const value = previous[key];
     if (typeof value === 'string') params.set(key, value);
   }
-  redirect('/mis-documentos?' + params);
+  redirect('/mi-espacio?' + params);
 }

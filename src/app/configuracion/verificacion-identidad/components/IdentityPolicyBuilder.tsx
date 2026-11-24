@@ -70,16 +70,16 @@ export default function IdentityPolicyBuilder({ policyId }: { policyId?: string 
 
   if (loading) return <AppLayout noPadding><div className="flex min-h-[calc(100vh-4rem)] items-center justify-center bg-[#f6f8fb]"><Loader2 size={24} className="animate-spin text-primary" /></div></AppLayout>;
 
-  return <AppLayout noPadding>
-    <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] dark:bg-background md:-my-6">
-      <header className="flex min-h-[72px] items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-border dark:bg-card md:px-6">
+  return <AppLayout>
+    <div>
+      <header className="flex min-h-[56px] items-center justify-between gap-2 border-b border-slate-200 pb-4 dark:border-border">
         <div className="flex min-w-0 items-center gap-3"><button onClick={() => router.push('/configuracion/verificacion-identidad')} aria-label="Cerrar configurador" className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ArrowLeft size={17} /></button><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="truncate text-sm font-600">{config.name || 'Nueva politica de verificacion'}</h1><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-600 text-amber-700">Borrador</span></div><p className="mt-0.5 hidden text-xs text-slate-500 sm:block">Versiona las reglas que deberan completarse antes de firmar.</p></div></div>
         <div className="flex items-center gap-2"><button onClick={() => setTestOpen(true)} className="hidden h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 md:inline-flex"><PlayCircle size={14} /> Probar</button><button onClick={() => persist('draft')} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 disabled:opacity-60"><Save size={14} /> Guardar</button><button onClick={() => persist('active')} disabled={saving || summary.blockers.length > 0} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-600 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Publicar</button></div>
       </header>
 
       {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
 
-      <div className="mx-auto grid max-w-[1680px] md:grid-cols-[228px_minmax(0,1fr)] xl:grid-cols-[228px_minmax(0,1fr)_286px]">
+      <div className="grid md:grid-cols-[228px_minmax(0,1fr)] xl:grid-cols-[228px_minmax(0,1fr)_286px]">
         <aside className="hidden min-h-[calc(100vh-72px)] border-r border-slate-200 bg-white p-3 dark:border-border dark:bg-card md:block">
           <p className="mb-2 px-3 pt-2 text-[10px] font-600 uppercase text-slate-400">Configuracion</p>
           <nav className="space-y-1">{steps.map((item, index) => { const Icon = item.icon; const active = step === index; return <button key={item.title} onClick={() => setStep(index)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition ${active ? 'bg-blue-50 font-600 text-primary' : 'text-slate-600 hover:bg-slate-50 dark:text-muted-foreground'}`}><span className={`flex h-7 w-7 items-center justify-center rounded-md ${active ? 'bg-white text-primary shadow-sm' : 'text-slate-400'}`}><Icon size={15} /></span><span className="flex-1">{index + 1}. {item.title}</span>{active && <ChevronRight size={14} />}</button>; })}</nav>

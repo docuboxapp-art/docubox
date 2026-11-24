@@ -21,15 +21,15 @@ export default function AppLayout({ children, topBanner, noPadding }: AppLayoutP
       <TopNav />
 
       <main
-        className={`app-main min-w-0 transition-all duration-300 ease-in-out ${mainMargin} ${
-          sidebarOpen ? 'pt-16' : 'pt-16 lg:pt-[104px]'
+        className={`app-main min-w-0 [--app-header-height:64px] transition-all duration-300 ease-in-out ${mainMargin} ${
+          sidebarOpen ? 'pt-16' : 'pt-16 lg:pt-[104px] lg:[--app-header-height:104px]'
         }`}
       >
         {topBanner && <div className="w-full">{topBanner}</div>}
         <div
-          className={`app-content ${noPadding ? 'px-4 py-4 md:py-6' : 'px-4 sm:px-6 lg:px-8 xl:px-10 py-4 md:py-6'} w-full min-w-0 ${sidebarOpen ? 'min-h-[calc(100dvh-4rem)]' : 'min-h-[calc(100dvh-4rem)] lg:min-h-[calc(100dvh-104px)]'}`}
+          className={`app-content w-full min-w-0 min-h-[calc(100dvh-var(--app-header-height))] ${noPadding ? 'px-4 py-4 md:py-6' : 'app-page-frame bg-[#f6f8fb] dark:bg-background'}`}
         >
-          {children}
+          {noPadding ? children : <div className="app-page-width">{children}</div>}
         </div>
       </main>
     </div>

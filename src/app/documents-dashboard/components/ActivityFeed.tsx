@@ -158,7 +158,7 @@ export default function ActivityFeed() {
       {!loading && items.length > 0 && (
         <div className="px-5 py-3 border-t border-border">
           <a
-            href="/mis-documentos"
+            href="/mi-espacio"
             className="w-full block text-center text-xs text-muted-foreground hover:text-foreground transition-colors font-500"
           >
             Ver bitácora completa →

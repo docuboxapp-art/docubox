@@ -31,8 +31,8 @@ const navItems = [
 export function BulkSignaturesWorkspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
-    <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] dark:bg-background md:-my-6">
-      <div className="mx-auto grid w-full max-w-[1720px] lg:grid-cols-[232px_minmax(0,1fr)]">
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+      <div className="app-page-width grid gap-6 lg:grid-cols-[232px_minmax(0,1fr)]">
         <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-slate-200 bg-white px-3 py-5 dark:border-border dark:bg-card lg:block">
           <div className="mb-4 flex items-center gap-3 px-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
@@ -67,7 +67,7 @@ export function BulkSignaturesWorkspace({ children }: { children: React.ReactNod
             evidencia.
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">
+        <main className="min-w-0">
           <div
             role="status"
             className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"

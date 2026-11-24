@@ -13,6 +13,7 @@ import ResponsiveFilterBar from '@/components/ResponsiveFilterBar';
 import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { createClient } from '@/lib/supabase/client';
 import { formSaveError } from '@/lib/forms/lifecycle';
 import { summarizeFormLaunches, type FormLaunchSummary, type FormResponseSummary, type PublicFormInviteSummary } from '@/lib/forms/pending-launches';
@@ -82,8 +83,8 @@ export default function FormulariosPage() {
   const [launchesError, setLaunchesError] = useState(false);
   const [publicInviteesError, setPublicInviteesError] = useState(false);
   const [clockTime, setClockTime] = useState(() => Date.now());
-  const [formsSummaryOpen, setFormsSummaryOpen] = useState(false);
-  const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(false);
+  const [formsSummaryOpen, toggleFormsSummary] = useSummaryExpansion('form-summary-metrics');
+  const [responsesSummaryOpen, toggleResponsesSummary] = useSummaryExpansion('response-summary-metrics');
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
   const [scheduledDialogOpen, setScheduledDialogOpen] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
@@ -566,8 +567,8 @@ export default function FormulariosPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1560px] min-[1920px]:max-w-[1800px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width">
           <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-border sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">Formularios</h1>
@@ -586,7 +587,7 @@ export default function FormulariosPage() {
           </header>
 
           <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
-            <button type="button" aria-expanded={formsSummaryOpen} aria-controls="form-summary-metrics" onClick={() => setFormsSummaryOpen((open) => !open)} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${formsSummaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}>
+            <button type="button" aria-expanded={formsSummaryOpen} aria-controls="form-summary-metrics" onClick={toggleFormsSummary} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${formsSummaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}>
               <div>
                 <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Resumen de formularios</h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-muted-foreground">Actividad del espacio de trabajo actual.</p>
@@ -602,7 +603,7 @@ export default function FormulariosPage() {
           </section>
 
           <section className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
-            <button type="button" aria-expanded={responsesSummaryOpen} aria-controls="response-summary-metrics" onClick={() => setResponsesSummaryOpen((open) => !open)} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${responsesSummaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}>
+            <button type="button" aria-expanded={responsesSummaryOpen} aria-controls="response-summary-metrics" onClick={toggleResponsesSummary} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${responsesSummaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}>
               <div><h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Resumen de respuestas</h2><p className="mt-0.5 text-xs text-slate-500 dark:text-muted-foreground">Lanzamientos y respuestas del espacio de trabajo actual.</p></div>
               <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${responsesSummaryOpen ? 'rotate-180' : ''}`} />
             </button>

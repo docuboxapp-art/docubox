@@ -18,8 +18,8 @@ const navItems = [
 export function NotificaWorkspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
-    <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] dark:bg-background md:-my-6">
-      <div className="mx-auto grid w-full max-w-[1680px] lg:grid-cols-[224px_minmax(0,1fr)]">
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+      <div className="app-page-width grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
         <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-slate-200 bg-white px-3 py-5 dark:border-border dark:bg-card lg:block">
           <p className="px-3 pb-3 text-[11px] font-600 uppercase tracking-[0.08em] text-slate-400">
             Docubox Notifica
@@ -51,7 +51,7 @@ export function NotificaWorkspace({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </aside>
-        <main className="min-w-0 px-4 py-5 sm:px-5 md:py-6 lg:px-7">
+        <main className="min-w-0">
           <div
             role="status"
             className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"

@@ -496,7 +496,7 @@ export const StepEnviar = forwardRef<
     if (!sent) return;
     if (invitationResult.failed > 0) return;
     if (countdown <= 0) {
-      window.location.replace('/mis-documentos');
+      window.location.replace('/mi-espacio');
       return;
     }
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
@@ -942,7 +942,7 @@ export const StepEnviar = forwardRef<
               )}
             </p>
             <button
-              onClick={() => window.location.replace('/mis-documentos')}
+              onClick={() => window.location.replace('/mi-espacio')}
               className="flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-600 text-white transition-colors hover:bg-emerald-700"
             >
               Cerrar

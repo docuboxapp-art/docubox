@@ -67,8 +67,8 @@ export default function CapturedFormPage() {
   }, [documentId]);
 
   return (
-    <AppLayout noPadding>
-      <main className="min-h-full bg-slate-50 px-4 py-6 dark:bg-background sm:px-6">
+    <AppLayout>
+      <main>
         <div className="mx-auto max-w-3xl">
           <button
             type="button"

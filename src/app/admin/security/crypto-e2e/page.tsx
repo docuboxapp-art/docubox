@@ -18,8 +18,8 @@ export default async function CryptoLifecycleE2ePage() {
   if (!access.allowed) notFound();
 
   return (
-    <AppLayout noPadding>
-      <main className="min-h-[calc(100vh-104px)] bg-slate-50 px-4 py-8 dark:bg-background sm:px-6 lg:px-8">
+    <AppLayout>
+      <main>
         <div className="mx-auto w-full max-w-3xl">
           <div className="mb-5">
             <p className="text-xs font-medium uppercase tracking-wide text-primary">

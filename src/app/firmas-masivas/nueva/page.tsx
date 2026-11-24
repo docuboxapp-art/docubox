@@ -190,10 +190,10 @@ export default function NewBulkSignatureCampaignPage() {
   };
 
   return (
-    <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] dark:bg-background md:-my-6">
-        <header className="border-b border-slate-200 bg-white px-4 py-4 dark:border-border dark:bg-card sm:px-6">
-          <div className="mx-auto flex max-w-[1480px] items-center gap-4">
+    <AppLayout>
+      <div>
+        <header className="border-b border-slate-200 pb-4 dark:border-border">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => router.push('/firmas-masivas')}
               className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border"
@@ -225,7 +225,7 @@ export default function NewBulkSignatureCampaignPage() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6">
+        <main className="mx-auto w-full max-w-[1180px] pt-4">
           <div className="mb-5 flex items-end justify-between border-b border-slate-200 pb-5 dark:border-border">
             <div>
               <span className="text-xs font-600 uppercase text-primary">Paso {step} de 4</span>

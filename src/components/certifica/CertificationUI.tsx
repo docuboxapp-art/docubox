@@ -23,19 +23,21 @@ const links = [
 export function CertificationWorkspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
-    <div className="-mx-4 -my-4 flex min-h-[calc(100vh-104px)] bg-[#f6f8fb] text-slate-950 dark:bg-background dark:text-foreground md:-my-6">
-      <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white dark:border-border dark:bg-card md:block 2xl:w-64">
-        <nav className="sticky top-16 space-y-0.5 px-2.5 py-4" aria-label="Navegacion de Docubox Certifica">
-          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Docubox Certifica</p>
-          {links.map((item) => {
-            const base = item.href.split('?')[0];
-            const active = item.exact ? pathname === base : pathname === base || pathname.startsWith(`${base}/`);
-            const Icon = item.icon;
-            return <Link key={item.href} href={item.href} className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-semibold transition ${active ? 'bg-primary/10 text-primary' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-muted-foreground dark:hover:bg-muted/40'}`}><Icon size={16} strokeWidth={1.8} /><span className="truncate">{item.label}</span></Link>;
-          })}
-        </nav>
-      </aside>
-      <main className="min-w-0 flex-1 overflow-auto px-4 pb-6 pt-4 sm:px-5 lg:px-6 xl:px-7"><div className="mx-auto w-full max-w-[1600px]">{children}</div></main>
+    <div className="app-page-bleed app-page-frame bg-[#f6f8fb] text-slate-950 dark:bg-background dark:text-foreground">
+      <div className="app-page-width flex gap-6">
+        <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white dark:border-border dark:bg-card md:block 2xl:w-64">
+          <nav className="sticky top-16 space-y-0.5 px-2.5 py-4" aria-label="Navegacion de Docubox Certifica">
+            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Docubox Certifica</p>
+            {links.map((item) => {
+              const base = item.href.split('?')[0];
+              const active = item.exact ? pathname === base : pathname === base || pathname.startsWith(`${base}/`);
+              const Icon = item.icon;
+              return <Link key={item.href} href={item.href} className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-semibold transition ${active ? 'bg-primary/10 text-primary' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-muted-foreground dark:hover:bg-muted/40'}`}><Icon size={16} strokeWidth={1.8} /><span className="truncate">{item.label}</span></Link>;
+            })}
+          </nav>
+        </aside>
+        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+      </div>
     </div>
   );
 }

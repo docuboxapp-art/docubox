@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import AppLayout from '@/components/AppLayout';
 import { BottomNotice } from '@/components/ui/BottomNotice';
@@ -539,7 +540,7 @@ export default function PlantillasGalleryPage() {
   const { activeWorkspace } = useWorkspace();
   const activeWorkspaceId = activeWorkspace?.id;
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryOpen, toggleSummary] = useSummaryExpansion('template-summary-metrics');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<TemplateFilter>('published');
@@ -802,8 +803,8 @@ export default function PlantillasGalleryPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width">
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-600 text-slate-950">Plantillas</h1>
@@ -823,7 +824,7 @@ export default function PlantillasGalleryPage() {
           </header>
 
           <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <button type="button" aria-expanded={summaryOpen} aria-controls="template-summary-metrics" onClick={() => setSummaryOpen((open) => !open)} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 ${summaryOpen ? 'border-b border-slate-200' : ''}`}>
+            <button type="button" aria-expanded={summaryOpen} aria-controls="template-summary-metrics" onClick={toggleSummary} className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 ${summaryOpen ? 'border-b border-slate-200' : ''}`}>
               <span><span className="block text-sm font-semibold text-slate-950">Resumen de plantillas</span><span className="mt-0.5 block text-xs text-slate-500">Actividad del espacio de trabajo actual.</span></span>
               <span className="flex shrink-0 items-center gap-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{visibleTemplates.length} {visibleTemplates.length === 1 ? 'plantilla' : 'plantillas'}</span><ChevronDown size={18} className={`text-slate-500 transition-transform ${summaryOpen ? 'rotate-180' : ''}`} /></span>
             </button>

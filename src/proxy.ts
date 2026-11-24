@@ -730,6 +730,12 @@ async function handleMiddlewareRequest(
     return withMiddlewareTiming(NextResponse.redirect(requestsUrl, 308), startedAt);
   }
 
+  if (pathname === '/mis-documentos') {
+    const workspaceUrl = request.nextUrl.clone();
+    workspaceUrl.pathname = '/mi-espacio';
+    return withMiddlewareTiming(NextResponse.redirect(workspaceUrl, 308), startedAt);
+  }
+
   if (
     pathname === '/pending-tasks' ||
     pathname === '/mis-tareas' ||

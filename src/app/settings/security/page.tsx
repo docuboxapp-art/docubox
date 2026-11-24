@@ -102,7 +102,7 @@ export default function SecuritySettingsPage() {
 
   return (
     <AppLayout>
-      <div className="max-w-2xl mx-auto py-6 px-4 flex flex-col gap-6">
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">

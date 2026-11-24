@@ -31,8 +31,8 @@ function PreviewContent() {
   }, [formId]);
 
   return (
-    <AppLayout noPadding>
-      <div className="mx-auto max-w-[1450px]">
+    <AppLayout>
+      <div>
         <header className="flex flex-col gap-4 border-b border-[#EBEBF0] pb-4 md:flex-row md:items-center md:justify-between dark:border-border">
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => router.push('/formularios')} className="flex h-9 w-9 items-center justify-center rounded-md border border-[#EBEBF0] text-[#52525B] hover:bg-[#F4F4F5] dark:border-border"><ArrowLeft size={15} /></button>

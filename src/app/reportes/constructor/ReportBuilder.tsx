@@ -99,12 +99,12 @@ export default function ReportBuilder({ reportId, presetId }: { reportId: string
     router.push('/reportes');
   };
 
-  return <AppLayout noPadding><main className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] md:-my-6">
-    <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
+  return <AppLayout><main>
+    <header className="sticky top-[var(--app-header-height)] z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-[#f6f8fb] pb-4 dark:border-border dark:bg-background">
       <div><h1 className="text-xl font-semibold text-slate-950">Constructor de informes</h1><p className="text-sm text-slate-500">Define datos, condiciones y visualización para este espacio.</p></div>
       <div className="flex gap-2"><button onClick={() => router.push('/reportes')} className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm"><X size={16} />Cerrar</button><button onClick={() => void save()} disabled={saving || loading || Boolean(reportId && error)} className="flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50"><Save size={16} />{saving ? 'Guardando...' : 'Guardar y salir'}</button></div>
     </header>
-    <div className="mx-auto grid max-w-[1600px] gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(350px,0.7fr)] sm:p-8">
+    <div className="grid gap-5 pt-4 xl:grid-cols-[minmax(0,1fr)_minmax(350px,0.7fr)]">
       <div className="space-y-5">
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         <section className="rounded-lg border border-slate-200 bg-white p-5"><h2 className="mb-4 text-base font-semibold">1. Datos del informe</h2><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-medium">Nombre<input maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Nombre del informe" className={`${control} mt-2`} /></label><label className="text-sm font-medium">Módulo<select value={dataset} onChange={event => { const next = event.target.value as DatasetId; setDataset(next); setConfig(defaultConfig(next)); setFields(DATASETS[next].fields); setRows([]); setPreviewLoading(true); }} className={`${control} mt-2`}>{datasetIds.map(id => <option key={id} value={id}>{DATASETS[id].label}</option>)}</select></label></div><label className="mt-4 block text-sm font-medium">Descripción<textarea maxLength={500} rows={2} value={description} onChange={event => setDescription(event.target.value)} className="mt-2 w-full rounded-md border border-slate-200 p-3 text-sm" /></label><p className="mt-2 text-xs text-slate-500">{DATASETS[dataset].description}</p></section>

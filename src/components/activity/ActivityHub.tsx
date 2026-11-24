@@ -9,8 +9,8 @@ import ActivityTypeTabs from './ActivityTypeTabs';
 export function ActivityLoading({ mode }: { mode: ActivityMode }) {
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100dvh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width">
           <header className="mb-4 border-b border-slate-200/80 pb-4">
             <h1 className="text-2xl font-600 leading-tight text-slate-950">
               {mode === 'sent' ? 'Solicitudes enviadas' : 'Mis participaciones'}

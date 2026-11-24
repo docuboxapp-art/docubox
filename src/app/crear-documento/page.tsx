@@ -770,7 +770,7 @@ function CrearDocumentoPageInner() {
   const handleGuardarAvanceAndExit = async () => {
     const success = await handleGuardarAvance();
     if (success) {
-      router.push('/mis-documentos');
+      router.push('/mi-espacio');
     }
   };
 
@@ -837,7 +837,7 @@ function CrearDocumentoPageInner() {
         <ExitConfirmModal
           canSave={canSaveDraft}
           onClose={() => setShowExitModal(false)}
-          onExitWithoutSave={() => router.push('/mis-documentos')}
+          onExitWithoutSave={() => router.push('/mi-espacio')}
           onSaveDraft={handleGuardarAvanceAndExit}
           saving={savingDraft}
         />
@@ -926,7 +926,7 @@ function CrearDocumentoPageInner() {
         }`}
       >
         <div
-          className={`mx-auto w-full max-w-[1480px] px-4 py-5 lg:px-6 lg:py-6 ${
+          className={`app-page-frame app-page-width ${
             currentStepLabel === 'Ajustes' ? 'h-full min-h-0' : ''
           }`}
         >

@@ -86,6 +86,7 @@ import {
 import AppLayout from '@/components/AppLayout';
 import ResponsiveSidebar from '@/components/ResponsiveSidebar';
 import WorkspaceTabs from '@/components/workspaces/WorkspaceTabs';
+import WorkspaceLayout from '@/components/workspaces/WorkspaceLayout';
 import WorkspacePageHeader from '@/components/workspaces/WorkspacePageHeader';
 import { CUSTOM_FILTER_ICON_OPTIONS } from '@/lib/filters/custom-filter-icons';
 import { useAppModules } from '@/contexts/AppModulesContext';
@@ -7039,23 +7040,6 @@ function MisDocumentosContent() {
     };
     return (
       <>
-        <WorkspacePageHeader title="Documentos">
-          <button
-            onClick={() => setShowCarpetaModal(true)}
-            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
-          >
-            <FolderPlus size={16} className="text-primary" />
-            Crear Carpeta
-          </button>
-          <button
-            onClick={() => router.push('/crear-documento')}
-            className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30, 107, 255,0.85)] transition-colors hover:bg-primary/90"
-          >
-            <FilePlus size={16} />
-            Crear Documento
-          </button>
-        </WorkspacePageHeader>
-        <WorkspaceTabs active="documentos" />
         {folderBreadcrumb.length > 0 && (
           <div className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
             <button
@@ -7835,17 +7819,44 @@ function MisDocumentosContent() {
     );
   };
 
+  const documentHeading = (
+    <WorkspacePageHeader title="Documentos">
+      <button
+        onClick={() => setShowCarpetaModal(true)}
+        className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+      >
+        <FolderPlus size={16} className="text-primary" />
+        Crear Carpeta
+      </button>
+      <button
+        onClick={() => router.push('/crear-documento')}
+        className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"
+      >
+        <FilePlus size={16} />
+        Crear Documento
+      </button>
+    </WorkspacePageHeader>
+  );
+
   return (
     <AppLayout noPadding>
-      <div
-        className={`workspace-layout flex bg-[#f6f8fb] ${isFullscreen ? 'fixed inset-0 z-[100]' : '-mx-4 -my-4 min-h-[calc(100dvh-104px)] md:-my-6'}`}
+      <WorkspaceLayout
+        standaloneClassName={
+          isFullscreen ? 'workspace-layout fixed inset-0 z-[100] flex bg-[#f6f8fb]' : undefined
+        }
       >
+        {!isFullscreen && (
+          <WorkspaceTabs
+            active="documentos"
+            heading={activeSection === 'mi-espacio' ? documentHeading : undefined}
+          />
+        )}
         {/* Left sidebar */}
         <ResponsiveSidebar
           label="Carpetas y filtros de documentos"
-          className={`flex w-60 flex-shrink-0 flex-col border-r border-slate-200/90 bg-white 2xl:w-64 ${isFullscreen ? 'hidden' : ''}`}
+          className={`workspace-sidebar flex w-60 shrink-0 flex-col rounded-lg border border-slate-200 bg-white xl:col-start-1 xl:row-start-2 xl:mb-5 xl:mt-4 2xl:w-64 dark:border-border dark:bg-card ${isFullscreen ? 'hidden' : ''}`}
         >
-          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-3">
+          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-3 lg:pt-5">
             <div className="mb-1 px-2">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                 Principal
@@ -8011,8 +8022,10 @@ function MisDocumentosContent() {
         </ResponsiveSidebar>
 
         {/* Main content */}
-        <main className="min-w-0 flex-1 overflow-auto px-4 pb-4 pt-4 sm:px-5 md:pb-5 lg:px-6 xl:px-7">
-          {activeSection !== 'mi-espacio' && <WorkspaceTabs active="documentos" />}
+        <main
+          className={`min-w-0 flex-1 overflow-auto pb-4 pt-4 md:pb-5 xl:col-start-2 xl:row-start-2 ${isFullscreen ? 'px-4 sm:px-5 lg:px-6 xl:px-7' : ''}`}
+        >
+          {isFullscreen && activeSection === 'mi-espacio' && documentHeading}
           {activeSection === 'mi-espacio' && renderMiEspacioContent()}
 
           {activeSection === 'favoritos' && (
@@ -10927,7 +10940,7 @@ function MisDocumentosContent() {
             );
           })}
         </main>
-      </div>
+      </WorkspaceLayout>
 
       {/* Document context menu */}
       {renderDocContextMenu()}

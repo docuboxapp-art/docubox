@@ -49,6 +49,7 @@
     "test:kms:gcp": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-google-kms.ts",
     "test:gcp:portable-auth": "node --test tests/google-cloud-auth-provider.test.mjs tests/google-cloud-kms-provider.test.mjs",
     "test:pdf-font-embedding": "node --test tests/pdf-font-embedding.test.mjs",
+    "test:activity": "node --test tests/activity-inbox.test.mjs tests/activity-views.test.mjs tests/activity-audit-pagination.test.mjs",
     "test:document-encryption": "node --test tests/document-encryption.test.mjs",
     "test:kms:document": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-document-encryption-kms.ts",
     "security:reconcile-supabase": "node scripts/generate-supabase-reconciliation.mjs",

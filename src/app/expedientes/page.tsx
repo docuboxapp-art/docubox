@@ -33,6 +33,7 @@ import { createClient } from '@/lib/supabase/client';
 import { caseRequest } from '@/lib/case-files/runtime-client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { type CaseFileSummary } from '@/lib/case-files/schema';
 import { parseStoredCaseTemplate, toCaseTemplate, type StoredCaseTemplate } from '@/lib/case-files/template-builder';
 import {
@@ -52,8 +53,10 @@ export default function ExpedientesPage() {
   const [savedTemplates, setSavedTemplates] = useState<StoredCaseTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const [responsesSummaryOpen, setResponsesSummaryOpen] = useState(false);
+  const [summaryOpen, toggleSummary] = useSummaryExpansion('case-summary-metrics');
+  const [responsesSummaryOpen, toggleResponsesSummary] = useSummaryExpansion(
+    'case-response-summary-metrics'
+  );
   const [responseMetrics, setResponseMetrics] = useState<{
     assigned: number;
     responses: number;
@@ -283,7 +286,7 @@ export default function ExpedientesPage() {
     selectedStatus: 'all' | 'sealed' = 'all',
     mode: 'view' | 'edit' = 'view'
   ) => {
-    if(mode==='view'){router.push(selectedStatus==='sealed' ? `/expedientes/completados?tipo=${encodeURIComponent(caseType)}` : `/mis-documentos?pestana=expedientes&tipo=${encodeURIComponent(caseType)}`);return;}
+    if(mode==='view'){router.push(selectedStatus==='sealed' ? `/expedientes/completados?tipo=${encodeURIComponent(caseType)}` : `/mi-espacio?pestana=expedientes&tipo=${encodeURIComponent(caseType)}`);return;}
     setOpenedType(caseType);
     setDialogStatus(selectedStatus);
     setCaseListMode(mode);
@@ -440,7 +443,7 @@ export default function ExpedientesPage() {
             type="button"
             aria-expanded={summaryOpen}
             aria-controls="case-summary-metrics"
-            onClick={() => setSummaryOpen((open) => !open)}
+            onClick={toggleSummary}
             className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${summaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}
           >
             <span>
@@ -502,7 +505,7 @@ export default function ExpedientesPage() {
             type="button"
             aria-expanded={responsesSummaryOpen}
             aria-controls="case-response-summary-metrics"
-            onClick={() => setResponsesSummaryOpen((open) => !open)}
+            onClick={toggleResponsesSummary}
             className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-muted/40 ${responsesSummaryOpen ? 'border-b border-slate-200 dark:border-border' : ''}`}
           >
             <span>

@@ -66,7 +66,7 @@ export function notificationDestination(notification: NotificationPresentationIn
     .find((value): value is string => typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value));
   if (documentId) return `/visor-documento/${documentId}`;
   switch (notificationArea(notification)) {
-    case 'documentos': return '/mis-documentos';
+    case 'documentos': return '/mi-espacio';
     case 'solicitudes': return '/mis-participaciones';
     case 'formularios': return '/formularios';
     case 'expedientes': return '/expedientes';

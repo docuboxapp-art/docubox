@@ -2717,8 +2717,8 @@ function StepInfoGeneral({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
-      <div className="mx-auto grid w-full max-w-[1480px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="app-page-frame flex-1 overflow-y-auto bg-slate-50">
+      <div className="app-page-width grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         {showOriginChoice && !templateOrigin && (
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] xl:col-span-2">
             <div>
@@ -3174,8 +3174,8 @@ function StepPublicacion({
   if (info.numeroOficio.trim()) summaryRows.push(['N.º de oficio', info.numeroOficio.trim()]);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 lg:px-6">
-      <div className="mx-auto w-full max-w-[1480px] space-y-5">
+    <div className="app-page-frame flex-1 overflow-y-auto bg-slate-50">
+      <div className="app-page-width space-y-5">
         {loadingContext && (
           <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
             Cargando opciones de publicación...

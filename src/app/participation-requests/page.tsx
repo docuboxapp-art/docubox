@@ -4,11 +4,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import ActivityHub, { ActivityLoading } from '@/components/activity/ActivityHub';
 import ActivityTypeTabs from '@/components/activity/ActivityTypeTabs';
+import ActivityViewTabs from '@/components/activity/ActivityViewTabs';
 import { ActivitySummary, type ActivitySummaryMetric } from '@/components/documents/ActivitySummary';
 import { useRouter } from 'next/navigation';
 import { hasEffectiveParticipation } from '@/lib/documents/participant-visibility';
 
-import { Send, Search, User, UserPlus, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, CalendarDays, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, Tag, UserCheck, UserMinus, MoreHorizontal } from 'lucide-react';
+import { Send, Search, User, UserPlus, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, Tag, UserCheck, UserMinus, MoreHorizontal } from 'lucide-react';
 import { AñadirParticipantesModal, ConfigurarParticipacionModal } from '@/app/crear-documento/components/StepParticipantes';
 import type { Participant } from '@/app/crear-documento/components/types';
 
@@ -2801,8 +2802,8 @@ function DocumentRequestsPage() {
         onClose={() => setInviteRequest(null)}
         onInvited={handleParticipantsInvited}
       />}
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width">
         {/* Header */}
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -2834,29 +2835,7 @@ function DocumentRequestsPage() {
         <section className="mb-4 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         <div className="flex flex-col items-start justify-between gap-3 p-3 sm:flex-row sm:items-center">
           {/* View mode buttons */}
-          <div className="flex h-9 items-center gap-0.5 rounded-md bg-slate-100 p-0.5">
-            <button
-              onClick={() => setViewMode('lista')}
-              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'lista' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              <LayoutList size={15} />
-              Lista
-            </button>
-            <button
-              onClick={() => setViewMode('tablero')}
-              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'tablero' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              <LayoutGrid size={15} />
-              Tablero
-            </button>
-            <button
-              onClick={() => setViewMode('calendario')}
-              className={`flex h-8 items-center gap-1.5 rounded px-3 text-sm font-600 transition-colors ${viewMode === 'calendario' ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              <CalendarDays size={15} />
-              Calendario
-            </button>
-          </div>
+          <ActivityViewTabs value={viewMode} onChange={setViewMode} />
 
           {/* Right side */}
           {viewMode === 'tablero' ? (
@@ -2875,7 +2854,7 @@ function DocumentRequestsPage() {
               </div>
             </div>
           ) : viewMode === 'calendario' ? (
-            <div className="flex items-center gap-2">
+            <div className="activity-filters flex items-center gap-2">
               <span className="text-xs font-600 text-slate-400">Periodo</span>
               <div className="relative" ref={dropdownRef}>
                 <button
@@ -2961,9 +2940,40 @@ function DocumentRequestsPage() {
           )}
         </div>
 
-        {/* Status pill filters + Period filter for lista */}
+        {/* Status filters share the toolbar in list and calendar views. */}
+        {viewMode === 'calendario' && (
+          <div
+            role="group"
+            aria-label="Estados del calendario"
+            className="activity-filters flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5"
+          >
+            {([
+              { value: 'todos', label: 'Todos' },
+              { value: 'en-progreso', label: 'En Progreso' },
+              { value: 'en-espera', label: 'En Espera' },
+              { value: 'completado', label: 'Completados' },
+              { value: 'por-vencer', label: 'Por Vencer' },
+              { value: 'vencido', label: 'Vencido' },
+              { value: 'rechazado', label: 'Rechazado' },
+              { value: 'cancelado', label: 'Cancelado' },
+            ] as { value: CalendarStatusFilter; label: string }[]).map((opt) => (
+              <button
+                type="button"
+                key={opt.value}
+                aria-pressed={calFilter === opt.value}
+                onClick={() => setCalFilter(opt.value)}
+                className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${
+                  calFilter === opt.value
+                    ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
         {viewMode !== 'tablero' && viewMode !== 'calendario' && (
-          <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
+          <div className="activity-filters flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               {/* Main status filters */}
               <div className="flex flex-wrap items-center gap-1.5">
@@ -3173,30 +3183,6 @@ function DocumentRequestsPage() {
         {/* ── Calendario ── */}
         {viewMode === 'calendario' && (
           <>
-            <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              {([
-                { value: 'todos', label: 'Todos' },
-                { value: 'en-progreso', label: 'En Progreso' },
-                { value: 'en-espera', label: 'En Espera' },
-                { value: 'completado', label: 'Completados' },
-                { value: 'por-vencer', label: 'Por Vencer' },
-                { value: 'vencido', label: 'Vencido' },
-                { value: 'rechazado', label: 'Rechazado' },
-                { value: 'cancelado', label: 'Cancelado' },
-              ] as { value: CalendarStatusFilter; label: string }[]).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setCalFilter(opt.value)}
-                  className={`flex h-8 items-center rounded-md border px-2.5 text-xs font-600 transition-colors ${
-                    calFilter === opt.value
-                      ? 'border-primary/30 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
             <div className="flex flex-col overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" style={{ minHeight: '600px' }}>
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                 <h2 className="text-sm font-600 text-slate-800">{getCalTitle()}</h2>
