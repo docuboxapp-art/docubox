@@ -58,6 +58,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { FittedSignatureStamp } from '@/components/signatures/SignatureStampDisplay';
 import { getDefaultSignatureStampStyle } from '@/lib/signatures/stamp-sizing';
 import { createClient } from '@/lib/supabase/client';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
+import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import ContextHelpLink from '@/components/help/ContextHelpLink';
@@ -3051,12 +3053,8 @@ export default function VisorDocumentoPage() {
         // three sequential round trips from the viewer bootstrap.
         const [profileResult, folderResult, metadataResult] = await Promise.all([
           data.owner_id && !data.additional_access_level
-            ? supabase
-                .from('user_profiles')
-                .select('full_name, nombre, apellido_paterno, apellido_materno')
-                .eq('id', data.owner_id)
-                .single()
-            : Promise.resolve({ data: null }),
+            ? loadVisibleProfileCards([data.owner_id]).catch(() => [])
+            : [],
           data.carpeta_id && !data.additional_access_level
             ? supabase.from('carpetas').select('nombre').eq('id', data.carpeta_id).single()
             : Promise.resolve({ data: null }),
@@ -3071,13 +3069,7 @@ export default function VisorDocumentoPage() {
                 .maybeSingle(),
         ]);
 
-        const profile = profileResult.data;
-        const ownerNombre =
-          data.owner_nombre || profile?.full_name ||
-          [profile?.nombre, profile?.apellido_paterno, profile?.apellido_materno]
-            .filter(Boolean)
-            .join(' ') ||
-          'Usuario';
+        const ownerNombre = data.owner_nombre || profileResult[0]?.name || 'Usuario';
         const carpetaNombre = folderResult.data?.nombre || 'Sin carpeta';
 
         const loadedDocument: DocumentData = {
@@ -3387,20 +3379,8 @@ export default function VisorDocumentoPage() {
           );
           if (!creationExists && docData.created_at) {
             // Get owner name
-            let ownerName = 'Propietario';
-            if (docData.owner_id) {
-              const { data: ownerProfile } = await supabase
-                .from('user_profiles')
-                .select('full_name, nombre, apellido_paterno')
-                .eq('id', docData.owner_id)
-                .maybeSingle();
-              if (ownerProfile) {
-                ownerName =
-                  ownerProfile.full_name ||
-                  [ownerProfile.nombre, ownerProfile.apellido_paterno].filter(Boolean).join(' ') ||
-                  'Propietario';
-              }
-            }
+            const owner = docData.owner_id ? await loadVisibleProfileCards([docData.owner_id]).catch(() => []) : [];
+            const ownerName = owner[0]?.name || 'Propietario';
             allEvents.push({
               id: `synth_created_${docId}`,
               action: 'documento_creado',
@@ -10090,6 +10070,9 @@ export default function VisorDocumentoPage() {
                           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                             {notes.length} nota{notes.length !== 1 ? 's' : ''}
                           </span>
+                          {userId && docId && (
+                            <ProfileCommunicationButton label="Comunicación directa" initialKind="note" context={{ documentId: docId }} />
+                          )}
                           <button
                             onClick={() => setShowNoteForm((v) => !v)}
                             className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"

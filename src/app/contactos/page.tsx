@@ -5,6 +5,8 @@ import { Users, Search, Plus, Mail, Phone, Trash2, Check, LayoutGrid, LayoutList
 import AppLayout from '@/components/AppLayout';
 import ResponsiveFilterBar from '@/components/ResponsiveFilterBar';
 import { createClient } from '@/lib/supabase/client';
+import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
+import { AddContactDialog } from './AddContactDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import ContactDetailWorkspace from './ContactDetailWorkspace';
 
@@ -36,12 +38,6 @@ interface ContactNote {
   user_id: string;
   content: string;
   created_at: string;
-}
-
-interface PlatformUser {
-  id: string;
-  full_name: string;
-  email: string;
 }
 
 interface SharedDocument {
@@ -84,167 +80,6 @@ function Spinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
     </svg>
-  );
-}
-
-// ─── Search Platform Users Modal ──────────────────────────────────────────────
-function SearchUserModal({
-  onClose, onSave, existingEmails,
-}: {
-  onClose: () => void; onSave: () => void; existingEmails: string[];
-}) {
-  const [searchCriteria, setSearchCriteria] = useState<'correo' | 'rfc' | 'curp' | 'telefono'>('correo');
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<PlatformUser[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const criteriaPlaceholders: Record<string, string> = {
-    correo: 'Ingresa Correo Electrónico...',
-    rfc: 'Ingresa el RFC...',
-    curp: 'Ingresa el CURP...',
-    telefono: 'Ingresa el número de teléfono...',
-  };
-
-  const performSearch = async (q: string, criteria: string) => {
-    if (!q.trim()) { setResults([]); setSearched(false); setIsSearching(false); return; }
-    setIsSearching(true); setSearched(true);
-    try {
-      const res = await fetch(`/api/documentos/buscar-participante?q=${encodeURIComponent(q.trim())}&criteria=${criteria}`);
-      const data = await res.json();
-      setResults(data.users || []);
-    } catch { setResults([]); }
-    finally { setIsSearching(false); }
-  };
-
-  const handleSearch = () => performSearch(query, searchCriteria);
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleSearch(); };
-
-  const handleAddContact = async (u: PlatformUser) => {
-    setSaving(u.id); setError(null);
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No autenticado');
-      const { data: existing } = await supabase.from('contacts').select('id').eq('user_id', user.id).eq('email', u.email).maybeSingle();
-      if (existing) { setSaved((prev) => [...prev, u.id]); return; }
-      const nameParts = (u.full_name || u.email).split(' ');
-      const { error: err } = await supabase.from('contacts').insert({
-        user_id: user.id,
-        nombre: (nameParts[0] || u.email).toUpperCase(),
-        apellido_paterno: nameParts[1] ? nameParts[1].toUpperCase() : null,
-        apellido_materno: nameParts[2] ? nameParts[2].toUpperCase() : null,
-        email: u.email,
-      });
-      if (err) throw err;
-      setSaved((prev) => [...prev, u.id]);
-      onSave();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al agregar el contacto.');
-    } finally { setSaving(null); }
-  };
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  const userAvatarColors = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'];
-  const getInitialsFromUser = (name: string) =>
-    name.split(' ').filter(Boolean).slice(0, 2).map((n) => n[0].toUpperCase()).join('') || 'U';
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl" style={{ maxHeight: '90vh' }}>
-        <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900">Nuevo Contacto</h2>
-          <p className="text-sm text-gray-400 mt-1">Busca un usuario registrado en la plataforma para agregarlo a tus contactos.</p>
-        </div>
-        <div className="px-6 pt-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <select
-                value={searchCriteria}
-                onChange={(e) => setSearchCriteria(e.target.value as 'correo' | 'rfc' | 'curp' | 'telefono')}
-                className="appearance-none border border-gray-200 rounded-lg pl-3 pr-7 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white cursor-pointer"
-              >
-                <option value="correo">Correo Electrónico</option>
-                <option value="rfc">RFC</option>
-                <option value="curp">CURP</option>
-                <option value="telefono">Teléfono</option>
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={criteriaPlaceholders[searchCriteria]}
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-            <button onClick={handleSearch} className="w-10 h-10 flex items-center justify-center bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors shrink-0">
-              <Search size={16} />
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[200px]">
-          {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 mb-3">{error}</div>}
-          {isSearching ? (
-            <div className="flex items-center justify-center py-12"><Spinner size="md" /></div>
-          ) : !searched ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
-              <Search size={14} className="shrink-0" />
-              Realiza una búsqueda para encontrar participantes en la plataforma.
-            </div>
-          ) : results.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-2">
-              <Users size={28} className="text-gray-300" />
-              <p className="text-sm text-gray-400">No se encontraron usuarios registrados.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {results.map((u, idx) => {
-                const isSaved = saved.includes(u.id);
-                const isAlreadyContact = existingEmails.includes(u.email);
-                const isSaving = saving === u.id;
-                return (
-                  <div key={u.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0 ${userAvatarColors[idx % userAvatarColors.length]}`}>
-                      {getInitialsFromUser(u.full_name || u.email)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{u.full_name || u.email}</p>
-                      <p className="text-xs text-gray-400 truncate">{u.email}</p>
-                    </div>
-                    <button
-                      onClick={() => handleAddContact(u)}
-                      disabled={isSaved || isAlreadyContact || isSaving}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                        isSaved || isAlreadyContact
-                          ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 cursor-default' :'bg-primary hover:bg-primary/90 text-white'
-                      } disabled:opacity-60`}
-                    >
-                      {isSaving ? <Spinner /> : isSaved || isAlreadyContact ? <Check size={13} /> : <Plus size={13} />}
-                      {isSaved || isAlreadyContact ? 'Agregado' : 'Agregar'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            Cerrar
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -770,7 +605,6 @@ export default function ContactosPage() {
   const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selectedContact = contacts.find((contact) => contact.id === previewId) || null;
   const selectedIndex = selectedContact ? contacts.findIndex((contact) => contact.id === selectedContact.id) : -1;
-  const existingEmails = contacts.map((contact) => contact.email).filter(Boolean) as string[];
   const activeFilterSelections: Array<{ key: ContactFilterKey; label: string }> = [
     ...(typeFilter ? [{ key: 'tipo' as const, label: `Tipo de contacto: ${typeFilter === 'personas' ? 'Personas' : 'Empresas'}` }] : []),
     ...(favoritesOnly ? [{ key: 'favoritos' as const, label: 'Favoritos: Solo favoritos' }] : []),
@@ -878,7 +712,7 @@ export default function ContactosPage() {
         <div className={isWideView ? 'min-w-0 w-full' : 'app-page-width'}>
           <header className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div><h1 className="text-2xl font-600 text-slate-950">Contactos</h1><p className="mt-1 text-sm text-slate-500">Gestiona tu agenda y consulta los documentos compartidos.</p></div>
-            <button type="button" onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"><Plus size={16} /> Agregar contacto</button>
+            <div className="flex flex-wrap items-center gap-2"><ProfileCommunicationButton label="Mensajes y notas" /><button type="button" onClick={() => setShowSearchModal(true)} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"><Plus size={16} /> Agregar contacto</button></div>
           </header>
           {favoriteNotice && <p role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{favoriteNotice}</p>}
           <div className="flex gap-4">
@@ -930,7 +764,7 @@ export default function ContactosPage() {
             </main>
             {selectedContact && <ContactPreviewPanel key={selectedContact.id} contact={selectedContact} index={selectedIndex} docs={getDocs(selectedContact)} pending={getPending(selectedContact)} documentsLoaded={documentsLoaded} notes={notes} loadingNotes={loadingNotes} onClose={closePreview} onOpenDetail={() => openFullContact(selectedContact)} />}
           </div>
-          {showSearchModal && <SearchUserModal onClose={() => setShowSearchModal(false)} onSave={loadContacts} existingEmails={existingEmails} />}
+          {showSearchModal && <AddContactDialog onClose={() => { setShowSearchModal(false); void loadContacts(); }} />}
         </div>
       </div>
     </AppLayout>

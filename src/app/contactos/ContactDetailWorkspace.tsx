@@ -24,6 +24,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
+import { profilePrivacy } from '@/lib/profile-privacy/client';
+import type { SharedProfile } from '@/lib/profile-privacy/model';
 import { useAuth } from '@/contexts/AuthContext';
 
 export interface DetailContact {
@@ -53,18 +56,6 @@ type AgendaField = {
   created_at: string;
 };
 type Note = { id: string; content: string; created_at: string; user_id: string };
-type Profile = {
-  rfc: string | null;
-  curp: string | null;
-  regimen_fiscal: string | null;
-  codigo_postal: string | null;
-  estado: string | null;
-  municipio: string | null;
-  colonia: string | null;
-  calle: string | null;
-  num_exterior: string | null;
-  num_interior: string | null;
-};
 type Participant = {
   email?: string;
   rol?: string;
@@ -204,7 +195,7 @@ export default function ContactDetailWorkspace({
   const [documents, setDocuments] = useState<Document[]>([]);
   const [documentEvents, setDocumentEvents] = useState<DocumentEvent[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<SharedProfile | null>(null);
   const [fields, setFields] = useState<AgendaField[]>([]);
   const [allGroupNames, setAllGroupNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,19 +273,10 @@ export default function ContactDetailWorkspace({
                 .eq('owner_id', user.id)
                 .not('participantes', 'is', null)
             : Promise.resolve({ data: [], error: null }),
-          contact.email
-            ? client
-                .from('user_profiles')
-                .select(
-                  'rfc,curp,regimen_fiscal,codigo_postal,estado,municipio,colonia,calle,num_exterior,num_interior'
-                )
-                .eq('email', contact.email)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null }),
+          profilePrivacy<{ fields: SharedProfile }>('profile', { contactId: contact.id }),
         ]);
         if (!active) return;
-        if (profileResult.status === 'fulfilled' && !profileResult.value.error)
-          setProfile(profileResult.value.data);
+        setProfile(profileResult.status === 'fulfilled' ? profileResult.value.fields : null);
         if (agenda.status === 'rejected')
           setNotice('No se pudieron cargar las notas y la organización de este contacto.');
         if (docsResult.status === 'fulfilled' && !docsResult.value.error) {
@@ -745,6 +727,7 @@ export default function ContactDetailWorkspace({
           >
             <Send size={16} /> Usar en nueva solicitud
           </button>
+          <ProfileCommunicationButton label="Mensajes y notas" context={{ contactId: contact.id }} />
         </header>
         {notice && (
           <p

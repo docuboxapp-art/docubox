@@ -22,6 +22,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
 
 type WorkspaceDocument = {
   id: string;
@@ -127,10 +128,7 @@ export function WorkspaceManagementSection() {
       }
 
       const userIds = members.map((member) => member.user_id);
-      const { data: profiles } = await supabase
-        .from('user_profiles')
-        .select('id, nombre, apellido_paterno, correo, avatar_url')
-        .in('id', userIds);
+      const profiles = await loadVisibleProfileCards(userIds).catch(() => []);
       setWorkspaceMembers(
         members.map((member) => {
           const profile = profiles?.find((item) => item.id === member.user_id);
@@ -138,11 +136,9 @@ export function WorkspaceManagementSection() {
             id: member.id,
             user_id: member.user_id,
             role: member.role,
-            email: profile?.correo || '',
-            nombre: profile
-              ? `${profile.nombre || ''} ${profile.apellido_paterno || ''}`.trim()
-              : '',
-            avatarUrl: profile?.avatar_url || null,
+            email: profile?.email || '',
+            nombre: profile?.name || '',
+            avatarUrl: profile?.avatarUrl || null,
           };
         })
       );
@@ -176,12 +172,7 @@ export function WorkspaceManagementSection() {
         .select('id, name, owner_id')
         .in('id', workspaceIds);
       const ownerIds = (invitationWorkspaces || []).map((workspace) => workspace.owner_id).filter(Boolean);
-      const { data: ownerProfiles } = ownerIds.length
-        ? await supabase
-            .from('user_profiles')
-            .select('id, nombre, apellido_paterno, correo')
-            .in('id', ownerIds)
-        : { data: [] };
+      const ownerProfiles = await loadVisibleProfileCards(ownerIds).catch(() => []);
 
       setInvitations(
         pendingInvitations.map((invitation) => {
@@ -193,10 +184,8 @@ export function WorkspaceManagementSection() {
             id: invitation.id,
             workspace_id: invitation.workspace_id,
             workspace_name: workspace?.name || 'Espacio desconocido',
-            owner_name: owner
-              ? `${owner.nombre || ''} ${owner.apellido_paterno || ''}`.trim()
-              : '',
-            owner_email: owner?.correo || '',
+            owner_name: owner?.name || '',
+            owner_email: owner?.email || '',
             invited_at: invitation.created_at,
           };
         })

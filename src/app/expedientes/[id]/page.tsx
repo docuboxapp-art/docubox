@@ -40,6 +40,7 @@ import {
 import AppLayout from '@/components/AppLayout';
 import { CaseControlPanel } from '../components/CaseControlPanel';
 import { createClient } from '@/lib/supabase/client';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
 import { mapCaseFileDetail } from '@/lib/case-files/map-detail';
 import {
   CASE_STATUS_META,
@@ -126,13 +127,7 @@ export default function ExpedienteDetailPage() {
             .select('*')
             .eq('case_file_id', data.id)
             .order('occurred_at', { ascending: false }),
-          data.owner_user_id
-            ? supabase
-                .from('user_profiles')
-                .select('full_name')
-                .eq('id', data.owner_user_id)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null }),
+          data.owner_user_id ? loadVisibleProfileCards([data.owner_user_id]).catch(() => []) : [],
         ]);
         if (cancelled) return;
         if (
@@ -154,7 +149,7 @@ export default function ExpedienteDetailPage() {
               {
                 ...data,
                 responsible_name: data.owner_user_id
-                  ? owner.data?.full_name || 'Responsable principal'
+                  ? owner[0]?.name || 'Responsable principal'
                   : '',
               },
               participants.data || [],

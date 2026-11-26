@@ -31,6 +31,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAppModules } from '@/contexts/AppModulesContext';
 import { createClient } from '@/lib/supabase/client';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
 import { dateInTimeZone, getEffectiveTimeZone, getTimeZoneOffsetLabel, zonedDateTimeToUtcIso } from '@/lib/datetime';
 
 type SignatureType = 'click_sign' | 'autografa_digital' | 'efirma_sat';
@@ -170,13 +171,10 @@ function LaunchContent() {
       if (!active) return;
       const availableForms = (formResult.data || []) as FormChoice[];
       const creatorIds = [...new Set(availableForms.map((item) => item.created_by).filter(Boolean))];
-      const creatorResult = creatorIds.length
-        ? await supabase.from('user_profiles').select('id,full_name').in('id', creatorIds)
-        : null;
+      const creators = await loadVisibleProfileCards(creatorIds).catch(() => []);
       if (!active) return;
       setCreatorNames(Object.fromEntries(
-        (creatorResult?.data || []).map((profile: { id: string; full_name: string | null }) =>
-          [profile.id, profile.full_name?.trim() || '']
+        creators.map((profile) => [profile.id, profile.name.trim()]
         )
       ));
       setForms(availableForms);

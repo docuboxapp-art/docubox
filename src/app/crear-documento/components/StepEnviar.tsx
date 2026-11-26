@@ -850,25 +850,6 @@ export const StepEnviar = forwardRef<
         // Silently ignore metadata errors — upload is already saved
       }
 
-      // Guardar participantes como contactos si aplica
-      const contactsToSave = participants.filter(
-        (p) => p.savedAsContact && p.id !== 'current-user'
-      );
-      if (contactsToSave.length > 0) {
-        const contactRows = contactsToSave.map((p) => {
-          const nameParts = (p.name || '').trim().split(' ');
-          return {
-            user_id: user.id,
-            nombre: nameParts[0] || p.name,
-            apellido_paterno: nameParts[1] || null,
-            apellido_materno: nameParts.slice(2).join(' ') || null,
-            email: p.email || null,
-            telefono: p.phone || null,
-          };
-        });
-        await supabase.from('contacts').upsert(contactRows, { onConflict: 'user_id,email' });
-      }
-
       setSent(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al enviar el documento';

@@ -54,6 +54,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
+import { ProfilePrivacyPanel } from './components/ProfilePrivacyPanel';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   encryptEfirmaKeyForStorage,
@@ -2263,19 +2265,16 @@ export default function MiPerfilPage() {
         .eq('workspace_id', wsId);
       if (data && data.length > 0) {
         const userIds = data.map((m: any) => m.user_id);
-        const { data: profiles } = await supabase
-          .from('user_profiles')
-          .select('id, nombre, apellido_paterno, correo, avatar_url')
-          .in('id', userIds);
+        const profiles = await loadVisibleProfileCards(userIds).catch(() => []);
         const mapped = data.map((m: any) => {
           const p = profiles?.find((pr: any) => pr.id === m.user_id);
           return {
             id: m.id,
             user_id: m.user_id,
             role: m.role,
-            email: p?.correo || '',
-            nombre: p ? `${p.nombre || ''} ${p.apellido_paterno || ''}`.trim() : '',
-            avatarUrl: p?.avatar_url || null,
+            email: p?.email || '',
+            nombre: p?.name || '',
+            avatarUrl: p?.avatarUrl || null,
           };
         });
         setWorkspaceMembers(mapped);
@@ -2308,14 +2307,7 @@ export default function MiPerfilPage() {
           .select('id, name, owner_id')
           .in('id', wsIds);
         const ownerIds = (wsData || []).map((w: any) => w.owner_id).filter(Boolean);
-        let ownerProfiles: any[] = [];
-        if (ownerIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('user_profiles')
-            .select('id, nombre, apellido_paterno, correo')
-            .in('id', ownerIds);
-          ownerProfiles = profiles || [];
-        }
+        const ownerProfiles = await loadVisibleProfileCards(ownerIds).catch(() => []);
         const mapped = invites.map((inv: any) => {
           const ws = wsData?.find((w: any) => w.id === inv.workspace_id);
           const owner = ownerProfiles.find((p: any) => p.id === ws?.owner_id);
@@ -2323,8 +2315,8 @@ export default function MiPerfilPage() {
             id: inv.id,
             workspace_id: inv.workspace_id,
             workspace_name: ws?.name || 'Espacio desconocido',
-            owner_name: owner ? `${owner.nombre || ''} ${owner.apellido_paterno || ''}`.trim() : '',
-            owner_email: owner?.correo || '',
+            owner_name: owner?.name || '',
+            owner_email: owner?.email || '',
             invited_at: inv.created_at,
           };
         });
@@ -6946,169 +6938,12 @@ export default function MiPerfilPage() {
 
   // ─── Privacidad ───────────────────────────────────────────────────────────
 
-  const renderPrivacidad = () => {
-    return (
-      <div className="flex flex-col gap-6">
-        <ProfileSectionHeader
-          title="Privacidad"
-          description="Controla quién puede ver la información de tu perfil."
-        />
-
-        {/* Legal note */}
-        <div className="bg-gray-50 border border-border rounded-xl px-4 py-3">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground">Nota legal:</span> La información dentro
-            de documentos firmados (nombre, RFC, evidencia legal) siempre es visible para las partes
-            del documento por requerimiento legal. Esta sección solo controla la visibilidad de tu
-            perfil general.
-          </p>
-        </div>
-
-        {/* Alcance de visibilidad */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-600 text-foreground">
-              Alcance de visibilidad de mi perfil
-            </h3>
-          </div>
-          <div className="p-5 flex flex-col gap-3">
-            {[
-              {
-                id: 'workspaces',
-                label: 'Solo mis workspaces',
-                desc: 'Solo los miembros de tus espacios de trabajo pueden ver tu perfil',
-              },
-              {
-                id: 'contactos',
-                label: 'Mis contactos',
-                desc: 'Tus contactos y miembros de workspaces pueden ver tu perfil',
-              },
-              {
-                id: 'cualquiera',
-                label: 'Cualquier usuario de DOCUBOX',
-                desc: 'Cualquier usuario registrado en la plataforma puede ver tu perfil',
-              },
-              { id: 'nadie', label: 'Nadie', desc: 'Tu perfil es completamente privado' },
-            ].map((opt, idx) => (
-              <label
-                key={opt.id}
-                className="flex items-start gap-3 p-3 border border-border rounded-xl cursor-pointer hover:bg-gray-50 transition-colors"
-              >
-                <input
-                  type="radio"
-                  name="visibilidad"
-                  defaultChecked={idx === 0}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <p className="text-sm font-600 text-foreground">{opt.label}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Visibilidad por campo */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-600 text-foreground">Visibilidad por campo</h3>
-          </div>
-          <div className="divide-y divide-border">
-            {[
-              { campo: 'Foto de perfil', desc: 'Tu imagen de perfil' },
-              { campo: 'Teléfono', desc: 'Número de contacto' },
-              { campo: 'Puesto o cargo', desc: 'Tu rol o posición' },
-              { campo: 'Empresa', desc: 'Organización a la que perteneces' },
-              { campo: 'Última conexión', desc: 'Cuándo fue tu última actividad' },
-            ].map((item) => (
-              <div key={item.campo} className="px-5 py-3.5 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-600 text-foreground">{item.campo}</p>
-                  <p className="text-xs text-muted-foreground">{item.desc}</p>
-                </div>
-                <select className="text-xs border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 text-foreground">
-                  <option>Mi workspace</option>
-                  <option>Mis contactos</option>
-                  <option>Público</option>
-                  <option>Privado</option>
-                </select>
-              </div>
-            ))}
-            {/* Firma autógrafa — locked */}
-            <div className="px-5 py-3.5 flex items-center justify-between gap-4 bg-gray-50/50">
-              <div>
-                <p className="text-sm font-600 text-foreground">Firma autógrafa</p>
-                <p className="text-xs text-muted-foreground">Tu firma digitalizada</p>
-                <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-1">
-                  <Lock size={10} />
-                  No puede hacerse público por razones de seguridad
-                </p>
-              </div>
-              <select
-                disabled
-                className="text-xs border border-border rounded-lg px-2 py-1.5 bg-gray-100 text-muted-foreground cursor-not-allowed opacity-70"
-              >
-                <option>Privado</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Solicitudes de acceso */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-600 text-foreground">Solicitudes de acceso</h3>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Requerir aprobación</span>
-                <button className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors bg-gray-200 focus:outline-none">
-                  <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform translate-x-1" />
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Requerir mi aprobación antes de que alguien fuera de mis workspaces vea mi perfil
-              completo
-            </p>
-          </div>
-          <div className="p-8 flex flex-col items-center gap-3 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-              <UserPlus size={22} className="text-gray-400" />
-            </div>
-            <p className="text-sm font-600 text-foreground">No tienes solicitudes pendientes</p>
-          </div>
-        </div>
-
-        {/* Quién ha visto tu perfil */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-600 text-foreground">Quién ha visto tu perfil</h3>
-          </div>
-          <div className="p-8 flex flex-col items-center gap-3 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-              <Eye size={22} className="text-gray-400" />
-            </div>
-            <p className="text-sm font-600 text-foreground">Sin visitas registradas</p>
-            <p className="text-xs text-muted-foreground">Las visitas a tu perfil aparecerán aquí</p>
-          </div>
-        </div>
-
-        {/* Usuarios bloqueados */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-600 text-foreground">Usuarios bloqueados</h3>
-          </div>
-          <div className="p-8 flex flex-col items-center gap-3 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-              <Shield size={22} className="text-gray-400" />
-            </div>
-            <p className="text-sm font-600 text-foreground">No tienes usuarios bloqueados</p>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderPrivacidad = () => (
+    <div className="flex flex-col gap-6">
+      <ProfileSectionHeader title="Privacidad" description="Elige quién puede ver tu perfil y contactarte." />
+      <ProfilePrivacyPanel key={user?.id} />
+    </div>
+  );
 
   return (
     <AppLayout noPadding>

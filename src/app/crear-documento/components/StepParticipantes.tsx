@@ -24,6 +24,9 @@ import {
 } from 'lucide-react';
 import { InfoTooltip, FavoriteSearchableSelect } from './SharedComponents';
 import { createClient } from '@/lib/supabase/client';
+import { ParticipantSearchFields } from '@/components/profiles/ParticipantSearchFields';
+import { profilePrivacy } from '@/lib/profile-privacy/client';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import ContextHelpLink from '@/components/help/ContextHelpLink';
 import type { Participant, ParticipantMode } from './types';
 import { reconcileParticipantsForMode, type CurrentUserIdentity } from './participant-mode';
@@ -1147,7 +1150,6 @@ export function AñadirParticipantesModal({
   const [searchCriteria, setSearchCriteria] = useState<'correo' | 'telefono' | 'rfc' | 'curp'>(
     'correo'
   );
-  const [criteriaDropdownOpen, setCriteriaDropdownOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(startWithInvite ?? false);
   const [contacts, setContacts] = useState<Participant[]>([]);
@@ -1489,145 +1491,19 @@ export function AñadirParticipantesModal({
                       </span>
                     </div>
                   )}
-                  <div className="flex gap-2 relative">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setCriteriaDropdownOpen((o) => !o)}
-                        className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 transition-colors min-w-[120px] justify-between"
-                      >
-                        <span>
-                          {searchCriteria === 'correo' && 'Correo Electrónico'}
-                          {searchCriteria === 'telefono' && 'Teléfono'}
-                          {searchCriteria === 'rfc' && 'RFC'}
-                          {searchCriteria === 'curp' && 'CURP'}
-                        </span>
-                        <svg
-                          className="w-4 h-4 text-gray-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
-                      {criteriaDropdownOpen && (
-                        <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                          {(
-                            [
-                              { value: 'correo', label: 'Correo Electrónico' },
-                              { value: 'telefono', label: 'Teléfono' },
-                              { value: 'rfc', label: 'RFC' },
-                              { value: 'curp', label: 'CURP' },
-                            ] as { value: 'correo' | 'telefono' | 'rfc' | 'curp'; label: string }[]
-                          ).map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => {
-                                setSearchCriteria(opt.value);
-                                setCriteriaDropdownOpen(false);
-                                setPlatformSearch('');
-                                setPlatformSearched(false);
-                                setPlatformResults([]);
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${searchCriteria === opt.value ? 'bg-primary/5' : ''}`}
-                            >
-                              {searchCriteria === opt.value && (
-                                <svg
-                                  className="w-4 h-4 text-gray-700 flex-shrink-0"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                  />
-                                </svg>
-                              )}
-                              {searchCriteria !== opt.value && (
-                                <span className="w-4 flex-shrink-0" />
-                              )}
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type={searchCriteria === 'correo' ? 'email' : 'text'}
-                      value={platformSearch}
-                      onChange={(e) => {
-                        let val = e.target.value;
-                        if (searchCriteria === 'curp') {
-                          val = val
-                            .toUpperCase()
-                            .replace(/[^A-Z0-9]/g, '')
-                            .slice(0, 18);
-                        } else if (searchCriteria === 'rfc') {
-                          val = val
-                            .toUpperCase()
-                            .replace(/[^A-Z0-9]/g, '')
-                            .slice(0, 13);
-                        } else if (searchCriteria === 'telefono') {
-                          val = val.replace(/\D/g, '').slice(0, 10);
-                        }
-                        setPlatformSearch(val);
-                      }}
-                      onKeyDown={(e) => e.key === 'Enter' && handlePlatformSearch()}
-                      maxLength={
-                        searchCriteria === 'curp'
-                          ? 18
-                          : searchCriteria === 'rfc'
-                            ? 13
-                            : searchCriteria === 'telefono'
-                              ? 10
-                              : undefined
-                      }
-                      placeholder={
-                        searchCriteria === 'correo'
-                          ? 'ejemplo@correo.com'
-                          : searchCriteria === 'telefono'
-                            ? '5512345678'
-                            : searchCriteria === 'rfc'
-                              ? 'AAAA000000AAA'
-                              : 'AAAA000000XXXXXXXX'
-                      }
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                    <button
-                      onClick={handlePlatformSearch}
-                      className="px-3.5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-                    >
-                      {isSearching ? (
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8v8H4z"
-                          />
-                        </svg>
-                      ) : (
-                        <Search size={16} />
-                      )}
-                    </button>
-                  </div>
+                  <ParticipantSearchFields
+                    criterion={searchCriteria}
+                    value={platformSearch}
+                    searching={isSearching}
+                    onCriterion={(value) => {
+                      setSearchCriteria(value);
+                      setPlatformSearch('');
+                      setPlatformSearched(false);
+                      setPlatformResults([]);
+                    }}
+                    onValue={setPlatformSearch}
+                    onSearch={handlePlatformSearch}
+                  />
                   {!platformSearched ? (
                     <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
                       <span>
@@ -1807,6 +1683,8 @@ export function StepParticipantes({
   onSignatureCapacityExceeded?: (capacity: number) => void;
 }) {
   const [participationOrder, setParticipationOrder] = useState(participationOrderProp);
+  const [savingContact, setSavingContact] = useState<string | null>(null);
+  const [contactNotice, setContactNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [orderDropdownOpen, setOrderDropdownOpen] = useState(false);
   const [configuringParticipant, setConfiguringParticipant] = useState<Participant | null>(null);
   const [añadirParticipantesOpen, setAñadirParticipantesOpen] = useState(false);
@@ -1977,33 +1855,29 @@ export function StepParticipantes({
   };
 
   const handleRegisterContact = async (participant: Participant) => {
+    if (savingContact) return;
+    setSavingContact(participant.id);
+    setContactNotice(null);
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const nameParts = (participant.name || '').trim().split(' ');
-      const nombre = nameParts[0] || '';
-      const apellidoPaterno = nameParts[1] || null;
-      const apellidoMaterno = nameParts.slice(2).join(' ') || null;
-      await supabase.from('contacts').upsert(
-        {
-          user_id: user.id,
-          nombre,
-          apellido_paterno: apellidoPaterno,
-          apellido_materno: apellidoMaterno,
-          email: participant.email || null,
-          telefono: participant.phone || null,
-        },
-        { onConflict: 'user_id,email' }
-      );
-      // Mark participant as saved contact
-      onChange(
-        participants.map((p) => (p.id === participant.id ? { ...p, savedAsContact: true } : p))
-      );
-    } catch {
-      /* silent */
+      const { status } = await profilePrivacy<{ status: string }>('register', {
+        name: participant.name,
+        email: participant.email || null,
+        phone: participant.phone,
+      });
+      if (status === 'saved' || status === 'approved') {
+        onChange((current) => current.map((item) =>
+          item.id === participant.id ? { ...item, savedAsContact: true } : item
+        ));
+        setContactNotice({ message: 'Contacto agregado.', error: false });
+      } else if (status === 'pending') {
+        setContactNotice({ message: 'La solicitud de contacto está pendiente de aprobación.', error: false });
+      } else {
+        setContactNotice({ message: 'La solicitud de contacto aún no está aprobada.', error: true });
+      }
+    } catch (cause) {
+      setContactNotice({ message: cause instanceof Error ? cause.message : 'No fue posible guardar el contacto.', error: true });
+    } finally {
+      setSavingContact(null);
     }
   };
 
@@ -2011,6 +1885,8 @@ export function StepParticipantes({
 
   return (
     <div className="w-full">
+      {contactNotice && <BottomNotice message={contactNotice.message}
+        tone={contactNotice.error ? 'critical' : 'neutral'} onClose={() => setContactNotice(null)} />}
       {!mode && (
         <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2265,12 +2141,13 @@ export function StepParticipantes({
                             {p.id !== 'current-user' && (
                               <>
                                 <button
-                                  onClick={() => !p.savedAsContact && handleRegisterContact(p)}
+                                  disabled={Boolean(savingContact)}
+                                  onClick={() => !p.savedAsContact && void handleRegisterContact(p)}
                                   className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${p.savedAsContact ? 'text-emerald-600 bg-emerald-50 cursor-default' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
                                   title={
                                     p.savedAsContact
                                       ? 'Guardado como contacto'
-                                      : 'Registrar como contacto'
+                                      : 'Registrar como contacto. Si la persona tiene cuenta, recibirá una solicitud con tu nombre.'
                                   }
                                 >
                                   <BookUser size={14} />
