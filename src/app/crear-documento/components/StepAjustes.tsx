@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText,
@@ -1831,37 +1832,10 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
     <div className="space-y-4">
       {/* Status indicator */}
       {(saving || savedOk || saveError) && (
-        <div
-          className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${saving ? 'bg-blue-50 text-blue-600' : savedOk ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}
-        >
-          {saving && (
-            <>
-              <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-              Guardando...
-            </>
-          )}
-          {savedOk && (
-            <>
-              <CheckCircle2 size={12} />
-              Configuración guardada
-            </>
-          )}
-          {saveError && <span>Error: {saveError}</span>}
-        </div>
+        <BottomNotice
+          message={saving ? 'Guardando…' : saveError || 'Configuración guardada.'}
+          tone={saving ? 'followup' : saveError ? 'critical' : 'success'}
+        />
       )}
 
       {/* Vencimiento */}
@@ -2059,12 +2033,7 @@ function SecurityTab({ documentoId }: { documentoId: string }) {
                 {codigoError}
               </p>
             )}
-            {codeSavedOk && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 size={11} />
-                Código de acceso guardado correctamente
-              </p>
-            )}
+            {codeSavedOk && <BottomNotice message="Código de acceso guardado correctamente." tone="success" onClose={() => setCodeSavedOk(false)} />}
           </div>
         )}
       </div>
@@ -2172,7 +2141,7 @@ export function StepAjustes({
   documentoId?: string;
   securitySettings?: SecuritySettings;
   onPlacedFieldsChange?: (fields: PlacedField[]) => void;
-  onFixarCamposChange?: (fixar: boolean, hasFirma: boolean) => void;
+  onFixarCamposChange?: (fixar: boolean) => void;
   onTemplateFieldAssignmentChange?: (ready: boolean) => void;
   initialFixarCampos?: boolean;
   initialPlacedFields?: PlacedField[];
@@ -2314,27 +2283,9 @@ export function StepAjustes({
     }
   }, [cryptoPlacementEnabled]);
 
-  // Notify parent about fixarCampos and whether a Firma field exists for ALL firmante participants
   useEffect(() => {
-    const firmanteParticipants = displayParticipants.filter(
-      (p) => (p.acto || '').toLowerCase() === 'firmante' || participants.length === 0
-    );
-    const hasFirmaForAll =
-      firmanteParticipants.length === 0 ||
-      firmanteParticipants.every((p) =>
-        placedFields.some((f) => f.label === 'Firma' && f.participantId === p.id)
-      );
-    const hasFirma = placedFields.some((f) => f.label === 'Firma');
-    // If all participants are firmantes, require firma for all; otherwise just require at least one
-    const allAreFirmantes =
-      participants.length > 0 &&
-      participants.every((p) => (p.acto || '').toLowerCase() === 'firmante');
-    onFixarCamposChange?.(
-      fixarCampos || !!isCondicional,
-      allAreFirmantes ? hasFirmaForAll : hasFirma
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixarCampos, placedFields, isCondicional, participants]);
+    onFixarCamposChange?.(fixarCampos || !!isCondicional);
+  }, [fixarCampos, isCondicional, onFixarCamposChange]);
 
   // Save placed fields to Supabase whenever they change
   const saveFieldsToSupabase = useCallback(
@@ -3037,7 +2988,8 @@ export function StepAjustes({
                 Asignar campos a participantes
               </span>
               <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                Coloca firmas, texto y otros datos en la vista previa.
+                Coloca firmas, texto y otros datos en la vista previa. Si alguien firma sin
+                colocar un campo, su firma aparecerá en la hoja de firmantes del PDF final.
               </span>
               {(fixarCampos || isCondicional) && (
                 <span className="mt-1 block text-xs font-semibold leading-5 text-red-600">

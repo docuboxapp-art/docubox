@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useState } from 'react';
 import { HELP_FEEDBACK_REASONS } from '@/lib/help/model';
@@ -23,11 +24,9 @@ export default function HelpFeedback({ slug }: { slug: string }) {
   const [reason, setReason] = useState<keyof typeof HELP_FEEDBACK_REASONS | ''>('');
   const [voter, setVoter] = useState<string>();
   const [state, setState] = useState<'idle' | 'sending' | 'saved'>('idle');
-  const [error, setError] = useState('');
 
   async function vote(helpful: boolean) {
     if (state !== 'idle') return;
-    setError('');
     setState('sending');
     try {
       const id = voter ?? anonymousVoter();
@@ -53,7 +52,7 @@ export default function HelpFeedback({ slug }: { slug: string }) {
       setState('saved');
     } catch (cause) {
       setState('idle');
-      setError(
+      toast.error(
         cause instanceof Error && cause.message.startsWith('Espera')
           ? cause.message
           : 'No se pudo guardar tu valoración. Intenta de nuevo.'
@@ -94,10 +93,7 @@ export default function HelpFeedback({ slug }: { slug: string }) {
               className={styles.button}
               aria-pressed={choice === false}
               disabled={state === 'sending'}
-              onClick={() => {
-                setChoice(false);
-                setError('');
-              }}
+              onClick={() => setChoice(false)}
             >
               <ThumbsDown size={15} aria-hidden="true" /> No
             </button>
@@ -133,11 +129,6 @@ export default function HelpFeedback({ slug }: { slug: string }) {
           {state === 'sending' && (
             <p className="mt-2 text-sm" role="status">
               Guardando valoración…
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">
-              {error}
             </p>
           )}
         </>

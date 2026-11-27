@@ -408,7 +408,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.validate-case-file]
-verify_jwt = false
+verify_jwt = true
 
 [functions.generate-docubox-cert]
 verify_jwt = false

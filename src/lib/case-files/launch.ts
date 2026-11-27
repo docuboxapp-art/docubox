@@ -43,6 +43,43 @@ export const participantRoleLabels = {
 export const launchEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export const launchContactColumns =
+  'id,nombre,apellido_paterno,apellido_materno,email,telefono,rfc,curp,tipo_persona';
+
+export function launchContactPerson(contact: {
+  id: string;
+  nombre: string;
+  apellido_paterno: string | null;
+  apellido_materno: string | null;
+  email: string | null;
+  telefono: string | null;
+  rfc: string | null;
+  curp: string | null;
+  tipo_persona: string | null;
+}): LaunchPerson | null {
+  const email = contact.email?.trim().toLowerCase();
+  if (!email) return null;
+  return {
+    id: contact.id,
+    name:
+      [contact.nombre, contact.apellido_paterno, contact.apellido_materno]
+        .filter(Boolean)
+        .join(' ') || email,
+    email,
+    details: {
+      nombre: contact.nombre || '',
+      apellido_paterno: contact.apellido_paterno || '',
+      apellido_materno: contact.apellido_materno || '',
+      phone: contact.telefono || '',
+      rfc: contact.rfc || '',
+      curp: contact.curp || '',
+      personalidad_juridica: contact.tipo_persona?.toLowerCase().includes('moral')
+        ? 'moral'
+        : 'fisica',
+    },
+  };
+}
+
 export function launchResponsibilities(data: LaunchOptions): LaunchResponsibility[] {
   return [
     ...data.items

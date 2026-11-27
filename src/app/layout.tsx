@@ -47,13 +47,13 @@ export default function RootLayout({
         <Script id="docubox-theme-init" strategy="beforeInteractive">
           {`(function(){try{var t=localStorage.getItem('docubox-theme');if(t==='dark'){document.documentElement.classList.add('dark');}else if(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches){document.documentElement.classList.add('dark');}}catch(e){}})();`}
         </Script>
+        <AppToaster />
         <AuthProvider>
           <WorkspaceProvider>
             <ThemeProvider>
               <SidebarProvider>
                 <AppModulesProvider>
                   <LuciaAssistantProvider>{children}</LuciaAssistantProvider>
-                  <AppToaster />
                 </AppModulesProvider>
               </SidebarProvider>
             </ThemeProvider>

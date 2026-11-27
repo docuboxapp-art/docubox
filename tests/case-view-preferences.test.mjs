@@ -13,6 +13,7 @@ const {
   normalizeCaseView,
   caseViewKey,
   loadCaseView,
+  saveCaseColumnWidths,
   saveCaseView,
   CASE_VIEW_COLUMNS,
   CASE_VIEW_FILTERS,
@@ -34,6 +35,13 @@ const clientFixture = () => {
       from(table) {
         assert.equal(table, 'user_view_preferences');
         let id, key, payload;
+        const save = async () => {
+          if (fail) return { data: null, error: {} };
+          const rowKey = payload.user_id + ':' + payload.view_key;
+          const updated = { ...rows.get(rowKey), ...payload };
+          rows.set(rowKey, updated);
+          return { data: updated, error: null };
+        };
         return {
           select() {
             return this;
@@ -45,16 +53,16 @@ const clientFixture = () => {
           },
           upsert(p, options) {
             assert.equal(options.onConflict, 'user_id,view_key');
+            assert.equal(options.defaultToNull, false);
             payload = p;
             return this;
           },
           async maybeSingle() {
             return { data: rows.get(id + ':' + key) || null, error: fail ? {} : null };
           },
-          async single() {
-            if (fail) return { data: null, error: {} };
-            rows.set(payload.user_id + ':' + payload.view_key, payload);
-            return { data: payload, error: null };
+          single: save,
+          then(resolve, reject) {
+            return save().then(resolve, reject);
           },
         };
       },
@@ -119,14 +127,35 @@ test('personalization round-trips across clients and isolates users, workspaces,
     ],
   });
   await saveCaseView(client, user, workspace, view);
-  assert.deepEqual(await loadCaseView(client, user, workspace), view);
-  assert.deepEqual(await loadCaseView(client, other, workspace), normalizeCaseView(null));
-  assert.deepEqual(await loadCaseView(client, user, other), normalizeCaseView(null));
+  assert.deepEqual(await loadCaseView(client, user, workspace), { view, widths: {} });
+  const defaults = { view: normalizeCaseView(null), widths: {} };
+  assert.deepEqual(await loadCaseView(client, other, workspace), defaults);
+  assert.deepEqual(await loadCaseView(client, user, other), defaults);
   assert.deepEqual(rows.get(user + ':mi_espacio_v1').custom_filters, ['document filter']);
   assert.deepEqual(rows.get(user + ':mis_expedientes_v1:' + workspace).custom_filters, [
     'saved case filter',
   ]);
   assert.throws(() => caseViewKey('invalid'));
+});
+test('column widths preserve layout settings and are limited to the current user and workspace', async () => {
+  const { client } = clientFixture();
+  const view = normalizeCaseView({ columns: [{ id: 'participant', visible: false }] });
+  await saveCaseView(client, user, workspace, view);
+  await saveCaseColumnWidths(client, user, workspace, {
+    title: 140,
+    responsible: 265.8,
+    type: 820,
+    status: Infinity,
+    actions: 200,
+  });
+  const widths = { title: 168, responsible: 266, type: 720 };
+  assert.deepEqual(await loadCaseView(client, user, workspace), { view, widths });
+  assert.deepEqual((await loadCaseView(client, other, workspace)).widths, {});
+  assert.deepEqual((await loadCaseView(client, user, other)).widths, {});
+
+  const restored = normalizeCaseView(null);
+  await saveCaseView(client, user, workspace, restored);
+  assert.deepEqual(await loadCaseView(client, user, workspace), { view: restored, widths });
 });
 test('all optional columns and filters can be hidden and defaults can be restored without stale settings', async () => {
   const { client } = clientFixture();
@@ -136,15 +165,15 @@ test('all optional columns and filters can be hidden and defaults can be restore
   });
   await saveCaseView(client, user, workspace, hidden);
   assert.equal(
-    (await loadCaseView(client, user, workspace)).columns.filter((c) => c.visible).length,
+    (await loadCaseView(client, user, workspace)).view.columns.filter((c) => c.visible).length,
     0
   );
   assert.equal(
-    (await loadCaseView(client, user, workspace)).filters.filter((c) => c.visible).length,
+    (await loadCaseView(client, user, workspace)).view.filters.filter((c) => c.visible).length,
     0
   );
   await saveCaseView(client, user, workspace, normalizeCaseView(null));
-  assert.deepEqual(await loadCaseView(client, user, workspace), normalizeCaseView(null));
+  assert.deepEqual((await loadCaseView(client, user, workspace)).view, normalizeCaseView(null));
 });
 test('failed reads and saves report an error instead of accepting an unsaved personalization', async () => {
   const fixture = clientFixture();
@@ -154,4 +183,5 @@ test('failed reads and saves report an error instead of accepting an unsaved per
     () => saveCaseView(fixture.client, user, workspace, normalizeCaseView(null)),
     /guardar/
   );
+  await assert.rejects(() => saveCaseColumnWidths(fixture.client, user, workspace, {}), /guardar/);
 });

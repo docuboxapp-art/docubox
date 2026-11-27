@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -393,38 +394,42 @@ export function AccessProtectionPanel({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-left text-xs">
-                  <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
-                    <tr>
-                      <th className="px-4 py-2.5 font-medium">Fecha / hora</th>
-                      <th className="px-4 py-2.5 font-medium">Evento</th>
-                      <th className="px-4 py-2.5 font-medium">Actor / participante</th>
-                      <th className="px-4 py-2.5 font-medium">Resultado</th>
-                      <th className="px-4 py-2.5 font-medium">Detalles</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredEvents.map((event) => (
-                      <tr key={event.id}>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                          {formatDateTime(event.created_at)}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-800">
-                          {eventLabels[event.action] || event.action}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {event.actor_email || 'Sistema'}
-                        </td>
-                        <td className={`px-4 py-3 font-medium ${resultClass(event.result)}`}>
-                          {resultLabel(event.result)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">
-                          {event.reason || 'Sin observaciones'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={filteredEvents} label="Eventos de protección de acceso">
+                  {(pageRows) => (
+                    <table className="w-full min-w-[680px] text-left text-xs">
+                      <thead className="workspace-table-heading bg-slate-50 text-[11px] uppercase text-slate-500">
+                        <tr>
+                          <th className="px-4 py-2.5 font-medium">Fecha / hora</th>
+                          <th className="px-4 py-2.5 font-medium">Evento</th>
+                          <th className="px-4 py-2.5 font-medium">Actor / participante</th>
+                          <th className="px-4 py-2.5 font-medium">Resultado</th>
+                          <th className="px-4 py-2.5 font-medium">Detalles</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {pageRows.map((event) => (
+                          <tr key={event.id}>
+                            <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                              {formatDateTime(event.created_at)}
+                            </td>
+                            <td className="px-4 py-3 font-medium text-slate-800">
+                              {eventLabels[event.action] || event.action}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {event.actor_email || 'Sistema'}
+                            </td>
+                            <td className={`px-4 py-3 font-medium ${resultClass(event.result)}`}>
+                              {resultLabel(event.result)}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500">
+                              {event.reason || 'Sin observaciones'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             )}
           </section>

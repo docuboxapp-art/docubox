@@ -354,7 +354,7 @@ export default function OrganizationMemberDetail({ memberId }: { memberId: strin
   const actionCopy = pendingAction ? sensitiveActionLabels[pendingAction.action] : null;
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Link
         href="/organizacion/miembros"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"

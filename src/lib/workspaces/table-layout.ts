@@ -1,0 +1,1 @@
+export const WORKSPACE_ACTIONS_COLUMN_WIDTH = 76;

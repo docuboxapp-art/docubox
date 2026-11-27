@@ -367,7 +367,7 @@ export default function OrganizationStructureAdministration({ section }: { secti
     'mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-muted';
 
   return (
-    <div className="mx-auto max-w-[1450px] space-y-5">
+    <div className="app-page-width space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-medium">

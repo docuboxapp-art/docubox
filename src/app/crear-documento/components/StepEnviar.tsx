@@ -447,34 +447,23 @@ export const StepEnviar = forwardRef<
       setSelectedTags([]);
 
       try {
+        const db = createClient();
         const typeRequest =
           docConfig.tipoDocumentoId && docConfig.tipoDocumentoId !== '__otros__'
-            ? fetch(
-                `/api/documentos/tipos${docConfig.grupotipoId ? `?grupo_id=${encodeURIComponent(docConfig.grupotipoId)}` : ''}`
-              ).then(async (response) => (response.ok ? response.json() : null))
+            ? db.from('tipo_documento').select('nombre').eq('id', docConfig.tipoDocumentoId).maybeSingle()
             : Promise.resolve(null);
         const tagsRequest =
           docConfig.etiquetasIds.length > 0
-            ? fetch('/api/documentos/etiquetas').then(async (response) =>
-                response.ok ? response.json() : null
-              )
+            ? db.from('etiquetas').select('id,nombre,color').in('id', docConfig.etiquetasIds)
             : Promise.resolve(null);
         const [typeResult, tagsResult] = await Promise.all([typeRequest, tagsRequest]);
 
         if (cancelled) return;
 
-        const selectedType = Array.isArray(typeResult?.data)
-          ? typeResult.data.find(
-              (type: { id: string; nombre: string }) => type.id === docConfig.tipoDocumentoId
-            )
-          : null;
+        const selectedType = typeResult?.data;
         if (selectedType?.nombre) setDocumentTypeLabel(selectedType.nombre);
 
-        const tagIds = new Set(docConfig.etiquetasIds);
-        const tags = Array.isArray(tagsResult?.data)
-          ? tagsResult.data.filter((tag: { id: string }) => tagIds.has(tag.id))
-          : [];
-        setSelectedTags(tags);
+        setSelectedTags(tagsResult?.data ?? []);
       } catch {
         // The summary keeps its explicit fallback labels when lookup data is unavailable.
       }
@@ -486,7 +475,6 @@ export const StepEnviar = forwardRef<
     };
   }, [
     docConfig.etiquetasIds,
-    docConfig.grupotipoId,
     docConfig.otroTipoDocumento,
     docConfig.tipoDocumentoId,
   ]);

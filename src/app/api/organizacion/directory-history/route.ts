@@ -4,6 +4,7 @@ import {
   OrganizationApiError,
   organizationApiFailure,
 } from '@/lib/organization/server';
+import { DEFAULT_TABLE_PAGE_SIZE } from '@/lib/workspaces/table-pagination';
 export const runtime = 'nodejs';
 export async function GET(request: Request) {
   try {
@@ -53,8 +54,8 @@ export async function GET(request: Request) {
     const result = await userClient.rpc('get_organization_person_document_history', {
       ws_id: workspaceId,
       target_person_id: personId,
-      page_offset: page * 50,
-      page_size: 50,
+      page_offset: page * DEFAULT_TABLE_PAGE_SIZE,
+      page_size: DEFAULT_TABLE_PAGE_SIZE,
     });
     if (result.error) throw result.error;
     return Response.json(

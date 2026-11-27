@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
 type Item = {
   id: string;
   documento_id: string;
@@ -93,7 +94,7 @@ export default function OrganizationDirectoryHistory({
           No hay documentos de esta organización vinculados a esta persona.
         </p>
       )}
-      {!error && total > 50 && (
+      {!error && shouldShowTablePagination(total) && (
         <div className="flex items-center justify-end gap-3 border-t border-border p-4 text-sm">
           <button
             type="button"
@@ -104,11 +105,11 @@ export default function OrganizationDirectoryHistory({
             Anterior
           </button>
           <span>
-            {page + 1} de {Math.ceil(total / 50)}
+            {page + 1} de {Math.ceil(total / DEFAULT_TABLE_PAGE_SIZE)}
           </span>
           <button
             type="button"
-            disabled={(page + 1) * 50 >= total || loading}
+            disabled={(page + 1) * DEFAULT_TABLE_PAGE_SIZE >= total || loading}
             onClick={() => setPage((value) => value + 1)}
             className="organization-secondary-button"
           >

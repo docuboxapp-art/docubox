@@ -259,8 +259,8 @@ export default function TaskAutomationsPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 dark:bg-background sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px] space-y-5">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+        <div className="app-page-width space-y-5">
           <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-600 leading-tight text-slate-950">

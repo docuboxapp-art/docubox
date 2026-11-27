@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Shield, Smartphone, CheckCircle, AlertCircle, Loader2, Activity, ShieldCheck, ShieldOff, Clock } from 'lucide-react';
@@ -115,12 +116,7 @@ export default function SecuritySettingsPage() {
         </div>
 
         {/* Success message */}
-        {successMsg && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
-            <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
-            <p className="text-sm text-green-700">{successMsg}</p>
-          </div>
-        )}
+        {successMsg && <BottomNotice message={successMsg} tone="success" onClose={() => setSuccessMsg(null)} />}
 
         {/* TOTP Card */}
         <div className="bg-white border border-border rounded-xl p-6 flex flex-col gap-5">

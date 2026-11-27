@@ -1,6 +1,6 @@
 'use client';
 
-import type React from 'react';
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,6 +14,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import {
@@ -81,6 +83,14 @@ export default function NotificacionesPage() {
       }),
     [items, query, status]
   );
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, {
+    subject: (item) => item.subject,
+    recipient: (item) => item.recipientName,
+    category: (item) => item.category,
+    status: (item) => NOTIFICATION_STATUS_META[item.status]?.label,
+    evidence: (item) => item.evidenceLevel,
+    updated: (item) => tableDate(item.updatedAt),
+  });
 
   const metrics = useMemo(
     () => ({
@@ -201,7 +211,7 @@ export default function NotificacionesPage() {
           ) : (
             <>
               <div className="divide-y divide-slate-200 md:hidden dark:divide-border">
-                {filtered.map((item) => (
+                {orderedRows.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => router.push(`/notificaciones-certificadas/${item.id}`)}
@@ -224,79 +234,83 @@ export default function NotificacionesPage() {
                 ))}
               </div>
               <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[1120px] border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-border dark:bg-muted/40">
-                      <Heading>Folio y documento</Heading>
-                      <Heading>Destinatario</Heading>
-                      <Heading>Categoria</Heading>
-                      <Heading>Estado</Heading>
-                      <Heading>Evidencia</Heading>
-                      <Heading>Ultimo evento</Heading>
-                      <Heading align="right">Acciones</Heading>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-border">
-                    {filtered.map((item) => (
-                      <tr
-                        key={item.id}
-                        className="transition hover:bg-slate-50/80 dark:hover:bg-muted/30"
-                      >
-                        <td className="px-4 py-4">
-                          <button
-                            onClick={() => router.push(`/notificaciones-certificadas/${item.id}`)}
-                            className="flex items-center gap-3 text-left"
+                <PaginatedTableScrollArea items={orderedRows} label="Notificaciones certificadas">
+                  {(pageRows) => (
+                    <table className="w-full min-w-[1120px] border-collapse">
+                      <thead className="workspace-table-heading">
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-border dark:bg-muted/40">
+                          <th className="px-4 py-3" {...sortHeading('subject', 'Folio y documento')} />
+                          <th className="px-4 py-3" {...sortHeading('recipient', 'Destinatario')} />
+                          <th className="px-4 py-3" {...sortHeading('category', 'Categoría')} />
+                          <th className="px-4 py-3" {...sortHeading('status', 'Estado')} />
+                          <th className="px-4 py-3" {...sortHeading('evidence', 'Evidencia', 'desc')} />
+                          <th className="px-4 py-3" {...sortHeading('updated', 'Último evento', 'desc')} />
+                          <th scope="col" className="px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-border">
+                        {pageRows.map((item) => (
+                          <tr
+                            key={item.id}
+                            className="transition hover:bg-slate-50/80 dark:hover:bg-muted/30"
                           >
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700">
-                              <FileText size={18} />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block max-w-72 truncate text-sm font-600 text-slate-950 dark:text-foreground">
-                                {item.subject}
-                              </span>
-                              <span className="mt-0.5 block text-xs text-slate-500">
-                                <span className="font-600 text-primary">{item.folio}</span> ·{' '}
-                                {item.documentName}
-                              </span>
-                            </span>
-                          </button>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p className="max-w-56 truncate text-sm text-slate-700 dark:text-foreground">
-                            {item.recipientName}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">{item.recipientEmail}</p>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-slate-600 dark:text-muted-foreground">
-                          {item.category}
-                        </td>
-                        <td className="px-4 py-4">
-                          <NotificationStatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-4">
-                          <EvidenceBadge level={item.evidenceLevel} />
-                        </td>
-                        <td className="px-4 py-4">
-                          <p className="text-sm text-slate-700 dark:text-foreground">
-                            {item.lastEvent}
-                          </p>
-                          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                            <CalendarClock size={12} />
-                            {formatDateTime(item.updatedAt)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <button
-                            onClick={() => router.push(`/notificaciones-certificadas/${item.id}`)}
-                            className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 dark:border-border dark:text-foreground"
-                          >
-                            Abrir <MoreHorizontal size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            <td className="px-4 py-4">
+                              <button
+                                onClick={() => router.push(`/notificaciones-certificadas/${item.id}`)}
+                                className="flex items-center gap-3 text-left"
+                              >
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700">
+                                  <FileText size={18} />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block max-w-72 truncate text-sm font-600 text-slate-950 dark:text-foreground">
+                                    {item.subject}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                    <span className="font-600 text-primary">{item.folio}</span> ·{' '}
+                                    {item.documentName}
+                                  </span>
+                                </span>
+                              </button>
+                            </td>
+                            <td className="px-4 py-4">
+                              <p className="max-w-56 truncate text-sm text-slate-700 dark:text-foreground">
+                                {item.recipientName}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">{item.recipientEmail}</p>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-muted-foreground">
+                              {item.category}
+                            </td>
+                            <td className="px-4 py-4">
+                              <NotificationStatusBadge status={item.status} />
+                            </td>
+                            <td className="px-4 py-4">
+                              <EvidenceBadge level={item.evidenceLevel} />
+                            </td>
+                            <td className="px-4 py-4">
+                              <p className="text-sm text-slate-700 dark:text-foreground">
+                                {item.lastEvent}
+                              </p>
+                              <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                                <CalendarClock size={12} />
+                                {formatDateTime(item.updatedAt)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <button
+                                onClick={() => router.push(`/notificaciones-certificadas/${item.id}`)}
+                                className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 dark:border-border dark:text-foreground"
+                              >
+                                Abrir <MoreHorizontal size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             </>
           )}
@@ -306,21 +320,6 @@ export default function NotificacionesPage() {
   );
 }
 
-function Heading({
-  children,
-  align = 'left',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}) {
-  return (
-    <th
-      className={`px-4 py-3 text-xs font-600 text-slate-500 ${align === 'right' ? 'text-right' : 'text-left'}`}
-    >
-      {children}
-    </th>
-  );
-}
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString('es-MX', {
     day: '2-digit',

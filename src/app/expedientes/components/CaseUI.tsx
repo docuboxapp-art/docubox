@@ -23,7 +23,12 @@ export function CaseWorkspace({ children }: { children: ReactNode }) {
 
 export function CaseStatusBadge({ status }: { status: CaseFileStatus }) {
   const meta = CASE_STATUS_META[status];
-  return <span className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium ${toneClasses[meta.tone].badge}`}><span className={`h-1.5 w-1.5 rounded-full ${toneClasses[meta.tone].dot}`} />{meta.label}</span>;
+  return (
+    <span className={`inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${toneClasses[meta.tone].badge}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneClasses[meta.tone].dot}`} />
+      {meta.label}
+    </span>
+  );
 }
 
 export function TrafficBadge({ tone, children }: { tone: TrafficLight; children: ReactNode }) {

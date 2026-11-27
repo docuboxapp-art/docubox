@@ -7,11 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
-  Filter,
   SlidersHorizontal,
   Maximize2,
   Minimize2,
@@ -19,22 +15,26 @@ import {
   Folder,
   FolderPlus,
   Zap,
-  LayoutGrid,
-  LayoutList,
   Loader2,
-  Search,
   Send,
   Star,
   X,
 } from 'lucide-react';
 import { caseCategories } from '@/lib/case-files/category-catalog';
+import { caseOrderColumns, caseOrderOptions } from '@/lib/case-files/consultation-order';
+import { getTableSortDirection, tableAriaSort } from '@/lib/workspaces/list-order';
+import { moveViewColumn } from '@/lib/workspaces/view-order';
+import { useColumnReorder } from '@/components/workspaces/useColumnReorder';
 import { addCaseFolder, moveCaseToFolder } from '@/lib/case-files/folders';
 import { useCaseFolders } from './useCaseFolders';
 import { useCaseView } from './useCaseView';
 import {
+  CASE_COLUMN_MAX_WIDTH,
+  CASE_COLUMN_WIDTHS,
   CASE_VIEW_COLUMNS,
   CASE_VIEW_FILTERS,
   CASE_VIEW_GRID,
+  caseColumnMinWidth,
 } from '@/lib/case-files/view-preferences';
 const CustomizeCaseView = dynamic(
   () => import('@/app/mis-documentos/components/PersonalizarVistaModal'),
@@ -45,6 +45,13 @@ import ResponsiveSidebar from '@/components/ResponsiveSidebar';
 import WorkspaceTabs from '@/components/workspaces/WorkspaceTabs';
 import WorkspaceLayout from '@/components/workspaces/WorkspaceLayout';
 import WorkspacePageHeader from '@/components/workspaces/WorkspacePageHeader';
+import ResizableTableHeader from '@/components/workspaces/ResizableTableHeader';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination from '@/components/workspaces/TablePagination';
+import { WORKSPACE_ACTIONS_COLUMN_WIDTH } from '@/lib/workspaces/table-layout';
+import { DEFAULT_TABLE_PAGE_SIZE, type TablePageSize } from '@/lib/workspaces/table-pagination';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import WorkspaceTableToolbar, { WorkspaceTableViewToggle } from '@/components/WorkspaceTableToolbar';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { caseRequest } from '@/lib/case-files/runtime-client';
 import { subscribeToCaseListReturn } from '@/lib/case-files/consultation-refresh';
@@ -92,7 +99,6 @@ type Result = {
   templates: { id: string; name: string }[];
   tags: string[];
   classifications: { category: string; subtype: string | null }[];
-  stats: { total: number; completed: number; active: number; observed: number };
 };
 const control =
   'h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-card dark:text-foreground';
@@ -112,7 +118,26 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const folders = useCaseFolders(activeWorkspace?.id);
   const viewPreferences = useCaseView(activeWorkspace?.id);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number } | null>(null);
   const visibleColumns = viewPreferences.value.columns.filter((column) => column.visible);
+  const columnReorder = useColumnReorder(
+    visibleColumns,
+    viewPreferences.ready && !customizeOpen
+      ? async (from, to) => {
+          const columns = moveViewColumn(viewPreferences.value.columns, from, to);
+          if (columns) await viewPreferences.save({ ...viewPreferences.value, columns });
+        }
+      : undefined
+  );
+  const tableColumns = [{ id: 'title', label: 'Expediente' }, ...visibleColumns].map((column) => ({
+    ...column,
+    width:
+      resizeDraft?.id === column.id
+        ? resizeDraft.width
+        : (viewPreferences.widths[column.id] ?? CASE_COLUMN_WIDTHS[column.id]),
+  }));
+  const dataColumnsWidth = tableColumns.reduce((total, column) => total + column.width, 0);
+  const tableMinWidth = dataColumnsWidth + WORKSPACE_ACTIONS_COLUMN_WIDTH;
   const visibleGridRows = viewPreferences.value.gridColumns.filter((column) => column.selected);
   const [folderId, setFolderId] = useState('');
   const [folderDialog, setFolderDialog] = useState(false);
@@ -137,6 +162,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const [scheduled, setScheduled] = useState(false);
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
   const [refresh, setRefresh] = useState(0);
   const [listing, setListing] = useState<{ key: string; result: Result } | null>(null);
   const data = listing?.result;
@@ -149,12 +175,11 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const [favoriteBusy, setFavoriteBusy] = useState<string | null>(null);
   const [grid, setGrid] = useState(false);
   const [wide, setWide] = useState(false);
-  const [appliedOpen, setAppliedOpen] = useState(false);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const workspaceId = activeWorkspace?.id;
   const requestParams = new URLSearchParams({
     workspaceId: workspaceId || '',
     page: String(page),
+    size: String(grid && !completed ? DEFAULT_TABLE_PAGE_SIZE : pageSize),
     q: search,
     estado: status,
     vista: scope,
@@ -179,6 +204,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
   const requestKey = `${queryString}:${refresh}`;
   const moreFailed = moreStatus === 'error';
   const hasMore =
+    grid &&
     !completed &&
     !loading &&
     listing?.key === requestKey &&
@@ -219,6 +245,11 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       caseRequest<Result>(`/api/expedientes/consultar?${queryString}`)
         .then((result) => {
           if (!live) return;
+          const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
+          if (result.page > lastPage) {
+            setPage(lastPage);
+            return;
+          }
           setListing({ key: requestKey, result });
           setSelectedId((current) =>
             result.items.some((row) => row.id === current) ? current : result.items[0]?.id || null
@@ -310,7 +341,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     setSort(values.sort);
     setPage(1);
   }
-  function reset() {
+  function reset(clearSearch = true) {
     setFolderId('');
     setCategory('');
     setSubtype('');
@@ -318,7 +349,10 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     setType('');
     setStatus(completed ? 'sealed' : 'all');
     setScope('all');
-    setQuery('');
+    if (clearSearch) {
+      setQuery('');
+      setSearch('');
+    }
     setPriority('');
     setTag('');
     setAccess('');
@@ -374,6 +408,18 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
         .filter((v): v is string => !!v),
     ]),
   ].map((name) => ({ id: name, name }));
+  const statusDefault = completed ? 'sealed' : 'all';
+  const scopeOptions = [
+    { id: 'all', name: 'Todos los expedientes' },
+    { id: 'favorites', name: 'Mis favoritos' },
+    ...(completed ? [] : [
+      { id: 'active', name: 'En seguimiento' },
+      { id: 'due', name: 'Por vencer (72 h)' },
+    ]),
+  ];
+  const templateOptions = data?.templates.map(({ id, name }) => ({ id, name })) ?? [];
+  const scopeLabel = scopeOptions.find((option) => option.id === scope)?.name ??
+    (scope === 'mine' ? 'Soy responsable' : scope === 'due' ? 'Por vencer (72 h)' : 'En seguimiento');
   const criteria = [
     folderId && {
       label: 'Carpeta: ' + (folders.folders.find((f) => f.id === folderId)?.name || 'Seleccionada'),
@@ -381,28 +427,20 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     },
     category && {
       label: 'Categoría: ' + category,
-      clear: () => {
-        change(setCategory, '');
-        setSubtype('');
-      },
+      clear: () => change(setCategory, ''),
     },
     subtype && { label: 'Tipo: ' + subtype, clear: () => change(setSubtype, '') },
-    responsible && { label: 'Soy responsable', clear: () => change(setResponsible, '') },
+    responsible && { label: 'Responsable: Soy responsable', clear: () => change(setResponsible, '') },
     type && {
-      label: `Expediente: ${data?.templates.find((t) => t.id === type)?.name || 'Seleccionado'}`,
+      label: `Nombre del tipo de expediente: ${templateOptions.find((option) => option.id === type)?.name || 'Seleccionado'}`,
       clear: () => change(setType, ''),
     },
-    status !== 'all' && {
-      label: `Estado: ${CASE_STATUS_META[status as CaseFileStatus]?.label}`,
-      clear: () => change(setStatus, 'all'),
+    status !== statusDefault && {
+      label: `Estado: ${CASE_STATUS_META[status as CaseFileStatus]?.label ?? 'Todos los estados'}`,
+      clear: () => change(setStatus, statusDefault),
     },
     scope !== 'all' && {
-      label: {
-        active: 'En seguimiento',
-        due: 'Por vencer (72 h)',
-        favorites: 'Mis favoritos',
-        mine: 'Soy responsable',
-      }[scope],
+      label: `Seguimiento y favoritos: ${scopeLabel}`,
       clear: () => change(setScope, 'all'),
     },
     priority && {
@@ -411,11 +449,13 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     },
     tag && { label: `Etiqueta: ${tag}`, clear: () => change(setTag, '') },
     access && {
-      label: access === 'public' ? 'Público con código' : 'Privado',
+      label: access === 'public' ? 'Acceso: Público con código' : 'Acceso: Privado',
       clear: () => change(setAccess, ''),
     },
-    from && { label: `Desde: ${from}`, clear: () => change(setFrom, '') },
-    to && { label: `Hasta: ${to}`, clear: () => change(setTo, '') },
+    (from || to) && {
+      label: `${completed ? 'Fecha de cierre' : 'Fecha de creación'}: ${from || 'Desde el inicio'} – ${to || 'Sin límite'}`,
+      clear: () => { setFrom(''); setTo(''); setPage(1); },
+    },
     scheduled && {
       label: 'Envíos programados',
       clear: () => {
@@ -428,15 +468,18 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     label: string,
     value: string,
     setter: (value: string) => void,
-    options: { id: string; name: string }[]
+    options: { id: string; name: string }[],
+    clearValue = ''
   ) => (
     <CaseFilterSelect
       label={label}
       value={value}
+      emptyValue={clearValue}
       onChange={(selected) => change(setter, selected)}
+      onClear={value === clearValue ? undefined : () => change(setter, clearValue)}
       options={[
         {
-          id: label === 'Estado' ? 'all' : '',
+          id: label === 'Estado' ? 'all' : clearValue,
           name:
             label === 'Estado'
               ? 'Todos los estados'
@@ -462,11 +505,21 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       category,
       (value) => {
         setCategory(value);
-        setSubtype('');
+        if (value && value !== category) setSubtype('');
       },
       categoryOptions
     ),
     subtype: filterSelect('Tipo de expediente', subtype, setSubtype, subtypeOptions),
+    template: filterSelect('Nombre del tipo de expediente', type, setType, templateOptions),
+    scope: (
+      <CaseFilterSelect
+        label="Seguimiento y favoritos"
+        value={scope}
+        options={scope === 'mine' ? [...scopeOptions, { id: 'mine', name: 'Soy responsable' }] : scopeOptions}
+        onChange={(value) => change(setScope, value)}
+        onClear={() => change(setScope, 'all')}
+      />
+    ),
     responsible: filterSelect('Responsable', responsible, setResponsible, [
       { id: 'me', name: 'Soy responsable' },
     ]),
@@ -474,24 +527,21 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       'Estado',
       status,
       setStatus,
-      Object.entries(CASE_STATUS_META).map(([id, meta]) => ({ id, name: meta.label }))
+      Object.entries(CASE_STATUS_META).map(([id, meta]) => ({ id, name: meta.label })),
+      statusDefault
     ),
-    priority:
-      !completed &&
-      filterSelect('Prioridad', priority, setPriority, [
-        { id: 'low', name: 'Baja' },
-        { id: 'normal', name: 'Normal' },
-        { id: 'high', name: 'Alta' },
-        { id: 'urgent', name: 'Urgente' },
-      ]),
-    tag:
-      !completed &&
-      filterSelect(
-        'Etiquetas',
-        tag,
-        setTag,
-        (data?.tags || []).map((name) => ({ id: name, name }))
-      ),
+    priority: filterSelect('Prioridad', priority, setPriority, [
+      { id: 'low', name: 'Baja' },
+      { id: 'normal', name: 'Normal' },
+      { id: 'high', name: 'Alta' },
+      { id: 'urgent', name: 'Urgente' },
+    ]),
+    tag: filterSelect(
+      'Etiquetas',
+      tag,
+      setTag,
+      (data?.tags || []).map((name) => ({ id: name, name }))
+    ),
     access: filterSelect('Acceso', access, setAccess, [
       { id: 'private', name: 'Privado' },
       { id: 'public', name: 'Público con código' },
@@ -512,6 +562,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       <CaseFilterSelect
         label="Envío"
         value={scheduled ? 'scheduled' : ''}
+        onClear={() => { setScheduled(false); setPage(1); }}
         options={[
           { id: '', name: 'Todos los envíos' },
           { id: 'scheduled', name: 'Programados' },
@@ -527,137 +578,60 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
     (item) => item.visible && filterControls[item.id]
   );
   const filters = (
-    <section
-      aria-label="Filtros de expedientes"
-      className="case-toolbar relative mb-3 overflow-visible rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card"
-    >
-      <div className="flex flex-wrap items-center gap-2 p-3">
-        <label className="case-toolbar-search relative min-w-[160px] flex-1">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            aria-hidden="true"
+    <WorkspaceTableToolbar
+      label="Barra de expedientes"
+      searchLabel="Buscar expedientes"
+      query={query}
+      onQueryChange={setQuery}
+      applied={criteria}
+      onClearFilters={() => reset(false)}
+      controls={
+        <>
+          <CaseFilterSelect
+            label="Ordenar expedientes"
+            value={sort}
+            sortControl
+            options={caseOrderOptions}
+            onChange={(value) => change(setSort, value)}
+            onRefresh={() => setRefresh((v) => v + 1)}
+            refreshing={loading}
           />
-          <input
-            type="search"
-            aria-label="Buscar expedientes"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar expedientes..."
-            className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm font-normal transition-colors focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10 dark:border-border dark:bg-card"
-          />
-        </label>
-        {criteria.length > 0 && (
-          <div className="relative flex h-9 rounded-md border border-primary/25 bg-white text-xs text-primary">
-            <button
-              onClick={() => setAppliedOpen(!appliedOpen)}
-              aria-expanded={appliedOpen}
-              className="flex h-full items-center gap-1.5 px-2.5 text-left"
-            >
-              <Filter size={13} />
-              Filtros aplicados <span className="filter-selected-value">({criteria.length})</span>
-              <ChevronDown size={13} />
-            </button>
-            <button
-              onClick={reset}
-              aria-label="Quitar todos los filtros"
-              className="flex h-7 w-7 items-center justify-center self-center border-l border-primary/25 text-primary/70 hover:bg-primary/5 hover:text-primary"
-            >
-              <X size={14} />
-            </button>
-            {appliedOpen && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:bg-card">
-                {criteria.map((c) => (
-                  <div
-                    key={c.label}
-                    className="flex items-center justify-between gap-2 p-2 text-xs"
-                  >
-                    <span>{c.label}</span>
-                    <button onClick={c.clear} aria-label={`Quitar ${c.label}`}>
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <CaseFilterSelect
-          label="Ordenar expedientes"
-          value={sort}
-          sortControl
-          options={[
-            { id: 'recent', name: 'Más recientes' },
-            { id: 'oldest', name: 'Más antiguos' },
-            { id: 'name', name: 'Nombre A–Z' },
-          ]}
-          onChange={(value) => change(setSort, value)}
-          onRefresh={() => setRefresh((v) => v + 1)}
-          refreshing={loading}
-        />
-        {!completed && (
-          <div className="flex h-9 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5 dark:bg-card">
-            <button
-              aria-label="Vista lista"
-              aria-pressed={!grid}
-              onClick={() => setGrid(false)}
-              className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${!grid ? 'bg-slate-100 text-slate-950' : 'text-slate-400'}`}
-            >
-              <LayoutList size={16} />
-            </button>
-            <button
-              aria-label="Vista cuadrícula"
-              aria-pressed={grid}
-              onClick={() => setGrid(true)}
-              className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${grid ? 'bg-slate-100 text-slate-950' : 'text-slate-400'}`}
-            >
-              <LayoutGrid size={16} />
-            </button>
-          </div>
-        )}
-        <button
-          aria-label="Personalizar vista"
-          disabled={!viewPreferences.ready}
-          onClick={() => setCustomizeOpen(true)}
-          title="Personalizar vista"
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-        {visibleFilterItems.length > 0 && (
+          {!completed && (
+            <WorkspaceTableViewToggle
+              value={grid ? 'grid' : 'list'}
+              onChange={(value) => {
+                const nextGrid = value === 'grid';
+                if (nextGrid !== grid) setPage(1);
+                setGrid(nextGrid);
+              }}
+            />
+          )}
           <button
             type="button"
-            aria-expanded={mobileFiltersOpen}
-            aria-controls="case-filter-controls"
-            onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
-            className="inline-flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-600 lg:hidden"
+            aria-label="Personalizar vista"
+            disabled={!viewPreferences.ready || columnReorder.saving}
+            onClick={() => setCustomizeOpen(true)}
+            title="Personalizar vista"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-slate-300 hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
           >
-            <Filter size={15} />
-            Filtros
-            <ChevronDown size={13} className={mobileFiltersOpen ? 'rotate-180' : ''} />
+            <SlidersHorizontal size={16} />
           </button>
-        )}
-        <button
-          aria-label={wide ? 'Salir de vista amplia' : 'Vista amplia'}
-          title={wide ? 'Salir de vista amplia' : 'Vista amplia'}
-          aria-pressed={wide}
-          onClick={() => setWide((v) => !v)}
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
-        >
-          {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-        </button>
-      </div>
-      {visibleFilterItems.length > 0 && (
-        <div
-          id="case-filter-controls"
-          className={`mis-documentos-filters ${mobileFiltersOpen ? 'flex' : 'hidden lg:flex'} flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-border`}
-        >
-          {visibleFilterItems.map((item) => (
-            <Fragment key={item.id}>{filterControls[item.id]}</Fragment>
-          ))}
-        </div>
-      )}
-    </section>
+          <button
+            type="button"
+            aria-label={wide ? 'Salir de vista amplia' : 'Vista amplia'}
+            title={wide ? 'Salir de vista amplia' : 'Vista amplia'}
+            aria-pressed={wide}
+            onClick={() => setWide((v) => !v)}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-slate-300 hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+          >
+            {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        </>
+      }
+      filters={visibleFilterItems.length > 0 && visibleFilterItems.map((item) => (
+        <Fragment key={item.id}>{filterControls[item.id]}</Fragment>
+      ))}
+    />
   );
   const empty = (
     <div className="flex min-h-72 flex-col items-center justify-center p-8 text-center">
@@ -673,38 +647,24 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
           : 'Prueba con otros criterios o limpia los filtros.'}
       </p>
       {(criteria.length > 0 || query) && (
-        <button onClick={reset} className="mt-4 text-sm text-primary">
+        <button onClick={() => reset()} className="mt-4 text-sm text-primary">
           Restablecer filtros
         </button>
       )}
     </div>
   );
-  const paging = data && data.total > 0 && (
-    <footer className="flex items-center justify-between gap-3 pt-4 text-xs text-slate-500">
-      <span>
-        Mostrando {(page - 1) * data.pageSize + 1}–{Math.min(page * data.pageSize, data.total)} de{' '}
-        {data.total} expedientes
-      </span>
-      <div className="flex items-center gap-2">
-        <button
-          aria-label="Página anterior"
-          disabled={page === 1 || loading}
-          onClick={() => setPage((v) => v - 1)}
-          className={`${control} disabled:opacity-40`}
-        >
-          <ChevronLeft size={15} />
-        </button>
-        <span>{page}</span>
-        <button
-          aria-label="Página siguiente"
-          disabled={page * data.pageSize >= data.total || loading}
-          onClick={() => setPage((v) => v + 1)}
-          className={`${control} disabled:opacity-40`}
-        >
-          <ChevronRight size={15} />
-        </button>
-      </div>
-    </footer>
+  const paging = data && (!grid || completed) && (
+    <TablePagination
+      total={data.total}
+      page={data.page}
+      pageSize={pageSize}
+      onPageChange={setPage}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
+      disabled={loading || listing?.key !== requestKey}
+    />
   );
   const actions = (row: CaseBrowserRow) => (
     <CaseRowActions
@@ -869,57 +829,105 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
       ))}
     </div>
   ) : (
-    <div className="overflow-x-auto">
-      <table className="responsive-data-table w-full text-left text-sm">
-        <thead className="border-b border-slate-200 bg-slate-50/70 text-xs text-slate-500">
+    <TableScrollArea label="Tabla de expedientes">
+      <table
+        className="responsive-data-table workspace-actions-table w-full text-left text-sm xl:table-fixed"
+        style={{ minWidth: tableMinWidth }}
+      >
+        <colgroup>
+          {/* The data columns share any extra space while the actions column stays fixed. */}
+          {tableColumns.map(({ id, width }) => (
+            <col key={id} style={{ width: `${(width / dataColumnsWidth) * 100}%` }} />
+          ))}
+          <col style={{ width: WORKSPACE_ACTIONS_COLUMN_WIDTH }} />
+        </colgroup>
+        <thead className="workspace-table-heading">
           <tr>
-            <th className="whitespace-nowrap px-4 py-4 font-medium">Expediente</th>
-            {visibleColumns.map((column) => (
-              <th key={column.id} className="whitespace-nowrap px-4 py-4 font-medium">
-                {column.label}
-              </th>
-            ))}
-            <th className="whitespace-nowrap px-4 py-4 font-medium">Acciones</th>
+            {tableColumns.map(({ id, label, width }) => {
+              const ordering = caseOrderColumns[id];
+              const direction =
+                ordering && getTableSortDirection(sort, ordering.ascending, ordering.descending);
+              return (
+                <ResizableTableHeader
+                  key={id}
+                  colKey={id}
+                  movement={columnReorder.movement(id, label)}
+                  width={width}
+                  minWidth={caseColumnMinWidth(id)}
+                  maxWidth={CASE_COLUMN_MAX_WIDTH}
+                  ariaSort={ordering ? tableAriaSort(direction) : undefined}
+                  resizeLabel={`Ajustar ancho de ${label}`}
+                  onResize={
+                    viewPreferences.ready ? (id, width) => setResizeDraft({ id, width }) : undefined
+                  }
+                  onResizeEnd={(id, width) => {
+                    setResizeDraft(null);
+                    viewPreferences.resizeColumn(id, width);
+                  }}
+                  className="px-4 py-3 max-xl:[&>[role=separator]]:hidden"
+                >
+                  {ordering ? (
+                    <TableSortButton
+                      label={label}
+                      direction={direction}
+                      defaultDirection={ordering.defaultDirection}
+                      onSort={(next) =>
+                        change(setSort, next === 'asc' ? ordering.ascending : ordering.descending)
+                      }
+                    />
+                  ) : (
+                    <span className="block truncate" title={label}>
+                      {label}
+                    </span>
+                  )}
+                </ResizableTableHeader>
+              );
+            })}
+            <th scope="col" className="workspace-table-actions py-3">
+              Acciones
+            </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody>
           {data.items.map((row) => (
             <tr key={row.id} className="hover:bg-blue-50/25">
-              <td className="min-w-52 px-4 py-4">
-                <Link href={`/expedientes/${row.id}`} className="font-medium hover:text-primary">
+              <td className="break-words px-4 py-4">
+                <Link
+                  href={`/expedientes/${row.id}`}
+                  className="font-medium text-foreground hover:text-primary"
+                >
                   {row.title}
                 </Link>
                 {row.priority === 'urgent' && (
-                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-medium text-orange-600">
+                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-normal text-orange-600">
                     <Zap size={12} />
                     Urgente
                   </span>
                 )}
                 {!visibleColumns.some((column) => column.id === 'folio') && (
-                  <p className="mt-1 text-xs text-slate-500">{row.folio}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{row.folio}</p>
                 )}
               </td>
               {visibleColumns.map((column) => (
                 <td
                   key={column.id}
                   data-label={column.label}
-                  className={
-                    column.id === 'progress'
-                      ? 'min-w-28 px-4 py-4'
-                      : 'px-4 py-4 text-xs text-slate-500'
-                  }
+                  className="break-words px-4 py-4 text-xs font-normal text-muted-foreground [&_.font-medium]:font-normal"
                 >
                   {caseValue(row, column.id)}
                 </td>
               ))}
-              <td data-label="Acciones" className="px-4 py-4">
+              <td
+                data-label="Acciones"
+                className="workspace-table-actions py-4 xl:[&>.case-row-actions]:justify-center"
+              >
                 {actions(row)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScrollArea>
   );
   const caseHeading = (
     <WorkspacePageHeader
@@ -952,9 +960,9 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
           </button>
           <Link
             href="/expedientes/lanzar"
-            className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+            className="flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-medium text-white shadow-[0_8px_18px_-12px_rgba(30,107,255,0.85)] transition-colors hover:bg-primary/90"
           >
-            <Send size={16} className="text-primary" />
+            <Send size={16} aria-hidden="true" />
             Lanzar Expediente
           </Link>
         </>
@@ -979,32 +987,29 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
             label="Filtros y carpetas de expedientes"
             className="workspace-sidebar w-60 shrink-0 rounded-lg border border-slate-200 bg-white p-3 lg:pt-5 xl:col-start-1 xl:row-start-2 xl:mb-5 xl:mt-4 2xl:w-64 dark:border-border dark:bg-card"
           >
-            {[
+            {([
               {
                 heading: 'Principal',
                 items: [
-                  ['all', 'Mis expedientes', FolderKanban, data?.stats.total],
-                  ['favorites', 'Mis favoritos', Star, undefined],
+                  ['all', 'Mis expedientes', FolderKanban],
+                  ['favorites', 'Mis favoritos', Star],
                 ],
               },
               {
                 heading: 'Seguimiento',
                 items: [
-                  ['active', 'En seguimiento', Clock3, data?.stats.active],
-                  ['sealed', 'Completados', CheckCircle2, data?.stats.completed],
-                  ['observed', 'Con observaciones', AlertTriangle, data?.stats.observed],
-                  ['due', 'Por vencer (72 h)', Clock3, undefined],
+                  ['active', 'En seguimiento', Clock3],
+                  ['sealed', 'Completados', CheckCircle2],
+                  ['observed', 'Con observaciones', AlertTriangle],
+                  ['due', 'Por vencer (72 h)', Clock3],
                 ],
               },
-            ].map((group) => (
+            ] as const).map((group) => (
               <section key={group.heading} className="mb-5">
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                   {group.heading}
                 </p>
-                {group.items.map(([rawId, rawLabel, RawIcon, count]) => {
-                  const id = rawId as string,
-                    label = rawLabel as string,
-                    Icon = RawIcon as typeof Star;
+                {group.items.map(([id, label, Icon]) => {
                   const state = ['sealed', 'observed'].includes(id),
                     active =
                       !folderId && (state ? status === id : scope === id && status === 'all');
@@ -1022,9 +1027,6 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
                     >
                       <Icon size={17} className={id === 'favorites' ? 'text-amber-400' : ''} />
                       <span className="flex-1">{label}</span>
-                      {typeof count === 'number' && (
-                        <span className="text-xs tabular-nums text-slate-400">{count}</span>
-                      )}
                     </button>
                   );
                 })}
@@ -1105,6 +1107,17 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
               </button>
             </p>
           )}
+          {viewPreferences.widthError && !completed && (
+            <p role="alert" className="mb-4 text-sm text-amber-700">
+              No se pudo guardar el ancho de las columnas.{' '}
+              <button type="button" onClick={viewPreferences.retryWidths} className="text-primary">
+                Reintentar guardado
+              </button>
+            </p>
+          )}
+          {columnReorder.error && !completed && (
+            <p role="alert" className="mb-4 text-sm text-destructive">{columnReorder.error}</p>
+          )}
           {error && (
             <p
               role="alert"
@@ -1121,7 +1134,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
                   <p className="text-xs text-slate-500">{data?.total ?? 0} expedientes</p>
                 </div>
                 {list}
-                <div className="p-4">{paging}</div>
+                {paging}
               </section>
               <aside
                 aria-label="Detalle del expediente"
@@ -1143,6 +1156,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
               {filters}
               <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
                 {list}
+                {paging}
               </section>
               {hasMore && (
                 <div ref={moreTarget} className="min-h-px pt-2 text-center text-sm text-slate-500">
@@ -1332,7 +1346,7 @@ function CaseBrowserContent({ mode = 'workspace' }: { mode?: 'workspace' | 'comp
 function Progress({ value }: { value: number }) {
   return (
     <>
-      <p className="text-xs tabular-nums text-slate-600">{value}%</p>
+      <p className="text-xs tabular-nums">{value}%</p>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
         <div
           className="h-full rounded-full bg-primary"

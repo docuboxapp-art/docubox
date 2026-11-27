@@ -215,6 +215,7 @@ export async function emitDomainEvent(input: EmitDomainEventInput) {
       priority: legacyPriority ?? toLegacyPriority(severity),
       read: false,
       status: 'unread',
+      in_app_visible: channels.includes('in_app') && preferenceAllows(preference, 'in_app', category, severity),
       category,
       event_type: input.type,
       severity,

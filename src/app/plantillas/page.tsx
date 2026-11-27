@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Plus,
-  Search,
   FileText,
   Clock,
   CheckCircle,
@@ -17,37 +16,47 @@ import {
   Archive,
   ArchiveRestore,
   Tag,
-  LayoutGrid,
-  LayoutList,
   X,
   Star,
-  ListFilter,
-  ArrowUpDown,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
+import { catalogDateOptions, catalogFavoriteOptions, matchesCatalogDate, matchesCatalogFavorite, toggleCatalogFilter } from '@/lib/workspaces/catalog-filters';
+import WorkspaceTableToolbar, { WorkspaceTableViewToggle, tableFilter } from '@/components/WorkspaceTableToolbar';
+import WorkspaceTableToolbarSelect from '@/components/WorkspaceTableToolbarSelect';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import AppLayout from '@/components/AppLayout';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import ResizableTableHeader from '@/components/workspaces/ResizableTableHeader';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import { orderedTableCells } from '@/components/workspaces/useColumnReorder';
+import { useTableColumnLayout } from '@/components/workspaces/useTableColumnLayout';
 import AppImage from '@/components/ui/AppImage';
 import { createClient } from '@/lib/supabase/client';
+import {
+  compareCatalogRows,
+  DEFAULT_CATALOG_SORT,
+  getTableSortDirection,
+  tableAriaSort,
+  type CatalogSort,
+  type ListDirection,
+} from '@/lib/workspaces/list-order';
 import { templateApiFetch } from '@/lib/templates/client';
 import {
   buildTemplatePagePreviewDocument,
   type PublishedTemplateDocument,
 } from '@/lib/templates/preview';
 
-type TemplateFilter = 'published' | 'draft' | 'archived' | 'favorites';
-type TemplateSort = '' | 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc';
+type TemplateFilter = 'all' | 'published' | 'draft' | 'archived';
 
 const TEMPLATE_FAVORITES_KEY = 'plantillas';
-const TABLE_PAGE_SIZE = 10;
 
 interface Plantilla {
   id: string;
+  created_by?: string;
   nombre?: string;
   name?: string;
   descripcion?: string;
@@ -128,6 +137,20 @@ function getNormalizedStatus(p: Plantilla): 'published' | 'draft' | 'archived' |
 function getPlantillaFields(p: Plantilla) {
   return p.campos_insertados || p.fields || [];
 }
+
+const templateSortValues = {
+  type: (template: Plantilla) => template.tipo_documento?.nombre,
+  status: (template: Plantilla) => STATUS_CONFIG[getNormalizedStatus(template)]?.label,
+  fields: (template: Plantilla) => getPlantillaFields(template).length,
+};
+type TemplateSort = CatalogSort | `${keyof typeof templateSortValues}_${ListDirection}`;
+const templateColumns = [
+  { id: 'name', label: 'Plantilla', width: 'w-[36%]', defaultDirection: 'asc' },
+  { id: 'type', label: 'Tipo de documento', width: 'w-[18%]', defaultDirection: 'asc' },
+  { id: 'status', label: 'Estado', width: 'w-28', defaultDirection: 'asc' },
+  { id: 'fields', label: 'Campos', width: 'w-24', defaultDirection: 'desc' },
+  { id: 'updated', label: 'Actualizada', width: 'w-36', defaultDirection: 'desc' },
+] as const;
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -539,16 +562,25 @@ export default function PlantillasGalleryPage() {
   const userId = user?.id;
   const { activeWorkspace } = useWorkspace();
   const activeWorkspaceId = activeWorkspace?.id;
+  const tableLayout = useTableColumnLayout(templateColumns, {
+    table: 'plantillas', userId: user?.id, workspaceId: activeWorkspaceId, primaryId: 'name',
+  });
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
   const [summaryOpen, toggleSummary] = useSummaryExpansion('template-summary-metrics');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<TemplateFilter>('published');
-  const [sortMode, setSortMode] = useState<TemplateSort>('');
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [groupFilter, setGroupFilter] = useState<string[]>([]);
+  const [favoriteFilter, setFavoriteFilter] = useState('all');
+  const [creatorFilter, setCreatorFilter] = useState('all');
+  const [fieldsFilter, setFieldsFilter] = useState('all');
+  const [createdFilter, setCreatedFilter] = useState('all');
+  const [modifiedFilter, setModifiedFilter] = useState('all');
+  const [sortMode, setSortMode] = useState<TemplateSort>(DEFAULT_CATALOG_SORT);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
   const [archiveTarget, setArchiveTarget] = useState<Plantilla | null>(null);
   const [lifecyclePendingId, setLifecyclePendingId] = useState<string | null>(null);
   const [isDuplicating, setIsDuplicating] = useState(false);
@@ -768,37 +800,80 @@ export default function PlantillasGalleryPage() {
     }),
     [favoriteSet, visibleTemplates]
   );
+  const { templateTypes, templateGroups } = useMemo(() => {
+    const types = new Map<string, string>();
+    const groups = new Map<string, string>();
+    for (const template of visibleTemplates) {
+      types.set(template.tipo_documento?.id ?? 'none', template.tipo_documento?.nombre ?? 'Sin clasificar');
+      groups.set(template.grupo_tipo?.id ?? 'none', template.grupo_tipo?.nombre ?? 'Sin grupo');
+    }
+    const options = (entries: Map<string, string>) =>
+      Array.from(entries, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
+    return { templateTypes: options(types), templateGroups: options(groups) };
+  }, [visibleTemplates]);
+  const selectedTypes = useMemo(
+    () => typeFilter.filter((id) => templateTypes.some((option) => option.id === id)),
+    [typeFilter, templateTypes]
+  );
+  const selectedGroups = useMemo(
+    () => groupFilter.filter((id) => templateGroups.some((option) => option.id === id)),
+    [groupFilter, templateGroups]
+  );
   const filtered = useMemo(() => {
+    const now = Date.now();
     const normalizedSearch = search.trim().toLocaleLowerCase('es-MX');
     return visibleTemplates
       .filter((template) => {
-        const matchesFilter =
-          filterMode === 'favorites'
-            ? favoriteSet.has(template.id)
-            : getNormalizedStatus(template) === filterMode;
+        const matchesState = filterMode === 'all' || getNormalizedStatus(template) === filterMode;
         const matchesSearch =
           !normalizedSearch ||
           getPlantillaName(template).toLocaleLowerCase('es-MX').includes(normalizedSearch) ||
           getPlantillaDesc(template).toLocaleLowerCase('es-MX').includes(normalizedSearch) ||
           template.tipo_documento?.nombre.toLocaleLowerCase('es-MX').includes(normalizedSearch);
-        return matchesFilter && matchesSearch;
+        return matchesState && matchesSearch &&
+          (!selectedTypes.length || selectedTypes.includes(template.tipo_documento?.id ?? 'none')) &&
+          (!selectedGroups.length || selectedGroups.includes(template.grupo_tipo?.id ?? 'none')) &&
+          matchesCatalogFavorite(favoriteSet.has(template.id), favoriteFilter) &&
+          (creatorFilter === 'all' || (Boolean(template.created_by) && (template.created_by === userId) === (creatorFilter === 'mine'))) &&
+          (fieldsFilter === 'all' || (getPlantillaFields(template).length > 0) === (fieldsFilter === 'yes')) &&
+          matchesCatalogDate(template.created_at, createdFilter, now) &&
+          matchesCatalogDate(template.updated_at, modifiedFilter, now);
       })
-      .sort((left, right) => {
-        if (!sortMode) return 0;
-        if (sortMode === 'name_asc')
-          return getPlantillaName(left).localeCompare(getPlantillaName(right), 'es-MX');
-        if (sortMode === 'name_desc')
-          return getPlantillaName(right).localeCompare(getPlantillaName(left), 'es-MX');
-        const leftTime = new Date(left.updated_at).getTime();
-        const rightTime = new Date(right.updated_at).getTime();
-        return sortMode === 'updated_asc' ? leftTime - rightTime : rightTime - leftTime;
-      });
-  }, [favoriteSet, filterMode, search, sortMode, visibleTemplates]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const paginatedTemplates = filtered.slice(
-    (safeCurrentPage - 1) * TABLE_PAGE_SIZE,
-    safeCurrentPage * TABLE_PAGE_SIZE
+      .sort((left, right) =>
+        compareCatalogRows(left, right, sortMode, getPlantillaName, templateSortValues)
+      );
+  }, [favoriteSet, filterMode, search, sortMode, visibleTemplates, selectedTypes, selectedGroups, favoriteFilter, creatorFilter, fieldsFilter, createdFilter, modifiedFilter, userId]);
+  const pagination = useTablePagination(filtered.length, JSON.stringify([filterMode, selectedTypes, selectedGroups, favoriteFilter, creatorFilter, fieldsFilter, createdFilter, modifiedFilter]));
+  const setCurrentPage = pagination.onPageChange;
+  const paginatedTemplates = filtered.slice(pagination.start, pagination.end);
+  function changeSort(value: TemplateSort) {
+    setSortMode(value);
+    setCurrentPage(1);
+  }
+
+  const templateFilters = [
+    tableFilter('Estado', filterMode, [
+      { id: 'all', name: `Todas (${visibleTemplates.length})` },
+      { id: 'published', name: `Publicadas (${filterCounts.published})` },
+      { id: 'draft', name: `Borradores (${filterCounts.draft})` },
+      { id: 'archived', name: `Archivadas (${filterCounts.archived})` },
+    ], setFilterMode, 'all'),
+    { label: 'Tipo de plantilla', value: selectedTypes, options: templateTypes,
+      change: (id: string) => setTypeFilter((values) => toggleCatalogFilter(values, id)), clear: () => setTypeFilter([]) },
+    { label: 'Grupo de plantilla', value: selectedGroups, options: templateGroups,
+      change: (id: string) => setGroupFilter((values) => toggleCatalogFilter(values, id)), clear: () => setGroupFilter([]) },
+    tableFilter('Creado por', creatorFilter, [
+      { id: 'all', name: 'Todos los creadores' }, { id: 'mine', name: 'Creadas por mí' }, { id: 'others', name: 'Creadas por otros' },
+    ], setCreatorFilter, 'all'),
+    tableFilter('Campos', fieldsFilter, [
+      { id: 'all', name: 'Todas las opciones' }, { id: 'yes', name: 'Con campos' }, { id: 'no', name: 'Sin campos' },
+    ], setFieldsFilter, 'all'),
+    tableFilter('Favoritos', favoriteFilter, catalogFavoriteOptions, setFavoriteFilter, 'all'),
+    tableFilter('Fecha de creación', createdFilter, catalogDateOptions, setCreatedFilter, 'all'),
+    tableFilter('Última modificación', modifiedFilter, catalogDateOptions, setModifiedFilter, 'all'),
+  ];
+  const hasExtraFilters = Boolean(search) || templateFilters.slice(1).some(({ value }) =>
+    Array.isArray(value) ? value.length > 0 : value !== 'all'
   );
 
   return (
@@ -836,108 +911,40 @@ export default function PlantillasGalleryPage() {
             </div>}
           </section>
 
-          <section className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap items-center gap-2 p-3">
-              <div className="relative min-w-[160px] flex-1">
-                <Search
-                  size={15}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="search"
-                  placeholder="Buscar plantillas..."
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15"
-                />
-              </div>
-              <div className="relative min-w-[180px]">
-                <ListFilter
-                  size={14}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-                />
-                <select
-                  value={filterMode}
-                  onChange={(event) => {
-                    setFilterMode(event.target.value as TemplateFilter);
-                    setCurrentPage(1);
-                  }}
-                  aria-label="Filtrar plantillas"
-                  className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
-                >
-                  <option value="published">Publicadas ({filterCounts.published})</option>
-                  <option value="draft">Borradores ({filterCounts.draft})</option>
-                  <option value="archived">Archivadas ({filterCounts.archived})</option>
-                  <option value="favorites">Favoritas ({filterCounts.favorites})</option>
-                </select>
-                <ChevronDown
-                  size={14}
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-              </div>
-              <div className="relative min-w-[150px]">
-                <ArrowUpDown
-                  size={14}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-                />
-                <select
+          <WorkspaceTableToolbar
+            label="Barra de plantillas"
+            searchLabel="Buscar plantillas"
+            query={search}
+            onQueryChange={(value) => { setSearch(value); setCurrentPage(1); }}
+            controls={
+              <>
+                <WorkspaceTableToolbarSelect
+                  label="Ordenar plantillas"
                   value={sortMode}
-                  onChange={(event) => {
-                    setSortMode(event.target.value as TemplateSort);
-                    setCurrentPage(1);
-                  }}
-                  aria-label="Ordenar plantillas"
-                  className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-8 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
-                >
-                  <option value="" disabled>
-                    Ordenar
-                  </option>
-                  <option value="updated_desc">Más recientes</option>
-                  <option value="updated_asc">Más antiguas</option>
-                  <option value="name_asc">Nombre A-Z</option>
-                  <option value="name_desc">Nombre Z-A</option>
-                </select>
-                <ChevronDown
-                  size={14}
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  sortControl
+                  options={[
+                    { id: 'updated_desc', name: 'Más recientes' },
+                    { id: 'updated_asc', name: 'Más antiguas' },
+                    { id: 'name_asc', name: 'Nombre A-Z' },
+                    { id: 'name_desc', name: 'Nombre Z-A' },
+                    { id: 'type_asc', name: 'Tipo A-Z' },
+                    { id: 'type_desc', name: 'Tipo Z-A' },
+                    { id: 'status_asc', name: 'Estado A-Z' },
+                    { id: 'status_desc', name: 'Estado Z-A' },
+                    { id: 'fields_desc', name: 'Más campos' },
+                    { id: 'fields_asc', name: 'Menos campos' },
+                  ]}
+                  onChange={(value) => changeSort(value as TemplateSort)}
                 />
-              </div>
-              <div
-                className="flex h-9 shrink-0 items-center overflow-hidden rounded-md border border-slate-200 bg-white p-0.5"
-                aria-label="Tipo de vista"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setViewMode('list');
-                    setCurrentPage(1);
-                  }}
-                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                  title="Vista en lista"
-                  aria-label="Vista en lista"
-                  aria-pressed={viewMode === 'list'}
-                >
-                  <LayoutList size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setViewMode('grid');
-                    setCurrentPage(1);
-                  }}
-                  className={`flex h-7 w-8 items-center justify-center rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-950' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                  title="Vista en cuadrícula"
-                  aria-label="Vista en cuadrícula"
-                  aria-pressed={viewMode === 'grid'}
-                >
-                  <LayoutGrid size={16} />
-                </button>
-              </div>
-            </div>
-          </section>
+                <WorkspaceTableViewToggle
+                  value={viewMode}
+                  onChange={(value) => { setViewMode(value); setCurrentPage(1); }}
+                />
+              </>
+            }
+            filterDefinitions={templateFilters}
+            onClearFilters={() => templateFilters.forEach((filter) => filter.clear())}
+          />
 
           {/* Grid / List */}
           {loading ? (
@@ -961,25 +968,25 @@ export default function PlantillasGalleryPage() {
           ) : filtered.length === 0 ? (
             <div className="flex min-h-[280px] flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
               <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-50 text-slate-400">
-                {filterMode === 'favorites' ? <Star size={21} /> : <FileText size={21} />}
+                {favoriteFilter === 'yes' ? <Star size={21} /> : <FileText size={21} />}
               </div>
               <h3 className="text-sm font-semibold text-slate-900">
-                {search
-                  ? 'No se encontraron plantillas'
-                  : filterMode === 'favorites'
-                    ? 'Aún no tienes plantillas favoritas'
+                {favoriteFilter === 'yes' && !filterCounts.favorites
+                  ? 'Aún no tienes plantillas favoritas'
+                  : hasExtraFilters
+                    ? 'No se encontraron plantillas'
                     : filterMode === 'published'
                       ? 'No hay plantillas publicadas'
                       : filterMode === 'archived'
                         ? 'No hay plantillas archivadas'
-                        : 'No hay borradores'}
+                        : filterMode === 'draft'
+                          ? 'No hay borradores'
+                          : 'Aún no hay plantillas'}
               </h3>
               <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
-                {search
-                  ? 'Prueba con otro nombre, descripción o tipo de documento.'
-                  : filterMode === 'favorites'
-                    ? 'Marca una plantilla con la estrella para encontrarla aquí.'
-                    : 'Crea una plantilla nueva para comenzar.'}
+                {hasExtraFilters
+                  ? 'Prueba con otra búsqueda o ajusta los filtros.'
+                  : 'Crea una plantilla nueva para comenzar.'}
               </p>
             </div>
           ) : (
@@ -1003,31 +1010,36 @@ export default function PlantillasGalleryPage() {
                   ))}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <table className="responsive-data-table w-full min-w-[980px] table-fixed text-sm">
-                    <thead className="border-b border-slate-200 bg-slate-50/80">
+                <TableScrollArea
+                  label="Tabla de plantillas"
+                  className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                >
+                  <table className="responsive-data-table workspace-actions-table w-full min-w-[980px] text-sm">
+                    <thead className="workspace-table-heading">
                       <tr>
-                        <th className="w-[36%] px-3 py-3 text-left text-xs font-medium text-slate-500">
-                          Plantilla
-                        </th>
-                        <th className="w-[18%] px-3 py-3 text-left text-xs font-medium text-slate-500">
-                          Tipo de documento
-                        </th>
-                        <th className="w-28 px-3 py-3 text-left text-xs font-medium text-slate-500">
-                          Estado
-                        </th>
-                        <th className="w-24 px-3 py-3 text-left text-xs font-medium text-slate-500">
-                          Campos
-                        </th>
-                        <th className="w-36 px-3 py-3 text-left text-xs font-medium text-slate-500">
-                          Actualizada
-                        </th>
-                        <th className="w-40 px-3 py-3 text-right text-xs font-medium text-slate-500">
-                          Acciones
-                        </th>
+                        {tableLayout.columns.map((column) => {
+                          const { id, label, width, defaultDirection } = column;
+                          const direction = getTableSortDirection(sortMode, `${id}_asc`, `${id}_desc`);
+                          return (
+                            <ResizableTableHeader
+                              key={id}
+                              {...tableLayout.headerProps(column)}
+                              className={`${width} px-3 py-3 text-left`}
+                              ariaSort={tableAriaSort(direction)}
+                            >
+                              <TableSortButton
+                                label={label}
+                                direction={direction}
+                                onSort={(next) => changeSort(`${id}_${next}`)}
+                                defaultDirection={defaultDirection}
+                              />
+                            </ResizableTableHeader>
+                          );
+                        })}
+                        <th scope="col" className="workspace-table-actions py-3">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {paginatedTemplates.map((template) => {
                         const statusKey = getNormalizedStatus(template);
                         const statusCfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG.draft;
@@ -1037,47 +1049,59 @@ export default function PlantillasGalleryPage() {
                         const description = getPlantillaDesc(template).trim();
                         return (
                           <tr key={template.id} className="transition-colors hover:bg-slate-50/70">
-                            <td data-label="Plantilla" className="px-3 py-3">
-                              <div className="flex min-w-0 items-center gap-3">
-                                <TemplateDocumentPreview plantilla={template} compact />
-                                <div className="min-w-0">
-                                  <div className="flex min-w-0 items-baseline gap-1.5">
-                                    <p className="truncate text-sm font-medium text-slate-900">
-                                      {getPlantillaName(template)}
-                                    </p>
-                                    <span className="shrink-0 text-[10px] font-normal text-slate-400">
-                                      v{template.version_publicada || '1.0'}
-                                    </span>
+                            {orderedTableCells(tableLayout.columns, {
+                              name: (
+                                <td data-label="Plantilla" className="px-3 py-3">
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    <TemplateDocumentPreview plantilla={template} compact />
+                                    <div className="min-w-0">
+                                      <div className="flex min-w-0 items-baseline gap-1.5">
+                                        <p className="truncate text-sm font-medium text-slate-900">
+                                          {getPlantillaName(template)}
+                                        </p>
+                                        <span className="shrink-0 text-[10px] font-normal text-slate-400">
+                                          v{template.version_publicada || '1.0'}
+                                        </span>
+                                      </div>
+                                      {description && (
+                                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                                          {description}
+                                        </p>
+                                      )}
+                                    </div>
                                   </div>
-                                  {description && (
-                                    <p className="mt-0.5 truncate text-xs text-slate-500">
-                                      {description}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                            <td data-label="Tipo de documento" className="px-3 py-3">
-                              <span className="block truncate text-xs text-slate-600">
-                                {template.tipo_documento?.nombre || 'Sin clasificar'}
-                              </span>
-                            </td>
-                            <td data-label="Estado" className="px-3 py-3">
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${statusCfg.color}`}
-                              >
-                                <StatusIcon size={11} />
-                                {statusCfg.label}
-                              </span>
-                            </td>
-                            <td data-label="Campos" className="px-3 py-3 text-xs text-slate-600">
-                              {getPlantillaFields(template).length}
-                            </td>
-                            <td data-label="Actualizada" className="px-3 py-3 text-xs text-slate-500">
-                              {formatDate(template.updated_at)}
-                            </td>
-                            <td data-label="Acciones" className="px-3 py-3">
-                              <div className="flex items-center justify-end gap-1">
+                                </td>
+                              ),
+                              type: (
+                                <td data-label="Tipo de documento" className="px-3 py-3">
+                                  <span className="block truncate text-xs text-slate-600">
+                                    {template.tipo_documento?.nombre || 'Sin clasificar'}
+                                  </span>
+                                </td>
+                              ),
+                              status: (
+                                <td data-label="Estado" className="px-3 py-3">
+                                  <span
+                                    className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${statusCfg.color}`}
+                                  >
+                                    <StatusIcon size={11} />
+                                    {statusCfg.label}
+                                  </span>
+                                </td>
+                              ),
+                              fields: (
+                                <td data-label="Campos" className="px-3 py-3 text-xs text-slate-600">
+                                  {getPlantillaFields(template).length}
+                                </td>
+                              ),
+                              updated: (
+                                <td data-label="Actualizada" className="px-3 py-3 text-xs text-slate-500">
+                                  {formatDate(template.updated_at)}
+                                </td>
+                              ),
+                            })}
+                            <td data-label="Acciones" className="workspace-table-actions py-3">
+                              <div className="inline-flex items-center gap-1">
                                 <button
                                   type="button"
                                   onClick={() => handleToggleFavorite(template)}
@@ -1147,43 +1171,12 @@ export default function PlantillasGalleryPage() {
                       })}
                     </tbody>
                   </table>
-                </div>
+                </TableScrollArea>
               )}
 
-              {totalPages > 1 && (
-                <div className="mt-4 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    Mostrando {(safeCurrentPage - 1) * TABLE_PAGE_SIZE + 1}–
-                    {Math.min(safeCurrentPage * TABLE_PAGE_SIZE, filtered.length)} de{' '}
-                    {filtered.length}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                      disabled={safeCurrentPage === 1}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                      title="Página anterior"
-                      aria-label="Página anterior"
-                    >
-                      <ChevronLeft size={15} />
-                    </button>
-                    <span className="min-w-20 text-center text-slate-600">
-                      {safeCurrentPage} de {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                      disabled={safeCurrentPage === totalPages}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                      title="Página siguiente"
-                      aria-label="Página siguiente"
-                    >
-                      <ChevronRight size={15} />
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="mt-4 overflow-hidden rounded-lg border border-border">
+                <TablePagination {...pagination} />
+              </div>
             </>
           )}
         </div>

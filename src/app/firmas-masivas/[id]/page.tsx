@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -20,6 +21,8 @@ import {
   Users,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { bulkSignatureApiFetch } from '@/lib/bulk-signatures/client';
 import {
@@ -375,51 +378,61 @@ export default function BulkCampaignMonitorPage() {
 }
 
 function ItemsTable({ items }: { items: BulkCampaignItem[] }) {
+  const { orderedRows, sortHeading } = useTableOrdering(items, {
+    document: (row) => row.documentName,
+    participant: (row) => row.participantName,
+    progress: (row) => row.progress,
+    updated: (row) => tableDate(row.updatedAt),
+  });
   return items.length ? (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[860px] text-left">
-        <thead className="bg-slate-50 text-[11px] font-600 uppercase text-slate-500 dark:bg-muted/30">
-          <tr>
-            <th className="px-4 py-3">Documento</th>
-            <th className="px-4 py-3">Participante</th>
-            <th className="px-4 py-3">Estado</th>
-            <th className="px-4 py-3">Progreso</th>
-            <th className="px-4 py-3">Ultima actividad</th>
-            <th className="w-10" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200 dark:divide-border">
-          {items.map((item) => (
-            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-muted/20">
-              <td className="px-4 py-3">
-                <p className="text-sm font-600">{item.documentName}</p>
-                <p className="text-xs text-slate-500">
-                  {item.documentId || 'Documento por generar'}
-                </p>
-              </td>
-              <td className="px-4 py-3">
-                <p className="text-sm">{item.participantName}</p>
-                <p className="text-xs text-slate-500">{item.participantEmail}</p>
-              </td>
-              <td className="px-4 py-3">
-                <ItemStatus status={item.status} />
-              </td>
-              <td className="px-4 py-3">
-                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className={`h-full rounded-full ${item.status === 'failed' ? 'bg-red-500' : 'bg-primary'}`}
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-              </td>
-              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(item.updatedAt)}</td>
-              <td className="px-3">
-                <MoreHorizontal size={16} className="text-slate-400" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PaginatedTableScrollArea items={orderedRows} label="Registros de la campaña">
+        {(pageRows) => (
+          <table className="w-full min-w-[860px] text-left">
+            <thead className="workspace-table-heading">
+              <tr>
+                <th className="px-4 py-3" {...sortHeading('document', 'Documento')} />
+                <th className="px-4 py-3" {...sortHeading('participant', 'Participante')} />
+                <th scope="col" className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3" {...sortHeading('progress', 'Progreso', 'desc')} />
+                <th className="px-4 py-3" {...sortHeading('updated', 'Última actividad', 'desc')} />
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-border">
+              {pageRows.map((item) => (
+                <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-muted/20">
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-600">{item.documentName}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.documentId || 'Documento por generar'}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm">{item.participantName}</p>
+                    <p className="text-xs text-slate-500">{item.participantEmail}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ItemStatus status={item.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={`h-full rounded-full ${item.status === 'failed' ? 'bg-red-500' : 'bg-primary'}`}
+                        style={{ width: `${item.progress}%` }}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-500">{formatDate(item.updatedAt)}</td>
+                  <td className="px-3">
+                    <MoreHorizontal size={16} className="text-slate-400" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </PaginatedTableScrollArea>
     </div>
   ) : (
     <EmptyState

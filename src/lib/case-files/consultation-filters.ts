@@ -10,7 +10,8 @@ export function parseCaseFilters(params: URLSearchParams) {
   if (category.length > 160 || subtype.length > 160 || (responsible && responsible !== 'me'))
     throw new Error('Clasificación o responsable inválido.');
   const access = params.get('acceso') || '';
-  const dateField = params.get('fecha') === 'cierre' ? 'closed_at' : 'created_at';
+  const dateField: 'closed_at' | 'created_at' =
+    params.get('fecha') === 'cierre' ? 'closed_at' : 'created_at';
   if (status !== 'all' && !Object.hasOwn(CASE_STATUS_META, status))
     throw new Error('Estado inválido.');
   if (!['all', 'active', 'due', 'favorites', 'mine'].includes(scope))

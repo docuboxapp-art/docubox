@@ -487,6 +487,7 @@ export async function sendParticipationReminderEmail(params: {
   participantRole?: string;
   signatureMethod?: string;
   expiryDate?: string;
+  idempotencyKey?: string;
 }): Promise<void> {
   await sendEmailNotification({
     type: 'participation_reminder',
@@ -498,6 +499,7 @@ export async function sendParticipationReminderEmail(params: {
     participantRole: params.participantRole || 'Participante',
     signatureMethod: params.signatureMethod || 'Firma electr\u00f3nica',
     expiryDate: params.expiryDate,
+    idempotencyKey: params.idempotencyKey,
   });
 }
 

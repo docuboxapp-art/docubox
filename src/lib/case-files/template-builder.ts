@@ -2,6 +2,7 @@ import { defaultReviewPolicy, normalizeReviewPolicy, type CaseReviewPolicy } fro
 import { CASE_TEMPLATES, type CaseTemplate } from './schema';
 import { caseStageCatalog, caseVerificationCatalog } from './template-catalog';
 import { caseCategories, caseTags } from './category-catalog';
+import { readCaseCatalogTags, type CaseCatalogTag } from '../catalog/classification';
 import {
   DEFAULT_CASE_APPEARANCE,
   DEFAULT_CASE_EXPERIENCE,
@@ -114,6 +115,7 @@ export interface CaseTemplateDraft {
   typeCode: string;
   folio: string;
   tagIds: string[];
+  catalogTags?: CaseCatalogTag[];
   experience: CaseExperience;
   appearance: CaseAppearance;
   personality: CasePersonality;
@@ -132,6 +134,7 @@ export interface StoredCaseTemplate {
   case_subtype: string | null;
   requirements_schema: unknown;
   status: 'draft' | 'active' | 'paused' | 'archived';
+  updated_at?: string | null;
   archived_from_status?: 'draft' | 'active' | 'paused' | null;
 }
 
@@ -303,6 +306,8 @@ export function parseStoredCaseTemplate(row: StoredCaseTemplate): CaseTemplateDr
   const raw = row.requirements_schema;
   const schema =
     raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const catalogTags = readCaseCatalogTags(schema.catalogTags);
+  const knownTags = new Set([...caseTags, ...catalogTags].map((tag) => tag.id));
   const candidate = schema.sections;
   const sections: CaseTemplateSection[] = Array.isArray(candidate)
     ? candidate.filter((section): section is CaseTemplateSection =>
@@ -333,9 +338,10 @@ export function parseStoredCaseTemplate(row: StoredCaseTemplate): CaseTemplateDr
     folio: typeof schema.folio === 'string' ? schema.folio : '',
     tagIds: Array.isArray(schema.tagIds)
       ? schema.tagIds.filter(
-          (id): id is string => typeof id === 'string' && caseTags.some((tag) => tag.id === id)
+          (id): id is string => typeof id === 'string' && knownTags.has(id)
         )
       : [],
+    ...(catalogTags.length > 0 && { catalogTags }),
     experience: normalizeCaseExperience(schema.experience),
     appearance: normalizeCaseAppearance(schema.appearance),
     personality: isCasePersonality(schema.personality) ? schema.personality : 'both',

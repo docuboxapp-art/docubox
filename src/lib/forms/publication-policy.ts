@@ -5,6 +5,9 @@ export type FormPublicationPermissions = {
   canCreateVersion: boolean;
 };
 
+export const canViewFormResponses = (status: string) =>
+  status === 'published' || status === 'paused';
+
 export function formPublicationPermissions(input: {
   workspaceType: 'personal' | 'business';
   personalOwner: boolean;

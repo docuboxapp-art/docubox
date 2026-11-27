@@ -1,6 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { BottomNotice } from '@/components/ui/BottomNotice';
+import { toast } from 'sonner';
+import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
+import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
+
+import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ZoomIn,
@@ -58,12 +63,13 @@ import { QRCodeSVG } from 'qrcode.react';
 import { FittedSignatureStamp } from '@/components/signatures/SignatureStampDisplay';
 import { getDefaultSignatureStampStyle } from '@/lib/signatures/stamp-sizing';
 import { createClient } from '@/lib/supabase/client';
-import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
-import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
+import { documentFieldType } from '@/lib/documents/field-type';
+import { canEditDocumentInProgress, isCompletedDocument } from '@/lib/documents/workspace-actions';
+import { DocumentViewerActionContext } from '@/components/documents/DocumentViewerActionContext';
 import { LegalHoldBadge } from '@/components/documents/LegalHoldBadge';
 import { LegalHoldPanel } from '@/components/documents/LegalHoldPanel';
 import { AccessProtectionPanel } from '@/components/documents/AccessProtectionPanel';
@@ -91,10 +97,12 @@ import {
   formatLocalTimestampWithOffset,
   getEffectiveTimeZone,
   getTimeZoneOffsetLabel,
+  zonedDateTimeToUtcIso,
 } from '@/lib/datetime';
-import { StepSubir } from '@/app/crear-documento/components/StepSubir';
+import { DocumentPropertiesEditor } from '@/app/crear-documento/components/StepSubir';
 import { StepParticipantes } from '@/app/crear-documento/components/StepParticipantes';
 import { StepAjustes } from '@/app/crear-documento/components/StepAjustes';
+import { prepareDocument } from '@/lib/document-conversion/client';
 import { TemplateDocumentPreview } from '@/components/templates/TemplateDocumentPreview';
 import {
   applyTemplateFieldValues,
@@ -113,7 +121,6 @@ import type {
   DocumentConfig,
   ParticipantMode,
   PlacedField,
-  SecuritySettings,
 } from '@/app/crear-documento/components/types';
 
 interface DocumentData {
@@ -128,6 +135,12 @@ interface DocumentData {
   source_template_id?: string | null;
   source_form_response_id?: string | null;
   descripcion?: string | null;
+  numero_oficio?: string | null;
+  grupo_tipo_documento_id?: string | null;
+  tipo_documento_id?: string | null;
+  otro_tipo_documento?: string | null;
+  participant_mode?: ParticipantMode;
+  participantes?: Array<Record<string, unknown>>;
   etiquetas_ids?: string[] | null;
   etiquetas?: Array<{ id: string; nombre: string; color?: string | null }>;
   version_number?: number | null;
@@ -987,12 +1000,15 @@ interface EditModalProps {
   onClose: () => void;
   onSave: () => void;
   saving: boolean;
+  inline?: boolean;
+  error?: string;
+  saveDisabled?: boolean;
   children: React.ReactNode;
 }
 
-function EditModal({ title, onClose, onSave, saving, children }: EditModalProps) {
+function EditModal({ title, onClose, onSave, saving, inline, error, saveDisabled, children }: EditModalProps) {
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50 flex flex-col">
+    <div className={inline ? 'flex flex-col' : 'fixed inset-0 z-[60] flex flex-col bg-black/50'}>
       <div className="bg-white flex flex-col h-full">
         {/* Modal Header */}
         <div className="h-14 border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
@@ -1000,7 +1016,7 @@ function EditModal({ title, onClose, onSave, saving, children }: EditModalProps)
           <div className="flex items-center gap-2">
             <button
               onClick={onSave}
-              disabled={saving}
+              disabled={saving || saveDisabled}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
             >
               {saving ? (
@@ -1036,29 +1052,47 @@ function EditModal({ title, onClose, onSave, saving, children }: EditModalProps)
             </button>
             <button
               onClick={onClose}
+              disabled={saving}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted transition-colors"
             >
-              <X size={14} />
-              Cerrar
+              {inline ? <ChevronLeft size={14} /> : <X size={14} />}
+              {inline ? 'Volver' : 'Cerrar'}
             </button>
           </div>
         </div>
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className={inline ? 'min-w-0' : 'flex-1 overflow-y-auto'}>
+          {error && <p role="alert" className="mx-4 mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          {children}
+        </div>
       </div>
     </div>
   );
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+function ViewerFrame({ embedded, noPadding, children }: { embedded: boolean; noPadding?: boolean; children: React.ReactNode }) {
+  return embedded ? <>{children}</> : <AppLayout noPadding={noPadding}>{children}</AppLayout>;
+}
+
+function asLocalDeadline(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 export default function VisorDocumentoPage() {
+  const workspaceAction = useContext(DocumentViewerActionContext);
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const { sidebarOpen } = useSidebar();
   const { activeWorkspace } = useWorkspace();
-  const docId = params?.id as string;
+  const docId = workspaceAction?.documentId ?? (params?.id as string);
+  const embedded = Boolean(workspaceAction);
+  const actionTab = workspaceAction?.tab;
   const userId = user?.id ?? '';
   const userEmail = user?.email ?? '';
   const userDisplayName =
@@ -1103,7 +1137,7 @@ export default function VisorDocumentoPage() {
     | 'lucia'
     | 'template-origin'
     | 'form-origin'
-  >('details');
+  >(actionTab ?? 'details');
   const [accessSummary, setAccessSummary] = useState({
     loaded: false,
     enabled: false,
@@ -1131,6 +1165,8 @@ export default function VisorDocumentoPage() {
   const [canManagePermissions, setCanManagePermissions] = useState(false);
   const [canInviteViewers, setCanInviteViewers] = useState(false);
   const [canEditDocument, setCanEditDocument] = useState(false);
+  const [editCapabilityLoaded, setEditCapabilityLoaded] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState('');
   const [permissionQuery, setPermissionQuery] = useState('');
   const [permissionSelectedUser, setPermissionSelectedUser] = useState<PermissionSearchUser | null>(null);
   const [permissionSearchResults, setPermissionSearchResults] = useState<PermissionSearchUser[]>([]);
@@ -1204,6 +1240,9 @@ export default function VisorDocumentoPage() {
   // NEW: participation responses for filled field values
   const [participationResponses, setParticipationResponses] = useState<ParticipationResponse[]>([]);
   const [participationResponsesLoaded, setParticipationResponsesLoaded] = useState(false);
+  const canSealSignedPdf =
+    hasConfiguredSignatureFields ||
+    (!document?.source_form_response_id && participationResponses.some((response) => response.firma_completada));
   const [selectedParticipantIndex, setSelectedParticipantIndex] = useState<number | null>(null);
   const [participantDetails, setParticipantDetails] = useState<Record<string, ParticipantDetails>>({});
   const [participantDetailsLoading, setParticipantDetailsLoading] = useState<Record<string, boolean>>({});
@@ -1222,6 +1261,10 @@ export default function VisorDocumentoPage() {
 
   // ── Descargas tab state ────────────────────────────────────────────────────
   const [downloadingOriginal, setDownloadingOriginal] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadRequiresCode, setDownloadRequiresCode] = useState(false);
+  const [downloadAccessCode, setDownloadAccessCode] = useState('');
+  const [unlockingDownload, setUnlockingDownload] = useState(false);
   const [nom151Data, setNom151Data] = useState<{
     id: string;
     status: string;
@@ -1440,12 +1483,13 @@ export default function VisorDocumentoPage() {
   );
 
   useEffect(() => {
-    void refreshLegalHoldSummary();
-  }, [refreshLegalHoldSummary]);
+    if (!embedded) void refreshLegalHoldSummary();
+  }, [embedded, refreshLegalHoldSummary]);
   useEffect(() => {
+    if (embedded) return;
     const timer = window.setTimeout(() => void refreshAccessSummary(), 0);
     return () => window.clearTimeout(timer);
-  }, [refreshAccessSummary]);
+  }, [embedded, refreshAccessSummary]);
 
   const refreshPackageReadiness = useCallback(async () => {
     if (!docId || !user) return;
@@ -1474,9 +1518,10 @@ export default function VisorDocumentoPage() {
   }, [docId, user]);
 
   useEffect(() => {
+    if (embedded) return;
     const timer = window.setTimeout(() => void refreshPackageReadiness(), 0);
     return () => window.clearTimeout(timer);
-  }, [refreshPackageReadiness]);
+  }, [embedded, refreshPackageReadiness]);
 
   const refreshLuciaAvailability = useCallback(async () => {
     const workspaceId = document?.workspace_id;
@@ -1505,9 +1550,10 @@ export default function VisorDocumentoPage() {
   }, [docId, document?.estado, document?.workspace_id, user]);
 
   useEffect(() => {
+    if (embedded) return;
     const timer = window.setTimeout(() => void refreshLuciaAvailability(), 0);
     return () => window.clearTimeout(timer);
-  }, [refreshLuciaAvailability]);
+  }, [embedded, refreshLuciaAvailability]);
 
   useEffect(() => {
     if (!luciaAvailability.loaded || luciaAvailability.enabled || activeTab !== 'lucia') return;
@@ -1754,7 +1800,7 @@ export default function VisorDocumentoPage() {
   }, []);
 
   useEffect(() => {
-    if (!document?.id || document.estado !== 'completado' || !document.es_publico) {
+    if (embedded || !document?.id || document.estado !== 'completado' || !document.es_publico) {
       const clearFrame = window.requestAnimationFrame(() => setPublicVerificationPath(''));
       return () => window.cancelAnimationFrame(clearFrame);
     }
@@ -1790,7 +1836,7 @@ export default function VisorDocumentoPage() {
     return () => {
       active = false;
     };
-  }, [document?.es_publico, document?.estado, document?.id]);
+  }, [document?.es_publico, document?.estado, document?.id, embedded]);
 
   const publicVerificationUrl = useMemo(() => {
     if (!publicVerificationPath || !publicVerificationOrigin) return '';
@@ -2038,15 +2084,11 @@ export default function VisorDocumentoPage() {
 
   // ── NOM-151 polling (only when completado) ─────────────────────────────────
   useEffect(() => {
-    if (!docId || document?.estado !== 'completado') return;
+    if (actionTab === 'permisos' || !docId || document?.estado !== 'completado') return;
     let cancelled = false;
     let pollTimeout: ReturnType<typeof setTimeout> | null = null;
     let pollAttempts = 0;
     const maxPollAttempts = document.source_form_response_id ? 120 : 24;
-    const lookupFrame = window.requestAnimationFrame(() => {
-      if (!cancelled) setNom151LookupComplete(false);
-    });
-
     const fetchNom151 = async (): Promise<boolean> => {
       try {
         // Use API route that queries nom151_constancias_doc (references documentos.id)
@@ -2105,7 +2147,11 @@ export default function VisorDocumentoPage() {
       }
     };
 
-    void pollNom151();
+    const lookupFrame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      setNom151LookupComplete(false);
+      void pollNom151();
+    });
     const refreshOnReturn = () => {
       if (!cancelled && window.document.visibilityState === 'visible') void fetchNom151();
     };
@@ -2119,12 +2165,13 @@ export default function VisorDocumentoPage() {
       window.cancelAnimationFrame(lookupFrame);
       if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [apiAuthHeaders, docId, document?.estado, document?.source_form_response_id]);
+  }, [actionTab, apiAuthHeaders, docId, document?.estado, document?.source_form_response_id]);
 
   // ── Download original PDF ──────────────────────────────────────────────────
   const downloadOriginalDocument = useCallback(async () => {
-    if (!docId || !document?.file_url) return;
+    if (!docId) return;
     setDownloadingOriginal(true);
+    setDownloadError('');
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=original&download=1`,
@@ -2132,6 +2179,10 @@ export default function VisorDocumentoPage() {
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
+        if (response.status === 423 || payload?.code === 'ACCESS_CODE_REQUIRED') {
+          setDownloadRequiresCode(true);
+          return;
+        }
         throw new Error(payload?.error || 'No se pudo descargar el archivo.');
       }
       const blob = await response.blob();
@@ -2139,19 +2190,41 @@ export default function VisorDocumentoPage() {
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement('a');
       a.href = url;
-      a.download = `${document.nombre || 'documento'}.pdf`;
+      const pdfName = (document?.nombre || 'documento').replace(/\.pdf$/i, '') + '.pdf';
+      a.download = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/i)?.[1] || pdfName;
       a.style.display = 'none';
       window.document.body.appendChild(a);
       a.click();
       window.document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
-      console.error('Error descargando documento:', err);
-      alert(err instanceof Error ? err.message : 'No se pudo descargar el archivo.');
+      setDownloadError(err instanceof Error ? err.message : 'No se pudo descargar el archivo.');
     } finally {
       setDownloadingOriginal(false);
     }
-  }, [apiAuthHeaders, docId, document?.file_url, document?.nombre]);
+  }, [apiAuthHeaders, docId, document?.nombre]);
+
+  const unlockDownload = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!downloadAccessCode || unlockingDownload) return;
+    setUnlockingDownload(true);
+    setDownloadError('');
+    try {
+      const response = await fetch(`/api/documentos/${encodeURIComponent(docId)}/view-access/unlock`, {
+        method: 'POST',
+        headers: await apiAuthHeaders(true),
+        body: JSON.stringify({ code: downloadAccessCode }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || 'No fue posible validar el código.');
+      setDownloadAccessCode('');
+      setDownloadRequiresCode(false);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : 'No fue posible validar el código.');
+    } finally {
+      setUnlockingDownload(false);
+    }
+  };
 
   // ── Download .asn1 NOM-151 file ───────────────────────────────────────────
   const downloadAnsFile = useCallback(async () => {
@@ -2178,7 +2251,7 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error descargando .asn1:', err);
-      alert(err instanceof Error ? err.message : 'No fue posible descargar el archivo .asn1.');
+      toast.error(err instanceof Error ? err.message : 'No fue posible descargar el archivo .asn1.');
     } finally {
       setDownloadingAns(false);
     }
@@ -2188,22 +2261,23 @@ export default function VisorDocumentoPage() {
   const downloadSignedPdf = useCallback(async () => {
     if (!docId) return;
     if (!document?.sealed_pdf_path) {
-      alert(
+      toast.info(
         'El PDF firmado todavía se está preparando. La descarga se habilitará cuando el cierre del documento termine y su huella se valide.'
       );
       return;
     }
     if (!document.additional_access_level && !padesBtVerified) {
-      alert(
+      toast.info(
         'La descarga certificada estará disponible cuando la firma PAdES-B-T del PDF termine su verificación técnica.'
       );
       return;
     }
     if (!document.additional_access_level && !finalDeliverableAvailable) {
-      alert('El PDF final estará disponible cuando la constancia NOM-151 esté emitida y verificada. Puedes descargar el documento original mientras tanto.');
+      toast.info('El PDF final estará disponible cuando la constancia NOM-151 esté emitida y verificada. Puedes descargar el documento original mientras tanto.');
       return;
     }
     setDownloadingSignedPdf(true);
+    setDownloadError('');
     try {
       const response = await fetch(
         `/api/documentos/${encodeURIComponent(docId)}/viewer-file?variant=certified&download=1`,
@@ -2211,6 +2285,10 @@ export default function VisorDocumentoPage() {
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
+        if (response.status === 423 || payload?.code === 'ACCESS_CODE_REQUIRED') {
+          setDownloadRequiresCode(true);
+          return;
+        }
         throw new Error(payload?.error || 'No se pudo descargar el PDF firmado.');
       }
       const blob = await response.blob();
@@ -2237,8 +2315,7 @@ export default function VisorDocumentoPage() {
       window.document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
-      console.error('Error descargando PDF firmado:', err);
-      alert(`Error al descargar el PDF firmado: ${(err as Error).message}`);
+      setDownloadError(err instanceof Error ? err.message : 'No se pudo descargar el PDF firmado.');
     } finally {
       setDownloadingSignedPdf(false);
     }
@@ -2273,13 +2350,13 @@ export default function VisorDocumentoPage() {
           const errMsg = String(json.error || 'No fue posible finalizar la evidencia del documento.');
           console.error('[nom151] Error generando:', errMsg);
           setNom151Error(errMsg);
-          if (!options?.silent) alert(`Error generando NOM-151: ${errMsg}`);
+          if (!options?.silent) toast.error(`Error generando NOM-151: ${errMsg}`);
         }
       } catch (err) {
         console.error('[nom151] Error:', err);
         const message = 'No fue posible generar la constancia NOM-151. Intenta de nuevo.';
         setNom151Error(message);
-        if (!options?.silent) alert(message);
+        if (!options?.silent) toast.error(message);
       } finally {
         setNom151Generating(false);
       }
@@ -2486,7 +2563,7 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia NOM-151:', error);
-      alert(
+      toast.error(
         error instanceof Error ? error.message : 'No fue posible generar la constancia NOM-151.'
       );
     } finally {
@@ -2719,7 +2796,7 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia general:', error);
-      alert(
+      toast.error(
         error instanceof Error ? error.message : 'No fue posible generar la constancia general.'
       );
     } finally {
@@ -2751,7 +2828,7 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error generando constancia de auditoría:', error);
-      alert(
+      toast.error(
         error instanceof Error
           ? error.message
           : 'No fue posible generar la constancia de auditoría.'
@@ -2787,7 +2864,7 @@ export default function VisorDocumentoPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error descargando constancia individual:', error);
-      alert(error instanceof Error ? error.message : 'No fue posible generar tu constancia.');
+      toast.error(error instanceof Error ? error.message : 'No fue posible generar tu constancia.');
     } finally {
       setDownloadingMyParticipationCertificate(false);
     }
@@ -2872,11 +2949,13 @@ export default function VisorDocumentoPage() {
       setCanInviteViewers(payload.capabilities?.canInvite === true);
       setCanEditDocument(payload.capabilities?.canEdit === true);
     } catch (error) {
+      setCanEditDocument(false);
       setPermissionsError(
         error instanceof Error ? error.message : 'No fue posible consultar los permisos.'
       );
     } finally {
       setPermissionsLoading(false);
+      setEditCapabilityLoaded(true);
     }
   }, [docId, userId]);
 
@@ -2957,8 +3036,8 @@ export default function VisorDocumentoPage() {
   };
 
   useEffect(() => {
-    void loadDocumentPermissions();
-  }, [loadDocumentPermissions]);
+    if (actionTab !== 'descargas') void loadDocumentPermissions();
+  }, [actionTab, loadDocumentPermissions]);
 
   // ── Load document + participants + activity ────────────────────────────────
   useEffect(() => {
@@ -3052,7 +3131,7 @@ export default function VisorDocumentoPage() {
         // Preserve the existing loading state and visible values while removing
         // three sequential round trips from the viewer bootstrap.
         const [profileResult, folderResult, metadataResult] = await Promise.all([
-          data.owner_id && !data.additional_access_level
+          data.owner_id && !data.owner_nombre && !data.additional_access_level
             ? loadVisibleProfileCards([data.owner_id]).catch(() => [])
             : [],
           data.carpeta_id && !data.additional_access_level
@@ -3069,7 +3148,8 @@ export default function VisorDocumentoPage() {
                 .maybeSingle(),
         ]);
 
-        const ownerNombre = data.owner_nombre || profileResult[0]?.name || 'Usuario';
+        const ownerNombre =
+          data.owner_nombre || profileResult[0]?.name || 'Usuario';
         const carpetaNombre = folderResult.data?.nombre || 'Sin carpeta';
 
         const loadedDocument: DocumentData = {
@@ -3141,7 +3221,7 @@ export default function VisorDocumentoPage() {
             }).catch(() => null);
         setTemplateDocument(resolvedTemplate);
 
-        void loadAdditionalMetadata();
+        if (!embedded) void loadAdditionalMetadata();
 
         const rawParts: any[] = data.participantes || [];
 
@@ -3198,7 +3278,7 @@ export default function VisorDocumentoPage() {
                 'cancelado',
               ];
               const currentSub = myPart.sub_estado || 'en_revision';
-              if (currentSub === 'sin_revisar' && !terminalStates.includes(currentSub)) {
+              if (!embedded && currentSub === 'sin_revisar' && !terminalStates.includes(currentSub)) {
                 try {
                   await supabase.rpc('update_participante_sub_estado', {
                     p_documento_id: docId,
@@ -3379,8 +3459,9 @@ export default function VisorDocumentoPage() {
           );
           if (!creationExists && docData.created_at) {
             // Get owner name
-            const owner = docData.owner_id ? await loadVisibleProfileCards([docData.owner_id]).catch(() => []) : [];
-            const ownerName = owner[0]?.name || 'Propietario';
+            const ownerProfiles = docData.owner_id && !docData.owner_nombre
+              ? await loadVisibleProfileCards([docData.owner_id]).catch(() => []) : [];
+            const ownerName = docData.owner_nombre || ownerProfiles[0]?.name || 'Propietario';
             allEvents.push({
               id: `synth_created_${docId}`,
               action: 'documento_creado',
@@ -3628,8 +3709,9 @@ export default function VisorDocumentoPage() {
     };
 
     loadDocument();
-    loadActivity();
+    if (!embedded) loadActivity();
     loadParticipationResponses();
+    if (embedded) return;
     // Log document view after a short delay to ensure user is authenticated
     const viewTimer = setTimeout(() => {
       if (userId && docId) {
@@ -3652,11 +3734,11 @@ export default function VisorDocumentoPage() {
       }
     }, 1500);
     return () => clearTimeout(viewTimer);
-  }, [authLoading, docId, loadAdditionalMetadata, userDisplayName, userEmail, userId]);
+  }, [authLoading, docId, embedded, loadAdditionalMetadata, userDisplayName, userEmail, userId]);
 
   // ── Load chat messages ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !userId) return;
+    if (embedded || !docId || !userId) return;
     const supabase = createClient();
 
     const loadMessages = async () => {
@@ -3705,11 +3787,11 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [docId, userId]);
+  }, [docId, embedded, userId]);
 
   // ── Load notes ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !userId) return;
+    if (embedded || !docId || !userId) return;
     const supabase = createClient();
 
     const loadNotes = async () => {
@@ -3754,11 +3836,11 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [docId, userId]);
+  }, [docId, embedded, userId]);
 
   // ── Presence tracking ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!docId || !userId) return;
+    if (embedded || !docId || !userId) return;
     const supabase = createClient();
 
     const presenceChannel = supabase.channel(`presence:${docId}`, {
@@ -3788,7 +3870,7 @@ export default function VisorDocumentoPage() {
     return () => {
       supabase.removeChannel(presenceChannel);
     };
-  }, [docId, userEmail, userId]);
+  }, [docId, embedded, userEmail, userId]);
 
   // Scroll to bottom when messages load
   useEffect(() => {
@@ -3880,11 +3962,6 @@ export default function VisorDocumentoPage() {
           });
         }
         setReminderSentFor((prev) => new Set(prev).add(p.id));
-        // Log reminder activity
-        logActivity('recordatorio_enviado', 'notificacion', {
-          participant_email: p.email,
-          participant_name: p.nombre,
-        });
         // Update local participant state with new fecha_recordatorio
         const now = new Date().toISOString();
         setParticipantes((prev) =>
@@ -4019,7 +4096,8 @@ export default function VisorDocumentoPage() {
         // Preserve the uploaded file and generate a derived PDF that contains the
         // signature stamp selected by each participant before related evidence is issued.
         const stampGenPromise = (async () => {
-          if (generatedPadesPath || !hasConfiguredSignatureFields) return generatedPadesPath;
+          if (generatedPadesPath || !canSealSignedPdf || isTemplateDocumentMimeType(document.file_type))
+            return generatedPadesPath;
           signatureStampGenerationRef.current.add(document.id);
           try {
             const stampRes = await fetch(
@@ -5111,7 +5189,7 @@ export default function VisorDocumentoPage() {
   // automatica. No depende de abrir Descargas: al cargar el documento el
   // propietario solicita los artefactos pendientes una sola vez.
   useEffect(() => {
-    if (document?.estado !== 'completado' || document.additional_access_level || !docId || !user?.id)
+    if (actionTab === 'permisos' || document?.estado !== 'completado' || document.additional_access_level || !docId || !user?.id)
       return;
 
     const formRecentlyCompleted = Boolean(
@@ -5122,7 +5200,7 @@ export default function VisorDocumentoPage() {
 
     if (
       user.id === document.owner_id &&
-      hasConfiguredSignatureFields &&
+      canSealSignedPdf &&
       !document.sealed_pdf_path &&
       !formRecentlyCompleted &&
       !signatureStampGenerationRef.current.has(docId)
@@ -5152,6 +5230,7 @@ export default function VisorDocumentoPage() {
       void generateNom151({ silent: true });
     }
   }, [
+    actionTab,
     docId,
     document?.estado,
     document?.additional_access_level,
@@ -5162,7 +5241,7 @@ export default function VisorDocumentoPage() {
     document?.source_form_response_id,
     ensureFinalSignedPdf,
     generateNom151,
-    hasConfiguredSignatureFields,
+    canSealSignedPdf,
     nom151Data,
     nom151Error,
     nom151Generating,
@@ -5444,21 +5523,18 @@ export default function VisorDocumentoPage() {
         throw new Error(body.error || 'No fue posible iniciar la firma presencial.');
       window.location.assign(body.data.path);
     } catch (error) {
-      window.alert(
+      toast.error(
         error instanceof Error ? error.message : 'No fue posible iniciar la firma presencial.'
       );
       setInPersonStartingId(null);
     }
   };
 
-  // ── Edit tab state ─────────────────────────────────────────────────────────
-  const [editModal, setEditModal] = useState<
-    'datos' | 'archivo' | 'participantes' | 'ajustes' | null
-  >(null);
+  // ── Editor del documento ────────────────────────────────────────────────────
+  const [editModal, setEditModal] = useState<'datos' | 'archivo' | 'participantes' | 'ajustes' | null>(null);
   const [editSaving, setEditSaving] = useState(false);
-  const [editSaved, setEditSaved] = useState<string | null>(null);
-
-  // Edit: document data (StepSubir config)
+  const [editError, setEditError] = useState('');
+  const [editNotice, setEditNotice] = useState('');
   const [editFile, setEditFile] = useState<File | null>(null);
   const [editDocConfig, setEditDocConfig] = useState<DocumentConfig>({
     nombre: '',
@@ -5471,13 +5547,9 @@ export default function VisorDocumentoPage() {
     etiquetasIds: [],
     additionalMetadata: [],
   });
-
-  // Edit: participants (StepParticipantes)
   const [editParticipants, setEditParticipants] = useState<Participant[]>([]);
   const [editParticipantMode, setEditParticipantMode] = useState<ParticipantMode>(null);
-  const [editParticipationOrder, setEditParticipationOrder] = useState<string>('');
-
-  // Edit: settings (StepAjustes)
+  const [editParticipationOrder, setEditParticipationOrder] = useState('');
   const [editSettings, setEditSettings] = useState<DocumentSettings>({
     title: '',
     message: '',
@@ -5487,259 +5559,269 @@ export default function VisorDocumentoPage() {
     allowDecline: false,
   });
   const [editPlacedFields, setEditPlacedFields] = useState<PlacedField[]>([]);
-  const [editSecuritySettings, setEditSecuritySettings] = useState<SecuritySettings | undefined>(
-    undefined
-  );
+  const [editPreviewLoading, setEditPreviewLoading] = useState(false);
+  const editPreviewRequest = useRef<AbortController | null>(null);
+  const editableDocument = Boolean(document && canEditDocument && canEditDocumentInProgress({
+    ...document,
+    participantes: document.participantes || participantes,
+  }));
 
-  const handleOpenEditModal = (modal: 'datos' | 'archivo' | 'participantes' | 'ajustes') => {
-    if (modal === 'datos' && document) {
+  useEffect(() => () => editPreviewRequest.current?.abort(), []);
+
+  const closeEditModal = () => {
+    if (editSaving) return;
+    editPreviewRequest.current?.abort();
+    setEditModal(null);
+  };
+
+  const handleOpenEditModal = async (modal: 'datos' | 'archivo' | 'participantes' | 'ajustes') => {
+    if (!document || !editableDocument) return;
+
+    setEditModal(modal);
+    setEditNotice('');
+    setEditError('');
+    setEditFile(null);
+    setEditPreviewLoading(false);
+    if (modal === 'datos') {
+      const otherType = document.otro_tipo_documento;
       setEditDocConfig({
         nombre: document.nombre || '',
-        descripcion: '',
-        numeroOficio: '',
-        grupotipoId: '',
-        tipoDocumentoId: '',
-        otroTipoDocumento: '',
+        descripcion: document.descripcion || '',
+        numeroOficio: document.numero_oficio || '',
+        grupotipoId: document.grupo_tipo_documento_id || '',
+        tipoDocumentoId: document.tipo_documento_id || (otherType && otherType !== 'No especificado' ? '__otros__' : ''),
+        otroTipoDocumento: otherType || '',
         ruta: 'raiz',
-        etiquetasIds: [],
+        etiquetasIds: document.etiquetas_ids || [],
         additionalMetadata: [],
       });
     }
-    if (modal === 'participantes') {
-      setEditParticipants(
-        participantes.map((p) => ({
-          id: p.id,
-          name: p.nombre,
-          email: p.email,
-          role: (p.acto?.toLowerCase() === 'firmante'
-            ? 'firmante'
-            : p.acto?.toLowerCase() === 'aprobador'
-              ? 'aprobador'
-              : 'observador') as 'firmante' | 'aprobador' | 'observador',
+    if (modal === 'participantes' || modal === 'ajustes') {
+      setEditParticipants(participantes.map((participant) => {
+        const original = document.participantes?.find((entry) => entry.id === participant.id);
+        const action = (participant.acto || '').toLowerCase();
+        const role =
+          action === 'firmante' || action === 'aprobador' || action === 'testigo' ? action : 'observador';
+        const method = (participant.metodo_firma || '').toLowerCase();
+        const methods = Array.isArray(original?.tipoFirma)
+          ? original.tipoFirma.filter((value): value is string => typeof value === 'string')
+          : [];
+        return {
+          id: participant.id,
+          name: participant.nombre,
+          email: participant.email,
+          role,
           configured: true,
-          acto: p.acto,
-          rolDocumento: p.rolDocumento,
-          tipoFirma: p.metodo_firma ? [p.metodo_firma] : ['autografa'],
-        }))
-      );
+          acto: participant.acto,
+          rolDocumento: participant.rolDocumento,
+          tipoFirma: methods.length ? methods : [/sat|efirma/.test(method) ? 'efirma' : /click/.test(method) ? 'clicksign' : 'autografa'],
+          tipoNotificacion: Array.isArray(original?.tipoNotificacion) ? original.tipoNotificacion : undefined,
+          mensajePersonalizado: typeof original?.mensajePersonalizado === 'string' ? original.mensajePersonalizado : undefined,
+          deliveryMode: participant.delivery_mode,
+        };
+      }));
+      setEditParticipantMode(document.participant_mode || null);
+      setEditParticipationOrder(document.participation_order || '');
     }
-    setEditModal(modal);
-    setEditSaved(null);
+    if (modal !== 'ajustes') return;
+
+    setEditSettings((current) => ({ ...current, deadline: asLocalDeadline(document.vencimiento) }));
+    setEditPlacedFields(camposSolicitados.map((field, index) => ({
+      ...(field as Partial<PlacedField>),
+      id: field.id || field.valueKey || 'campo-' + index,
+      label: field.label,
+      icon: null,
+      x: field.x ?? 5,
+      y: field.y ?? 5,
+      width: field.width ?? 20,
+      height: field.height ?? 6,
+      participantId: field.participantId ?? undefined,
+      participantName: field.participantName ?? undefined,
+    })));
+    if (templateDocument) return;
+
+    const controller = new AbortController();
+    editPreviewRequest.current?.abort();
+    editPreviewRequest.current = controller;
+    setEditPreviewLoading(true);
+    try {
+      const response = await fetch('/api/documentos/' + encodeURIComponent(docId) + '/viewer-file?variant=original', {
+        headers: await apiAuthHeaders(), signal: controller.signal, cache: 'no-store',
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'No fue posible cargar el PDF para editar los campos.');
+      }
+      const blob = await response.blob();
+      if (!controller.signal.aborted) setEditFile(new File([blob], 'documento.pdf', { type: 'application/pdf' }));
+    } catch (error) {
+      if (!controller.signal.aborted) setEditError(error instanceof Error ? error.message : 'No fue posible cargar el archivo.');
+    } finally {
+      if (!controller.signal.aborted) setEditPreviewLoading(false);
+    }
   };
 
   const updateDocumentThroughApi = async (updates: Record<string, unknown>) => {
     if (!document) throw new Error('Documento no disponible.');
-    const response = await fetch(`/api/documentos/${encodeURIComponent(document.id)}/edit`, {
+    const response = await fetch('/api/documentos/' + encodeURIComponent(document.id) + '/edit', {
       method: 'PATCH',
       headers: await apiAuthHeaders(true),
       body: JSON.stringify({ updates }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'No fue posible guardar los cambios.');
-    return payload.data;
+    setDocument((current) => current ? { ...current, ...payload.data } : current);
   };
 
-  const handleSaveDocumentData = async () => {
-    if (!document || !editDocConfig.nombre.trim()) return;
+  const saveDocumentEdit = async (save: () => Promise<void>) => {
+    if (editSaving) return;
+    setEditError('');
     setEditSaving(true);
+    workspaceAction?.onSavingChange(true);
     try {
-      const updates: Record<string, any> = {
-        nombre: editDocConfig.nombre.trim(),
+      await save();
+      setEditModal(null);
+      setEditNotice('Cambios guardados.');
+      workspaceAction?.onUpdated();
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'No fue posible guardar los cambios.');
+    } finally {
+      workspaceAction?.onSavingChange(false);
+      setEditSaving(false);
+    }
+  };
+
+  const handleSaveDocumentData = () => saveDocumentEdit(async () => {
+    const name = editDocConfig.nombre.trim();
+    if (!name) throw new Error('Escribe un nombre para el documento.');
+    const customType = editDocConfig.tipoDocumentoId === '__otros__';
+    if (customType && !editDocConfig.otroTipoDocumento.trim()) {
+      throw new Error('Especifica el tipo de documento.');
+    }
+    await updateDocumentThroughApi({
+      nombre: name,
+      descripcion: editDocConfig.descripcion.trim() || null,
+      numero_oficio: editDocConfig.numeroOficio.trim() || null,
+      grupo_tipo_documento_id: editDocConfig.grupotipoId || null,
+      tipo_documento_id: customType ? null : editDocConfig.tipoDocumentoId || null,
+      otro_tipo_documento: customType ? editDocConfig.otroTipoDocumento.trim() : null,
+      etiquetas_ids: editDocConfig.etiquetasIds,
+    });
+    logActivity('documento_editado', 'edicion', { campo: 'datos_documento', nombre_nuevo: name });
+  });
+
+  const handleSaveFile = () => saveDocumentEdit(async () => {
+    if (!document || !editFile) throw new Error('Selecciona un archivo para reemplazar el actual.');
+    const { data: { session } } = await createClient().auth.getSession();
+    if (!session?.access_token) throw new Error('Tu sesión no está disponible.');
+    const pdf = await prepareDocument(editFile, session.access_token).catch(() => {
+      throw new Error('No se pudo preparar el PDF. Verifica que el formato sea válido y el archivo tenga hasta 25 MB.');
+    });
+    const body = new FormData();
+    body.append('file', pdf);
+    const response = await fetch('/api/documentos/' + encodeURIComponent(document.id) + '/replace-file', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + session.access_token },
+      body,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'No fue posible reemplazar el archivo.');
+    setDocument((current) => current ? {
+      ...current,
+      file_url: '/api/documentos/' + encodeURIComponent(current.id) + '/viewer-file?variant=original&v=' + encodeURIComponent(result.document_version_id),
+      file_size: result.file_size,
+      formato: result.file_type,
+      file_type: result.file_type,
+      updated_at: result.updated_at || current.updated_at,
+    } : current);
+    setTemplateDocument(null);
+    setEditFile(null);
+    logActivity('documento_editado', 'edicion', { campo: 'archivo', nombre_archivo: pdf.name, tamanio: pdf.size });
+  });
+
+  const handleSaveParticipants = () => saveDocumentEdit(async () => {
+    if (!document || !editParticipants.length) throw new Error('Agrega al menos un participante.');
+    if (editParticipants.some((person) => !person.configured)) throw new Error('Completa la configuración de cada participante.');
+    const previousParticipants = new Map(
+      (document.participantes || []).map((record) => [String(record.email || '').trim().toLowerCase(), record])
+    );
+    const methodLabels: Record<string, string> = {
+      autografa: 'Firma Autógrafa Digital',
+      efirma: 'e-Firma SAT',
+      clicksign: 'Click & Sign',
+      biometria: 'Biometría (Premium)',
+    };
+    const updated = editParticipants.map((person, index) => {
+      const previous = previousParticipants.get(person.email.trim().toLowerCase());
+      const method = person.tipoFirma?.[0];
+      return {
+        ...previous,
+        id: previous?.id || person.id,
+        nombre: person.name,
+        email: person.email,
+        estado: previous?.estado || 'pendiente',
+        sub_estado: previous?.sub_estado || 'en_revision',
+        metodo_firma: method ? methodLabels[method] || method : '',
+        orden: index + 1,
+        acto: person.acto || person.role,
+        rolDocumento: person.rolDocumento,
+        tipoFirma: person.tipoFirma,
+        tipoNotificacion: person.tipoNotificacion,
+        mensajePersonalizado: person.mensajePersonalizado,
+        delivery_mode: person.deliveryMode || 'remote',
       };
-      if (editDocConfig.descripcion) updates.descripcion = editDocConfig.descripcion;
-      if (editDocConfig.numeroOficio) updates.numero_oficio = editDocConfig.numeroOficio;
-      if (editDocConfig.grupotipoId) updates.grupo_tipo_documento_id = editDocConfig.grupotipoId;
-      if (editDocConfig.tipoDocumentoId && editDocConfig.tipoDocumentoId !== '__otros__') {
-        updates.tipo_documento_id = editDocConfig.tipoDocumentoId;
+    });
+
+    await updateDocumentThroughApi({
+      participantes: updated,
+      participant_mode: editParticipantMode,
+      participation_order: editParticipationOrder || null,
+    });
+    setParticipantes(updated.map((person) => ({
+      ...person,
+      id: String(person.id),
+      estado: String(person.estado),
+      sub_estado: String(person.sub_estado),
+    })));
+    logActivity('documento_editado', 'participantes', { campo: 'participantes', total: updated.length });
+  });
+
+  const handleSaveSettings = () => saveDocumentEdit(async () => {
+    if (!document) throw new Error('Documento no disponible.');
+    const updates: Record<string, unknown> = {
+      campos_solicitados: editPlacedFields.map(({ icon: _icon, ...field }) => ({
+        ...field,
+        valueKey: field.valueKey || field.id,
+        tipo: field.tipo || documentFieldType(field.label),
+        page: field.page || 1,
+      })),
+    };
+    if (editSettings.deadline !== asLocalDeadline(document.vencimiento)) {
+      const timeZone = getEffectiveTimeZone();
+      const [date, time] = editSettings.deadline.split('T');
+      const deadline = editSettings.deadline ? zonedDateTimeToUtcIso(date, time, timeZone) : null;
+      if (editSettings.deadline && !deadline) {
+        throw new Error('Elige una fecha y hora válidas para el vencimiento.');
       }
-      if (editDocConfig.etiquetasIds?.length) updates.etiquetas_ids = editDocConfig.etiquetasIds;
-
-      await updateDocumentThroughApi(updates);
-      setDocument((prev) => (prev ? { ...prev, nombre: editDocConfig.nombre.trim() } : prev));
-      logActivity('documento_editado', 'edicion', {
-        campo: 'datos_documento',
-        nombre_nuevo: editDocConfig.nombre.trim(),
-      });
-      setEditSaved('datos');
-      setTimeout(() => {
-        setEditModal(null);
-        setEditSaved(null);
-      }, 800);
-    } catch (err) {
-      console.error('[edit] Error saving document data:', err);
-    } finally {
-      setEditSaving(false);
+      updates.fecha_vencimiento = deadline;
+      updates.fecha_vencimiento_timezone = deadline ? timeZone : null;
+      updates.tiene_vencimiento = Boolean(deadline);
     }
-  };
-
-  const handleSaveFile = async () => {
-    if (!document || !editFile) return;
-    setEditSaving(true);
-    try {
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-
-      const body = new FormData();
-      body.append('file', editFile);
-      const response = await fetch(`/api/documentos/${document.id}/replace-file`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body,
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'No fue posible reemplazar el archivo.');
-      setDocument((prev) =>
-        prev
-          ? {
-              ...prev,
-              file_url: result.file_url,
-              file_size: result.file_size,
-              formato: result.file_type,
-            }
-          : prev
-      );
-      setEditFile(null);
-      logActivity('documento_editado', 'edicion', {
-        campo: 'archivo',
-        nombre_archivo: editFile.name,
-        tamanio: editFile.size,
-      });
-      setEditSaved('archivo');
-      setTimeout(() => {
-        setEditModal(null);
-        setEditSaved(null);
-      }, 800);
-    } catch (err) {
-      console.error('[edit] Error saving file:', err);
-    } finally {
-      setEditSaving(false);
+    await updateDocumentThroughApi(updates);
+    if ('fecha_vencimiento' in updates) {
+      setDocument((current) => current ? {
+        ...current,
+        vencimiento: updates.fecha_vencimiento as string | undefined,
+        vencimiento_timezone: updates.fecha_vencimiento_timezone as string | null,
+      } : current);
     }
-  };
-
-  const handleSaveParticipants = async () => {
-    if (!document || editParticipants.length === 0) return;
-    setEditSaving(true);
-    try {
-      const supabase = createClient();
-      const firmaLabelMap: Record<string, string> = {
-        autografa: 'Firma Autógrafa Digital',
-        efirma: 'e-Firma SAT',
-        biometria: 'Biometría (Premium)',
-      };
-      const newParticipantes = editParticipants.map((p, idx) => ({
-        id: p.id,
-        nombre: p.name,
-        email: p.email,
-        estado: 'pendiente',
-        metodo_firma: p.tipoFirma?.[0]
-          ? firmaLabelMap[p.tipoFirma[0]] || p.tipoFirma[0]
-          : 'Firma Autógrafa Digital',
-        orden: idx + 1,
-        acto: p.acto || p.role,
-        rolDocumento: p.rolDocumento,
-        tipoFirma: p.tipoFirma,
-        tipoNotificacion: (p as any).tipoNotificacion,
-        mensajePersonalizado: (p as any).mensajePersonalizado,
-      }));
-
-      await updateDocumentThroughApi({ participantes: newParticipantes });
-      // Refresh local participantes
-      const mapped = newParticipantes.map((p) => ({
-        id: p.id,
-        nombre: p.nombre,
-        email: p.email,
-        estado: p.estado,
-        metodo_firma: p.metodo_firma,
-        orden: p.orden,
-        acto: p.acto,
-        rolDocumento: p.rolDocumento,
-      }));
-      setParticipantes(mapped);
-      logActivity('documento_editado', 'participantes', {
-        campo: 'participantes',
-        total: editParticipants.length,
-      });
-      setEditSaved('participantes');
-      setTimeout(() => {
-        setEditModal(null);
-        setEditSaved(null);
-      }, 800);
-    } catch (err) {
-      console.error('[edit] Error saving participants:', err);
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    if (!document) return;
-    setEditSaving(true);
-    try {
-      const updates: Record<string, any> = {};
-      if (editSettings.deadline) updates.fecha_vencimiento = editSettings.deadline;
-      if (editPlacedFields.length > 0) {
-        updates.campos_solicitados = editPlacedFields.map((f) => ({
-          id: f.id,
-          valueKey: f.valueKey || f.id,
-          label: f.label,
-          x: f.x,
-          y: f.y,
-          width: f.width,
-          height: f.height,
-          page: f.page || 1,
-          participantId: f.participantId || null,
-          participantName: f.participantName || null,
-          colorHex: f.colorHex || null,
-        }));
-      }
-      if (editSecuritySettings) {
-        if (editSecuritySettings.vencimientoEnabled && editSecuritySettings.fechaVencimiento) {
-          updates.fecha_vencimiento = editSecuritySettings.fechaVencimiento;
-        }
-        updates.es_urgente = editSecuritySettings.urgente;
-        updates.es_publico = editSecuritySettings.publico;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updateDocumentThroughApi(updates);
-        if (updates.fecha_vencimiento) {
-          setDocument((prev) =>
-            prev ? { ...prev, vencimiento: updates.fecha_vencimiento } : prev
-          );
-        }
-        if (updates.campos_solicitados) {
-          setCamposSolicitados(updates.campos_solicitados);
-        }
-        logActivity('documento_editado', 'edicion', {
-          campo: 'ajustes',
-          campos_actualizados: Object.keys(updates),
-        });
-        setEditSaved('ajustes');
-        setTimeout(() => {
-          setEditModal(null);
-          setEditSaved(null);
-        }, 800);
-      } else {
-        // No updates to apply, just close
-        setEditSaved('ajustes');
-        setTimeout(() => {
-          setEditModal(null);
-          setEditSaved(null);
-        }, 800);
-      }
-    } catch (err) {
-      console.error('[edit] Error saving settings:', err);
-    } finally {
-      setEditSaving(false);
-    }
-  };
+    setCamposSolicitados(updates.campos_solicitados as CampoSolicitado[]);
+    logActivity('documento_editado', 'edicion', { campo: 'ajustes', campos_actualizados: Object.keys(updates) });
+  });
 
   if (loading || authLoading) {
     return (
-      <AppLayout>
+      <ViewerFrame embedded={embedded}>
         <div className="flex items-center justify-center h-64">
           <div className="flex items-center gap-3">
             <svg
@@ -5765,7 +5847,7 @@ export default function VisorDocumentoPage() {
             <span className="text-sm text-muted-foreground">Cargando documento...</span>
           </div>
         </div>
-      </AppLayout>
+      </ViewerFrame>
     );
   }
 
@@ -5773,7 +5855,7 @@ export default function VisorDocumentoPage() {
     const isAccessDenied = docError === 'sin_acceso';
     const isNotFound = docError === 'no_encontrado';
     return (
-      <AppLayout>
+      <ViewerFrame embedded={embedded}>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <FileText size={48} className="text-slate-300 mx-auto mb-3" />
@@ -5789,15 +5871,14 @@ export default function VisorDocumentoPage() {
                 Verifica que tengas los permisos necesarios.
               </p>
             )}
-            <button
-              onClick={() => router.back()}
-              className="mt-4 text-sm text-primary hover:underline"
-            >
-              Volver
-            </button>
+            {!embedded && (
+              <button onClick={() => router.back()} className="mt-4 text-sm text-primary hover:underline">
+                Volver
+              </button>
+            )}
           </div>
         </div>
-      </AppLayout>
+      </ViewerFrame>
     );
   }
 
@@ -5999,7 +6080,7 @@ export default function VisorDocumentoPage() {
           },
         ]
       : []),
-    ...(document?.estado === 'en_proceso' && canEditDocument
+    ...(editableDocument
       ? [
           {
             key: 'editar' as typeof activeTab,
@@ -6112,13 +6193,39 @@ export default function VisorDocumentoPage() {
   };
 
   const PDF_SHEET_REF_WIDTH = 800;
+  const completedDocument = isCompletedDocument(document.estado);
+  const canShareAccess = completedDocument && (canManagePermissions || canInviteViewers);
+  const shareUrl = `${publicVerificationOrigin}/visor-documento/${encodeURIComponent(document.id)}`;
+  const downloadFeedback = (
+    <>
+      {downloadRequiresCode && (
+        <form onSubmit={unlockDownload} className="space-y-2 rounded-lg border border-border bg-card p-4">
+          <label className="block text-sm font-medium text-foreground">
+            Código de acceso
+            <input
+              type="password"
+              autoComplete="off"
+              value={downloadAccessCode}
+              onChange={(event) => setDownloadAccessCode(event.target.value)}
+              className="mt-1 block h-9 w-full rounded-md border border-border bg-card px-3"
+            />
+          </label>
+          <button type="submit" disabled={unlockingDownload || !downloadAccessCode} className="rounded-md bg-primary px-3 py-2 text-white disabled:opacity-50">
+            {unlockingDownload ? 'Verificando…' : 'Verificar código'}
+          </button>
+        </form>
+      )}
+      {downloadError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{downloadError}</p>}
+    </>
+  );
 
   return (
-    <AppLayout noPadding>
+    <ViewerFrame embedded={embedded} noPadding>
       <div
-        className={`document-viewer-shell -mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 md:-my-6 ${sidebarOpen ? 'with-sidebar' : ''}`}
+        className={embedded ? 'flex min-h-0 flex-col' : `document-viewer-shell -mx-4 -my-4 flex flex-col overflow-hidden bg-gray-100 md:-my-6 ${sidebarOpen ? 'with-sidebar' : ''}`}
       >
         {/* Document Top Bar */}
+        {!embedded && (
         <div className="viewer-document-header flex min-h-16 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 md:flex-nowrap md:px-5">
           <div className="flex min-w-0 basis-full items-center gap-3 md:basis-auto md:flex-1">
             <div className="min-w-0">
@@ -6305,10 +6412,12 @@ export default function VisorDocumentoPage() {
             );
           })()}
         </div>
+        )}
 
         {/* Body: pdf viewer + right panel */}
-        <div className="document-viewer-workspace relative flex flex-1 overflow-hidden bg-gray-100">
+        <div className={embedded ? (editModal ? 'hidden' : 'flex min-w-0 flex-col') : 'document-viewer-workspace relative flex flex-1 overflow-hidden bg-gray-100'}>
           {/* PDF Viewer Area */}
+          {!embedded && (
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-gray-100">
             <div className="viewer-preview-tools pointer-events-none absolute left-4 right-4 top-3 z-10 flex items-center justify-between">
               <div className="pointer-events-auto">
@@ -6399,9 +6508,11 @@ export default function VisorDocumentoPage() {
             </div>
             {renderPaginationBar()}
           </div>
+          )}
 
           {/* Right side: icon tab strip + panel content */}
-          <div className="viewer-sections flex flex-shrink-0">
+          <div className={embedded ? 'flex min-w-0 flex-col' : 'viewer-sections flex flex-shrink-0'}>
+            {!embedded && (
             <nav
               aria-label="Secciones del documento"
               className="document-viewer-tabs z-30 flex min-h-0 w-[72px] min-w-[72px] flex-col items-center gap-1 overflow-y-auto border-x border-slate-200 bg-white px-2 py-3 shadow-[-4px_0_12px_rgba(15,23,42,0.03)]"
@@ -6458,10 +6569,19 @@ export default function VisorDocumentoPage() {
                 </>
               )}
             </nav>
+            )}
 
-            <div id="document-information-panel" className={`document-viewer-panel ${mobilePanelOpen ? 'is-mobile-open' : ''} absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]`} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { setMobilePanelOpen(false); } }}>
-              <button type="button" className="viewer-return-to-document shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 text-sm font-medium text-primary" onClick={() => setMobilePanelOpen(false)}><ChevronLeft size={17} />Volver al documento</button>
-              {document.additional_access_level &&
+            <div id={embedded ? undefined : 'document-information-panel'} className={embedded ? 'flex min-w-0 flex-col bg-muted/30' : `document-viewer-panel ${mobilePanelOpen ? 'is-mobile-open' : ''} absolute inset-y-0 right-[72px] z-20 flex w-[376px] max-w-[calc(100%-72px)] flex-col overflow-hidden border-l border-slate-200 bg-slate-50 shadow-[-12px_0_28px_rgba(15,23,42,0.08)] lg:static lg:z-auto lg:w-[376px] lg:shadow-none 2xl:w-[416px]`} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { setMobilePanelOpen(false); } }}>
+              {!embedded && <button type="button" className="viewer-return-to-document shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 text-sm font-medium text-primary" onClick={() => setMobilePanelOpen(false)}><ChevronLeft size={17} />Volver al documento</button>}
+              {actionTab === 'editar' && !editableDocument ? (
+                <p role={editCapabilityLoaded ? 'alert' : 'status'} className="p-5 text-sm text-muted-foreground">
+                  {!editCapabilityLoaded
+                    ? 'Verificando si el documento se puede editar…'
+                    : permissionsError || 'Solo se puede editar un documento en proceso que aún no tenga una firma registrada o en curso.'}
+                </p>
+              ) : actionTab === 'descargas' && document.additional_access_level === 'view' ? (
+                <p role="status" className="p-5 text-sm text-muted-foreground">Tu permiso permite consultar este documento. Solicita acceso de descarga al propietario.</p>
+              ) : !embedded && document.additional_access_level &&
               (activeTab === 'details' || !toolbarItems.some((item) => item.key === activeTab)) ? (
                 <>
                   <div className="viewer-panel-header"><span className="viewer-panel-title">Detalles del documento</span></div>
@@ -6946,10 +7066,43 @@ export default function VisorDocumentoPage() {
                 </>
               ) : activeTab === 'permisos' ? (
                 <>
-                  <div className="viewer-panel-header">
+                  {!embedded && <div className="viewer-panel-header">
                     <span className="viewer-panel-title">Permisos del documento</span>
-                  </div>
+                  </div>}
                   <div className="flex-1 overflow-y-auto p-4">
+                    {embedded && (
+                      <div className="mb-4 rounded-lg border border-border bg-card p-4">
+                        <label className="block text-sm font-medium text-foreground">
+                          Enlace del documento
+                          <input readOnly value={shareUrl} onFocus={(event) => event.currentTarget.select()} className="mt-2 h-9 w-full rounded-md border border-border bg-card px-2.5 text-sm" />
+                        </label>
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-muted"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(shareUrl);
+                                setShareFeedback('Enlace copiado.');
+                              } catch {
+                                setShareFeedback('Selecciona el enlace para copiarlo.');
+                              }
+                            }}
+                          >
+                            <Copy size={15} aria-hidden="true" /> Copiar enlace
+                          </button>
+                          {shareFeedback && <BottomNotice message={shareFeedback} tone={shareFeedback === 'Enlace copiado.' ? 'success' : 'warning'} onClose={() => setShareFeedback('')} />}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">El enlace requiere una sesión y permiso de acceso al documento.</p>
+                      </div>
+                    )}
+                    {embedded && !canShareAccess && permissionsError && (
+                      <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {permissionsError}
+                      </p>
+                    )}
+                    {(!embedded || canShareAccess) && (
+                    <>
                     <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-xs leading-5 text-slate-600">
                       Comparte el documento completado con usuarios registrados, sin agregarlos al proceso de firma.
                     </div>
@@ -7150,6 +7303,8 @@ export default function VisorDocumentoPage() {
                           </div>
                         ))}
                       </div>
+                    )}
+                    </>
                     )}
                   </div>
                 </>
@@ -8578,11 +8733,12 @@ export default function VisorDocumentoPage() {
                 </>
               ) : document.additional_access_level && activeTab === 'descargas' ? (
                 <>
-                  <div className="viewer-panel-header flex-wrap gap-2">
+                  {!embedded && <div className="viewer-panel-header flex-wrap gap-2">
                     <span className="viewer-panel-title">Descargas</span>
                     <ContextHelpLink slug="descargar-documentos-y-constancias">Guía de descargas</ContextHelpLink>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4">
+                  </div>}
+                  <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                    {downloadFeedback}
                     <div className="rounded-md border border-slate-200 bg-white p-4">
                       <p className="text-sm font-semibold text-slate-900">Documento firmado</p>
                       <p className="mt-1 text-xs text-slate-500">PDF final del documento completado.</p>
@@ -8644,7 +8800,7 @@ export default function VisorDocumentoPage() {
               ) : activeTab === 'descargas' || activeTab === 'auditoria' ? (
                 /* ── Descargas y auditoría ──────────────────────────────── */
                 <div className="flex flex-col h-full min-h-0">
-                  <div className="viewer-panel-header flex-wrap gap-2">
+                  {!embedded && <div className="viewer-panel-header flex-wrap gap-2">
                     <span className="viewer-panel-title">
                       {activeTab === 'auditoria' ? 'Auditoría' : 'Descargas'}
                     </span>
@@ -8653,7 +8809,7 @@ export default function VisorDocumentoPage() {
                     ) : (
                       <ContextHelpLink slug="descargar-documentos-y-constancias">Guía de descargas</ContextHelpLink>
                     )}
-                  </div>
+                  </div>}
                   <div className="flex-1 overflow-y-auto">
                     <div className="flex flex-col gap-4 p-4">
                       {/* ── Constancia de auditoría hasta el cierre ── */}
@@ -9606,7 +9762,9 @@ export default function VisorDocumentoPage() {
                       {/* ── Descargas del documento ── */}
                       {activeTab === 'descargas' && (
                         <>
+                          {downloadFeedback}
                           {/* ── 1. Documento derivado del proceso de firma ── */}
+                          {completedDocument && (
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
                               <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
@@ -9705,6 +9863,7 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
+                          )}
                           {/* ── 2. Documento Original ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
@@ -9728,7 +9887,7 @@ export default function VisorDocumentoPage() {
                               </div>
                               <button
                                 onClick={downloadOriginalDocument}
-                                disabled={downloadingOriginal || !document?.file_url || Boolean(document.source_form_response_id && !signedPdfReadyForDownload)}
+                                disabled={downloadingOriginal || Boolean(document.source_form_response_id && !signedPdfReadyForDownload)}
                                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border-2 border-border text-foreground hover:bg-muted/50 active:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                               >
                                 {downloadingOriginal ? (
@@ -9745,6 +9904,8 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
+                          {completedDocument && (
+                          <>
                           {/* ── 3. Constancia General de Firma ── */}
                           <div className="rounded-xl border border-border bg-white shadow-sm">
                             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 bg-muted/30 rounded-t-xl">
@@ -9931,6 +10092,8 @@ export default function VisorDocumentoPage() {
                             </div>
                           </div>
 
+                          </>
+                          )}
                         </>
                       )}
                     </div>
@@ -9939,16 +10102,17 @@ export default function VisorDocumentoPage() {
               ) : (
                 /* Other Panels (fields / vencimientos / editar) */
                 <>
-                  <div className="viewer-panel-header justify-between">
+                  {!embedded && <div className="viewer-panel-header justify-between">
                     <span className="viewer-panel-title">
                       {activeTab === 'fields' && 'Notas y Comentarios'}
                       {activeTab === 'vencimientos' && 'Vencimientos'}
                       {activeTab === 'editar' && 'Editar Documento'}
                     </span>
-                  </div>
+                  </div>}
                   <div className="flex-1 overflow-y-auto">
                     {activeTab === 'editar' ? (
                       <div className="flex flex-col gap-4 p-4">
+                        {editNotice && <BottomNotice message={editNotice} tone="success" onClose={() => setEditNotice('')} />}
                         {/* Archivo Cargado preview card */}
                         <div className="rounded-xl border border-border bg-white overflow-hidden">
                           <div className="px-4 py-3 border-b border-border/60">
@@ -10066,12 +10230,17 @@ export default function VisorDocumentoPage() {
                     ) : (
                       /* Notes / fields tab */
                       <div className="flex flex-col h-full">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border flex-shrink-0">
                           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                             {notes.length} nota{notes.length !== 1 ? 's' : ''}
                           </span>
                           {userId && docId && (
-                            <ProfileCommunicationButton label="Comunicación directa" initialKind="note" context={{ documentId: docId }} />
+                            <ProfileCommunicationButton
+                              label="Comunicación directa"
+                              initialKind="note"
+                              context={{ documentId: docId }}
+                              className="flex min-h-8 items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                            />
                           )}
                           <button
                             onClick={() => setShowNoteForm((v) => !v)}
@@ -10519,53 +10688,53 @@ export default function VisorDocumentoPage() {
         {editModal === 'datos' && (
           <EditModal
             title="Editar datos del documento"
-            onClose={() => setEditModal(null)}
+            onClose={closeEditModal}
             onSave={handleSaveDocumentData}
             saving={editSaving}
+            inline={embedded}
+            error={editError}
+            saveDisabled={!editDocConfig.nombre.trim()}
           >
-            <div className="p-6">
-              <StepSubir
-                file={editFile}
-                onFileChange={setEditFile}
-                config={editDocConfig}
-                onConfigChange={setEditDocConfig}
-                viewMode="stacked"
-                onGuardarAvance={() => {}}
-                savingDraft={false}
-                supplementalResources={[]}
-                onSupplementalResourcesChange={() => {}}
-              />
+            <div className="p-4 sm:p-6">
+              <DocumentPropertiesEditor config={editDocConfig} onConfigChange={setEditDocConfig} />
             </div>
           </EditModal>
         )}
         {editModal === 'archivo' && (
           <EditModal
             title="Reemplazar archivo"
-            onClose={() => setEditModal(null)}
+            onClose={closeEditModal}
             onSave={handleSaveFile}
             saving={editSaving}
+            inline={embedded}
+            error={editError}
+            saveDisabled={!editFile}
           >
-            <div className="p-6">
-              <StepSubir
-                file={editFile}
-                onFileChange={setEditFile}
-                config={editDocConfig}
-                onConfigChange={setEditDocConfig}
-                viewMode="stacked"
-                onGuardarAvance={() => {}}
-                savingDraft={false}
-                supplementalResources={[]}
-                onSupplementalResourcesChange={() => {}}
-              />
+            <div className="p-4 sm:p-6">
+              <label className="block rounded-lg border border-border bg-card p-4 text-sm font-medium">
+                Archivo de reemplazo
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                  disabled={editSaving}
+                  onChange={(event) => setEditFile(event.target.files?.[0] || null)}
+                  className="mt-2 block w-full rounded-md border border-border bg-muted/30 p-2 text-sm font-normal"
+                />
+                <span className="mt-2 block text-xs font-normal text-muted-foreground">
+                  PDF, Word, Excel o PowerPoint. Hasta 25 MB.
+                </span>
+              </label>
             </div>
           </EditModal>
         )}
         {editModal === 'participantes' && (
           <EditModal
             title="Editar participantes"
-            onClose={() => setEditModal(null)}
+            onClose={closeEditModal}
             onSave={handleSaveParticipants}
             saving={editSaving}
+            inline={embedded}
+            error={editError}
           >
             <div className="p-6">
               <StepParticipantes
@@ -10583,24 +10752,41 @@ export default function VisorDocumentoPage() {
         {editModal === 'ajustes' && (
           <EditModal
             title="Editar ajustes y campos"
-            onClose={() => setEditModal(null)}
+            onClose={closeEditModal}
             onSave={handleSaveSettings}
             saving={editSaving}
+            inline={embedded}
+            error={editError}
+            saveDisabled={editPreviewLoading || (!editFile && !templateDocument)}
           >
-            <div className="p-6">
-              <StepAjustes
-                settings={editSettings}
-                onChange={setEditSettings}
-                participants={editParticipants}
-                file={editFile}
-                initialPlacedFields={editPlacedFields}
-                onPlacedFieldsChange={setEditPlacedFields}
-                securitySettings={editSecuritySettings}
-              />
+            <div className="space-y-4 p-4 sm:p-6">
+              <label className="block rounded-lg border border-border bg-card p-4 text-sm font-medium">
+                Fecha y hora de vencimiento
+                <input
+                  type="datetime-local"
+                  value={editSettings.deadline}
+                  onChange={(event) => setEditSettings((current) => ({ ...current, deadline: event.target.value }))}
+                  className="mt-2 block min-h-9 max-w-full rounded-md border border-border bg-card px-2.5 text-sm"
+                />
+                <span className="mt-2 block text-xs font-normal text-muted-foreground">{getEffectiveTimeZone()}</span>
+              </label>
+              {editPreviewLoading && <p role="status" className="text-sm text-muted-foreground">Cargando PDF para editar los campos…</p>}
+              {(editFile || templateDocument) && (
+                <StepAjustes
+                  settings={editSettings}
+                  onChange={setEditSettings}
+                  participants={editParticipants}
+                  file={editFile}
+                  templateSource={templateDocument}
+                  initialFixarCampos={editPlacedFields.length > 0}
+                  initialPlacedFields={editPlacedFields}
+                  onPlacedFieldsChange={setEditPlacedFields}
+                />
+              )}
             </div>
           </EditModal>
         )}
       </div>
-    </AppLayout>
+    </ViewerFrame>
   );
 }

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
-import { NoticeCard } from '@/components/ui/BottomNotice';
+import { WorkspaceRowActions, type WorkspaceRowAction } from '@/components/WorkspaceRowActions';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import {
   Gift,
   Plus,
@@ -750,6 +751,30 @@ export default function DocumentsDashboardPage() {
     .filter((w) => w.column === 'right')
     .sort((a, b) => a.order - b.order);
 
+  const headerActions: WorkspaceRowAction[] = [
+    { label: 'Apps', icon: LayoutGrid, href: '/app-market' },
+    {
+      label: customizing ? 'Listo' : 'Personalizar',
+      icon: customizing ? Check : Sliders,
+      onSelect: customizing ? cancelCustomize : () => setCustomizing(true),
+    },
+  ];
+  if (formsEnabled) {
+    headerActions.unshift({
+      label: 'Lanzar formulario',
+      icon: Send,
+      disabled: !canLaunchForm,
+      onSelect: () => router.push('/formularios/lanzar'),
+    });
+  }
+  if (customizing) {
+    headerActions.push({
+      label: 'Añadir widget',
+      icon: PlusSquare,
+      onSelect: () => setShowAddPanel((visible) => !visible),
+    });
+  }
+
   return (
     <AppLayout noPadding topBanner={<VerificationProgressBar />}>
       {/* Main content grid — widgets remain unchanged */}
@@ -778,37 +803,7 @@ export default function DocumentsDashboardPage() {
                   <Plus size={15} />
                   Crear Documento
                 </Link>
-                {formsEnabled && <button type="button" disabled={!canLaunchForm} onClick={() => router.push('/formularios/lanzar')} className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-white px-4 text-sm font-600 text-primary hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Send size={15} /> Lanzar formulario</button>}
-                <button className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-600 text-slate-700 transition-all duration-150 hover:border-primary/30 hover:bg-primary/5 hover:text-primary">
-                  <LayoutGrid size={14} />
-                  Apps
-                </button>
-                <button
-                  onClick={() => {
-                    if (customizing) {
-                      cancelCustomize();
-                    } else {
-                      setCustomizing(true);
-                    }
-                  }}
-                  className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-600 transition-all duration-150 ${
-                    customizing
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-primary/5 hover:text-primary hover:border-primary/30'
-                  }`}
-                >
-                  {customizing ? <Check size={14} /> : <Sliders size={14} />}
-                  {customizing ? 'Listo' : 'Personalizar'}
-                </button>
-                {customizing && (
-                  <button
-                    onClick={() => setShowAddPanel((v) => !v)}
-                    className="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-600 text-emerald-700 transition-all duration-150 hover:bg-emerald-100"
-                  >
-                    <PlusSquare size={14} />
-                    Añadir widget
-                  </button>
-                )}
+                <WorkspaceRowActions title="inicio" actions={headerActions} buttonLabel="Acciones" />
               </div>
             </div>
 
@@ -847,9 +842,7 @@ export default function DocumentsDashboardPage() {
       </div>
 
       {/* Saving indicator */}
-      {savingLayout && (
-        <div className="app-feedback-position"><NoticeCard message="Guardando diseño..." tone="followup" /></div>
-      )}
+      {savingLayout && <BottomNotice message="Guardando diseño..." tone="followup" />}
     </AppLayout>
   );
 }

@@ -1,5 +1,5 @@
 import type { ReportField, ReportRow } from './catalog';
-import { displayValue } from './engine';
+import { displayReportValue } from './engine';
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -64,7 +64,7 @@ export async function exportReport(name: string, fields: ReportField[], rows: Re
     if (y < margin + 45) { page = pdf.addPage([width, height]); y = height - margin; drawHeader(); }
     page.drawText(`Registro ${index + 1}`, { x: margin, y, size: 10, font: bold, color: rgb(0.1, 0.35, 0.8) }); y -= 19;
     fields.forEach(field => {
-      const lines = wrap(safe(displayValue(row[field.id], field.type)), 67);
+      const lines = wrap(safe(displayReportValue(row[field.id], field)), 67);
       const labels = wrap(safe(field.label), 25);
       for (let lineIndex = 0; lineIndex < Math.max(lines.length, labels.length); lineIndex++) {
         if (y < margin + 12) { page = pdf.addPage([width, height]); y = height - margin; drawHeader(); }

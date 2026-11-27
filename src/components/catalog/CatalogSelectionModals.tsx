@@ -3,15 +3,46 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, Layers, Search, Star, X } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePersonalCatalog } from '@/lib/catalog/client';
+import {
+  catalogVisibilityKey,
+  documentCatalogs,
+  matchesCatalogScope,
+  validCatalogColor,
+  type CatalogAvailability,
+  type DocumentTagCatalogKind,
+  type DocumentTypeCatalogKind,
+} from '@/lib/catalog/classification';
 
-export type DocumentType = {
+export type DocumentType = CatalogAvailability & {
   id: string;
   nombre: string;
   grupo_id: string | null;
   descripcion?: string | null;
 };
-export type DocumentTypeGroup = { id: string; nombre: string };
-export type CatalogTag = { id: string; nombre: string; color?: string | null; group?: string };
+export type DocumentTypeGroup = CatalogAvailability & { id: string; nombre: string };
+export type CatalogTag = CatalogAvailability & {
+  id: string;
+  nombre: string;
+  color?: string | null;
+  group?: string;
+};
+
+function CatalogStatus({ loading, retry }: { loading: boolean; retry: () => void }) {
+  return loading ? (
+    <p className="px-5 py-4 text-sm text-muted-foreground" role="status">
+      Cargando catálogo…
+    </p>
+  ) : (
+    <p className="px-5 py-4 text-sm text-destructive" role="alert">
+      No se pudo cargar el catálogo.{' '}
+      <button type="button" className="underline" onClick={retry}>
+        Reintentar
+      </button>
+    </p>
+  );
+}
 
 function readFavorites(key: string): Set<string> {
   try {
@@ -45,7 +76,10 @@ function useFavorites(key: string) {
 function useEscapeToClose(onClose: () => void) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        onClose();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -58,7 +92,14 @@ const searchInput =
   'w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-background dark:text-foreground';
 
 function ModalPortal({ children }: { children: ReactNode }) {
-  return createPortal(children, document.fullscreenElement || document.body);
+  const [container] = useState(
+    () =>
+      document.activeElement?.closest('dialog[open]') ||
+      document.querySelector('dialog:modal') ||
+      document.fullscreenElement ||
+      document.body
+  );
+  return createPortal(children, container);
 }
 
 function FavoriteButton({
@@ -87,8 +128,8 @@ function FavoriteButton({
 }
 
 export function DocumentTypeModal({
-  types,
-  groups,
+  types: allTypes,
+  groups: allGroups,
   selectedId,
   selectedGroupId,
   favoriteIds,
@@ -104,6 +145,7 @@ export function DocumentTypeModal({
   itemPluralLabel = 'tipos',
   favoriteStorageKey = 'tipo_doc_favorites',
   showGroupTab = true,
+  catalogKind = 'document-type',
   onSelect,
   onClose,
 }: {
@@ -124,18 +166,50 @@ export function DocumentTypeModal({
   itemPluralLabel?: string;
   favoriteStorageKey?: string;
   showGroupTab?: boolean;
+  catalogKind?: DocumentTypeCatalogKind | 'case-category' | 'case-type';
   onSelect: (id: string, groupId?: string) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'tipo' | 'favoritos' | 'grupo'>('tipo');
   const [search, setSearch] = useState('');
   const [drillGroupId, setDrillGroupId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const catalog = usePersonalCatalog(user?.id, false);
   const { favorites: localFavorites, toggleFavorite: toggleLocalFavorite } =
     useFavorites(favoriteStorageKey);
   const favorites = favoriteIds || localFavorites;
   const favoriteKey = (type: DocumentType) => favoriteKeyForType?.(type) || type.id;
   const toggleFavorite = onToggleFavorite || toggleLocalFavorite;
   useEscapeToClose(onClose);
+  const catalogUnavailable = catalog.loading || catalog.error;
+  const definition =
+    catalogKind === 'case-category' || catalogKind === 'case-type'
+      ? undefined
+      : documentCatalogs[catalogKind];
+  const visibilityKind =
+    definition && !allTypes.some((type) => type.catalog_scope !== undefined)
+      ? 'document-type'
+      : catalogKind;
+  const parentKind = catalogKind === 'case-type' ? 'case-category' : definition?.groupKind;
+  const groups = parentKind
+    ? allGroups.filter(
+        (group) =>
+          !group.catalog_archived &&
+          (!definition || matchesCatalogScope(group, definition.scope)) &&
+          !catalog.hidden.has(catalogVisibilityKey(parentKind, group.id))
+      )
+    : allGroups;
+  const visibleGroupIds = new Set(groups.map(({ id }) => id));
+  const types = catalogUnavailable
+    ? []
+    : allTypes.filter(
+        (type) =>
+          type.id === selectedId ||
+          (!type.catalog_archived &&
+            !catalog.hidden.has(catalogVisibilityKey(visibilityKind, type.id)) &&
+            (!definition || matchesCatalogScope(type, definition.scope)) &&
+            (!parentKind || !type.grupo_id || visibleGroupIds.has(type.grupo_id)))
+      );
 
   const otherTypes: DocumentType[] = includeOther
     ? groups.map((group) => ({
@@ -148,7 +222,7 @@ export function DocumentTypeModal({
   const typesWithOther = [...types, ...otherTypes];
   const query = search.trim().toLocaleLowerCase('es');
   const filteredTypes = (tab === 'favoritos' ? typesWithOther : types).filter((type) => {
-    const groupName = groups.find((group) => group.id === type.grupo_id)?.nombre || '';
+    const groupName = allGroups.find((group) => group.id === type.grupo_id)?.nombre || '';
     const matches =
       type.nombre.toLocaleLowerCase('es').includes(query) ||
       groupName.toLocaleLowerCase('es').includes(query) ||
@@ -172,7 +246,7 @@ export function DocumentTypeModal({
   const favoriteCount = typesWithOther.filter((type) => favorites.has(favoriteKey(type))).length;
 
   const renderType = (type: DocumentType) => {
-    const group = groups.find((item) => item.id === type.grupo_id);
+    const group = allGroups.find((item) => item.id === type.grupo_id);
     const isSelected =
       selectedId === type.id && (!selectedGroupId || selectedGroupId === type.grupo_id);
     const key = favoriteKey(type);
@@ -213,12 +287,7 @@ export function DocumentTypeModal({
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          className={modalShell}
-        >
+        <section role="dialog" aria-modal="true" aria-label={title} className={modalShell}>
           <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-border">
             <div className="flex items-center gap-2">
               <Layers size={18} className="text-blue-600" />
@@ -287,15 +356,22 @@ export function DocumentTypeModal({
             ))}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-gray-100 dark:border-border">
-            {tab !== 'grupo' &&
+            {catalogUnavailable && (
+              <CatalogStatus loading={catalog.loading} retry={catalog.refresh} />
+            )}
+            {!catalogUnavailable &&
+              tab !== 'grupo' &&
               (filteredTypes.length ? (
                 filteredTypes.map(renderType)
               ) : (
                 <div className="px-5 py-10 text-center text-sm text-gray-400">
-                  {tab === 'favoritos' ? 'No tienes favoritos aún' : `No se encontraron ${itemPluralLabel}`}
+                  {tab === 'favoritos'
+                    ? 'No tienes favoritos aún'
+                    : `No se encontraron ${itemPluralLabel}`}
                 </div>
               ))}
-            {tab === 'grupo' &&
+            {!catalogUnavailable &&
+              tab === 'grupo' &&
               (drillGroupId === null ? (
                 filteredGroups.length ? (
                   filteredGroups.map((group) => {
@@ -313,7 +389,8 @@ export function DocumentTypeModal({
                             {group.nombre}
                           </span>
                           <span className="mt-0.5 block text-xs text-gray-500">
-                            {count} {groupItemLabel}{count === 1 ? '' : 's'}
+                            {count} {groupItemLabel}
+                            {count === 1 ? '' : 's'}
                           </span>
                         </span>
                         <ArrowRight size={16} className="shrink-0 text-gray-400" />
@@ -357,11 +434,12 @@ export function DocumentTypeModal({
 }
 
 export function TagsModal({
-  tags,
+  tags: allTags,
   selectedIds,
   favoriteIds,
   onToggleFavorite,
   favoriteStorageKey = 'etiqueta_favorites',
+  catalogKind = 'document-tag',
   onConfirm,
   onClose,
 }: {
@@ -370,17 +448,33 @@ export function TagsModal({
   favoriteIds?: ReadonlySet<string>;
   onToggleFavorite?: (id: string) => void;
   favoriteStorageKey?: string;
+  catalogKind?: DocumentTagCatalogKind | 'case-tag';
   onConfirm: (ids: string[]) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'todos' | 'favoritos'>('todos');
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState(selectedIds);
+  const { user } = useAuth();
+  const catalog = usePersonalCatalog(user?.id, false);
   const { favorites: localFavorites, toggleFavorite: toggleLocalFavorite } =
     useFavorites(favoriteStorageKey);
   const favorites = favoriteIds || localFavorites;
   const toggleFavorite = onToggleFavorite || toggleLocalFavorite;
   useEscapeToClose(onClose);
+  const catalogUnavailable = catalog.loading || catalog.error;
+  const scope = catalogKind === 'case-tag' ? undefined : documentCatalogs[catalogKind].scope;
+  const visibilityKind =
+    scope && !allTags.some((tag) => tag.catalog_scope !== undefined) ? 'document-tag' : catalogKind;
+  const tags = catalogUnavailable
+    ? []
+    : allTags.filter(
+        (tag) =>
+          localSelected.includes(tag.id) ||
+          (!tag.catalog_archived &&
+            !catalog.hidden.has(catalogVisibilityKey(visibilityKind, tag.id)) &&
+            (!scope || matchesCatalogScope(tag, scope)))
+      );
 
   const query = search.trim().toLocaleLowerCase('es');
   const filtered = tags.filter(
@@ -446,35 +540,46 @@ export function TagsModal({
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-gray-100 dark:border-border">
-            {filtered.length ? (
+            {catalogUnavailable ? (
+              <CatalogStatus loading={catalog.loading} retry={catalog.refresh} />
+            ) : filtered.length ? (
               filtered.map((tag, index) => {
                 const selected = localSelected.includes(tag.id);
                 return (
                   <Fragment key={tag.id}>
-                  {tag.group && tag.group !== filtered[index - 1]?.group && (
-                    <div className="sticky top-0 border-b border-gray-100 bg-gray-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-border dark:bg-muted">{tag.group}</div>
-                  )}
-                  <div
-                    className={`group flex items-center border-b border-gray-50 last:border-0 hover:bg-gray-50 dark:border-border dark:hover:bg-muted ${selected ? 'bg-blue-50/50 dark:bg-primary/10' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setLocalSelected((previous) =>
-                          selected ? previous.filter((id) => id !== tag.id) : [...previous, tag.id]
-                        )
-                      }
-                      aria-pressed={selected}
-                      className={`min-w-0 flex-1 px-5 py-3 text-left text-sm ${selected ? 'font-medium text-blue-700' : 'text-gray-700 dark:text-foreground'}`}
+                    {tag.group && tag.group !== filtered[index - 1]?.group && (
+                      <div className="sticky top-0 border-b border-gray-100 bg-gray-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-border dark:bg-muted">
+                        {tag.group}
+                      </div>
+                    )}
+                    <div
+                      className={`group flex items-center border-b border-gray-50 last:border-0 hover:bg-gray-50 dark:border-border dark:hover:bg-muted ${selected ? 'bg-blue-50/50 dark:bg-primary/10' : ''}`}
                     >
-                      {tag.nombre}
-                    </button>
-                    <FavoriteButton
-                      name={tag.nombre}
-                      active={favorites.has(tag.id)}
-                      onClick={() => toggleFavorite(tag.id)}
-                    />
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocalSelected((previous) =>
+                            selected
+                              ? previous.filter((id) => id !== tag.id)
+                              : [...previous, tag.id]
+                          )
+                        }
+                        aria-pressed={selected}
+                        className={`flex min-w-0 flex-1 items-center gap-2 px-5 py-3 text-left text-sm ${selected ? 'font-medium text-blue-700' : 'text-gray-700 dark:text-foreground'}`}
+                      >
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: validCatalogColor(tag.color) }}
+                          aria-hidden="true"
+                        />
+                        {tag.nombre}
+                      </button>
+                      <FavoriteButton
+                        name={tag.nombre}
+                        active={favorites.has(tag.id)}
+                        onClick={() => toggleFavorite(tag.id)}
+                      />
+                    </div>
                   </Fragment>
                 );
               })
@@ -487,8 +592,9 @@ export function TagsModal({
           <div className="border-t border-gray-100 px-5 py-4 dark:border-border">
             <button
               type="button"
+              disabled={catalogUnavailable}
               onClick={() => onConfirm(localSelected)}
-              className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
             >
               Confirmar ({localSelected.length} seleccionada{localSelected.length === 1 ? '' : 's'})
             </button>

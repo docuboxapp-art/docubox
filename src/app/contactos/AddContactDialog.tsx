@@ -9,18 +9,21 @@ import {
 import { profilePrivacy } from '@/lib/profile-privacy/client';
 import {
   PROFILE_FIELDS,
-  REQUEST_STATUS_LABELS,
+  SENT_REQUEST_STATUS_LABELS,
   formatPrivacyDate,
   type DirectoryResult,
   type RequestStatus,
   type SharedProfile,
 } from '@/lib/profile-privacy/model';
-const contactButton =
-  'inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary/35 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50';
-const contactPrimaryButton =
-  'inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:opacity-50';
+import { contactButton, contactPrimaryButton } from './contact-detail-ui';
 
-export function AddContactDialog({ onClose }: { onClose: () => void }) {
+export function AddContactDialog({
+  onClose,
+  onRequestSaved,
+}: {
+  onClose: () => void;
+  onRequestSaved: (status: 'pending' | 'approved' | 'saved') => void;
+}) {
   const [criterion, setCriterion] = useState<ParticipantSearchCriterion>('correo');
   const [query, setQuery] = useState('');
   const [matches, setMatches] = useState<DirectoryResult[] | null>(null);
@@ -28,10 +31,11 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const request = useRef<AbortController | null>(null);
   const titleId = useId();
+  const searchedEmail =
+    criterion === 'correo' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(query.trim()) ? query.trim() : '';
 
   useEffect(() => {
     const element = dialog.current;
@@ -48,7 +52,6 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
     setMatches(null);
     setProfile(null);
     setError('');
-    setNotice('');
   }
 
   async function search() {
@@ -59,7 +62,6 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
     setMatches(null);
     setProfile(null);
     setError('');
-    setNotice('');
     try {
       const data = await profilePrivacy<DirectoryResult[]>(
         'search',
@@ -78,21 +80,22 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
   async function select(result: DirectoryResult, action: 'request' | 'profile') {
     setBusy(result.id);
     setError('');
-    setNotice('');
     try {
       if (action === 'request') {
         const { status } = await profilePrivacy<{ status: RequestStatus }>('request', {
           peerId: result.id,
+          ...(criterion === 'correo' && { emailHint: query.trim() }),
         });
+        if (status === 'pending' || status === 'approved') {
+          onRequestSaved(status);
+          return;
+        }
         setMatches(
           (current) =>
             current?.map((item) =>
               item.id === result.id ? { ...item, requestStatus: status, canRequest: false } : item
             ) ?? null
         );
-        if (status === 'pending')
-          setNotice('Solicitud enviada. El contacto se agregará cuando la persona la apruebe.');
-        if (status === 'approved') setNotice('Contacto agregado a tu agenda.');
       } else {
         const { fields } = await profilePrivacy<{ fields: SharedProfile }>('profile', {
           peerId: result.id,
@@ -101,6 +104,22 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No fue posible completar la operación.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function addDirectly(peerId?: string) {
+    setBusy(peerId ?? 'email');
+    setError('');
+    try {
+      await profilePrivacy('add_contact', {
+        ...(peerId && { peerId }),
+        ...(searchedEmail && { email: searchedEmail }),
+      });
+      onRequestSaved('saved');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible guardar el contacto.');
     } finally {
       setBusy(null);
     }
@@ -163,11 +182,6 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
               {error}
             </p>
           )}
-          {notice && (
-            <p role="status" className="rounded-md bg-primary/5 p-3 text-sm text-foreground">
-              {notice}
-            </p>
-          )}
           {searching && (
             <p
               role="status"
@@ -177,9 +191,21 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
             </p>
           )}
           {matches?.length === 0 && (
-            <p role="status" className="py-10 text-center text-sm text-muted-foreground">
-              No se encontró ningún usuario con ese criterio.
-            </p>
+            <div className="space-y-3 py-10 text-center">
+              <p role="status" className="text-sm text-muted-foreground">
+                No se encontró ningún perfil visible con ese criterio.
+              </p>
+              {searchedEmail && (
+                <button
+                  type="button"
+                  className={contactButton}
+                  disabled={Boolean(busy)}
+                  onClick={() => void addDirectly()}
+                >
+                  <UserPlus size={15} aria-hidden="true" /> Agregar correo a mi agenda
+                </button>
+              )}
+            </div>
           )}
           {matches?.map((result) => (
             <div key={result.id} className="rounded-lg border border-border">
@@ -190,6 +216,14 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
                 <div className="min-w-0 flex-1 break-words text-sm">
                   <p className="font-medium">{result.full_name || 'Usuario de Docubox'}</p>
                   {result.email && <p className="text-xs text-muted-foreground">{result.email}</p>}
+                  {!result.contactId &&
+                    !result.canAddDirectly &&
+                    (result.requestStatus === 'pending' ||
+                      (result.canRequest && result.requestStatus !== 'approved')) && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Esta persona debe aprobar la solicitud para que se agregue a tu agenda.
+                      </p>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {result.canView && (
@@ -206,25 +240,29 @@ export function AddContactDialog({ onClose }: { onClose: () => void }) {
                       {profile?.id === result.id ? 'Ocultar perfil' : 'Ver perfil'}
                     </button>
                   )}
-                  {result.canRequest ? (
+                  {result.canAddDirectly || result.canRequest ? (
                     <button
                       type="button"
                       className={contactPrimaryButton}
                       disabled={Boolean(busy)}
-                      onClick={() => void select(result, 'request')}
+                      onClick={() =>
+                        result.canAddDirectly
+                          ? void addDirectly(result.id)
+                          : void select(result, 'request')
+                      }
                     >
                       <UserPlus size={15} aria-hidden="true" />{' '}
-                      {result.requestStatus === 'approved'
+                      {result.canAddDirectly || result.requestStatus === 'approved'
                         ? 'Agregar a mi agenda'
-                        : 'Solicitar contacto'}
+                        : 'Enviar solicitud'}
                     </button>
                   ) : (
                     <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                       {result.contactId
                         ? 'En tu agenda'
                         : result.requestStatus
-                          ? REQUEST_STATUS_LABELS[result.requestStatus]
-                          : 'Solicitudes desactivadas'}
+                          ? SENT_REQUEST_STATUS_LABELS[result.requestStatus]
+                          : 'No recibe solicitudes de contacto'}
                     </span>
                   )}
                 </div>

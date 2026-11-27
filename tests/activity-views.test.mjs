@@ -216,6 +216,19 @@ test('date sorting follows the selected date source and leaves missing dates las
   );
 });
 
+test('activity list orders across the filtered records using each displayed field', () => {
+  const rows = [
+    item('a', { title: 'Expediente 1', progress: null, state: 'in_progress' }),
+    item('b', { title: 'Expediente 10', progress: 10, state: 'in_progress' }),
+    item('c', { title: 'Expediente 2', progress: 2, state: 'in_progress' }),
+    item('d', { title: 'Expediente 3', progress: 100, state: 'completed' }),
+  ];
+  const criteria = { ...base, state: 'in_progress' };
+  assert.deepEqual(ids(api.filterActivity(rows, { ...criteria, sort: 'title_asc' }, now)), ['a', 'c', 'b']);
+  assert.deepEqual(ids(api.filterActivity(rows, { ...criteria, sort: 'progress_desc' }, now)), ['b', 'c', 'a']);
+  assert.deepEqual(ids(api.filterActivity(rows, { ...criteria, sort: 'progress_asc' }, now)), ['c', 'b', 'a']);
+});
+
 test('an empty current period opens on the most recent historical record', () => {
   const older = new Date(2026, 8, 17, 10).toISOString();
   const recent = new Date(2026, 9, 21, 10).toISOString();

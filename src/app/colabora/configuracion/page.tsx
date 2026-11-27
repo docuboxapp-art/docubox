@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { FormEvent, useState } from 'react';
 import { Check, Loader2, ShieldCheck } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -45,7 +46,7 @@ export default function CollaborationSettingsPage() {
   };
   const writable = can('collaboration.manage_settings', true);
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="app-page-width space-y-5">
       <div>
         <h2 className="text-xl font-medium">Configuracion de Colabora</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -150,7 +151,7 @@ export default function CollaborationSettingsPage() {
             <ShieldCheck size={15} /> Registro auditable
           </div>
           <div className="flex items-center gap-3">
-            {message && <span className="text-sm text-muted-foreground">{message}</span>}
+            {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
             <button
               disabled={!writable || saving}
               className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-white disabled:opacity-50"

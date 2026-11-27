@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import MobileNavigation from './MobileNavigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -59,6 +59,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { joinWorkspaceByCode } from '@/lib/workspace-invitation';
 import { updateNotifications } from '@/lib/notifications/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -176,6 +177,34 @@ function getDocumentSearchStatusLabel(status?: string) {
   return status.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
 }
 
+function subscribeToFullscreen(onChange: () => void) {
+  document.addEventListener('fullscreenchange', onChange);
+  return () => document.removeEventListener('fullscreenchange', onChange);
+}
+
+function readFullscreenState() {
+  return Boolean(document.fullscreenElement);
+}
+
+function readServerFullscreenState() {
+  return false;
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else if (document.fullscreenEnabled) {
+      await document.documentElement.requestFullscreen();
+    } else {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function TopNav() {
   const pathname = usePathname();
   const {
@@ -249,7 +278,11 @@ export default function TopNav() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const isExpanded = useSyncExternalStore(
+    subscribeToFullscreen,
+    readFullscreenState,
+    readServerFullscreenState
+  );
 
   // Sidebar state from shared context
   const { sidebarOpen, setSidebarOpen } = useSidebar();
@@ -364,17 +397,6 @@ export default function TopNav() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
-
-  // Expand screen toggle
-  useEffect(() => {
-    if (isExpanded) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch(() => {});
-      }
-    }
-  }, [isExpanded]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -652,57 +674,18 @@ export default function TopNav() {
     setJoinModalOpen(true);
   };
 
-  // Join workspace by invite code or name
+  // Join workspace by invitation code
   const handleJoinWorkspace = async () => {
     if (!inviteCode.trim()) return;
-    const supabase = createClient();
     setJoinLoading(true);
     setJoinError('');
     try {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      if (!currentUser) throw new Error('No autenticado');
-
-      // Search workspace by invite_code or name
-      const { data: wsData, error: wsError } = await supabase
-        .from('workspaces')
-        .select('id, name')
-        .or(`invite_code.eq.${inviteCode.trim()},name.ilike.${inviteCode.trim()}`)
-        .eq('workspace_type', 'business')
-        .limit(1)
-        .single();
-
-      if (wsError || !wsData) {
-        setJoinError('No se encontró ningún espacio con ese código o nombre.');
-        setJoinLoading(false);
-        return;
-      }
-
-      // Check if already a member
-      const { data: existing } = await supabase
-        .from('workspace_members')
-        .select('id')
-        .eq('workspace_id', wsData.id)
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (existing) {
-        setJoinError('Ya eres miembro de este espacio de trabajo.');
-        setJoinLoading(false);
-        return;
-      }
-
-      const { error: insertError } = await supabase
-        .from('workspace_members')
-        .insert({ workspace_id: wsData.id, user_id: currentUser.id, role: 'member' });
-
-      if (insertError) throw insertError;
+      await joinWorkspaceByCode(inviteCode);
 
       setJoinSuccess(true);
       await refreshWorkspaces();
-    } catch (err: any) {
-      setJoinError('Error al unirse. Intenta de nuevo.');
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'Error al unirse. Intenta de nuevo.');
     } finally {
       setJoinLoading(false);
     }
@@ -864,6 +847,7 @@ export default function TopNav() {
     }
     return { ...section, items: [...section.items, ...moduleItems] };
   });
+  const [primaryNav, contactsNav, managementNav, systemNav] = sidebarNavSections;
 
   return (
     <>
@@ -884,10 +868,11 @@ export default function TopNav() {
             {/* Hamburger — mobile only */}
             <button
               className="lg:hidden w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={() => setMobileMenuOpen(true)}
               aria-label="Abrir menú"
               aria-expanded={mobileMenuOpen}
               aria-haspopup="dialog"
+              aria-controls={mobileMenuOpen ? 'mobile-navigation' : undefined}
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -1276,7 +1261,7 @@ export default function TopNav() {
             {/* 3. Expandir pantalla */}
             <button
               title={isExpanded ? 'Restaurar pantalla' : 'Expandir pantalla'}
-              onClick={() => setIsExpanded(!isExpanded)}
+              onClick={() => void toggleFullscreen()}
               className="w-10 h-10 rounded-md flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-150 flex-shrink-0"
             >
               {isExpanded ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
@@ -1559,29 +1544,36 @@ export default function TopNav() {
 
       {mobileMenuOpen && (
         <MobileNavigation
-          items={[
-            ...sidebarNavSections.flatMap((section) => section.items),
-            { href: '/mi-perfil', label: 'Mi perfil', icon: UserCircle },
-            { href: '/notificaciones', label: 'Notificaciones', icon: Bell },
+          groups={[
+            { label: primaryNav.label, items: [...primaryNav.items, ...contactsNav.items] },
+            managementNav,
+            {
+              label: 'Cuenta y sistema',
+              items: [
+                ...systemNav.items,
+                { href: '/mi-perfil', label: 'Mi perfil', icon: UserCircle },
+                { href: '/notificaciones', label: 'Notificaciones', icon: Bell },
+              ],
+            },
           ]}
           workspaces={workspaces.map((workspace) => ({
             id: workspace.id,
-            name:
-              workspace.workspaceType === 'personal'
-                ? `Personal · ${userFullName}`
-                : workspace.name,
+            name: workspace.workspaceType === 'personal' ? userFullName : workspace.name,
+            workspaceType: workspace.workspaceType,
           }))}
           workspaceId={activeWorkspace?.id}
+          workspaceLoading={wsLoading}
           onWorkspaceChange={(id) => {
             const workspace = workspaces.find((entry) => entry.id === id);
             if (workspace) handleSelectWorkspace(workspace);
           }}
+          pathname={pathname}
           isActive={getTabActive}
           onClose={closeMobileMenu}
           isDark={isDark}
           onThemeChange={toggleTheme}
           onJoinWorkspace={handleOpenJoinModal}
-          onToggleFullscreen={() => setIsExpanded(!isExpanded)}
+          onSignOut={signOut}
         />
       )}
 
@@ -1694,6 +1686,7 @@ export default function TopNav() {
             setBellOpen(false);
           };
           const contextualActionLabel = () => {
+            if (n.action_label) return n.action_label;
             if (nType === 'document') return 'Ver documento';
             return `Ver ${notificationAreaLabel(n).toLowerCase()}`;
           };
@@ -1859,7 +1852,7 @@ export default function TopNav() {
                   </p>
                   <div className="mb-4">
                     <label className="block text-xs font-600 text-foreground mb-1.5">
-                      Código de invitación o nombre del espacio
+                      Código de invitación
                     </label>
                     <input
                       type="text"
@@ -1868,7 +1861,7 @@ export default function TopNav() {
                         setInviteCode(e.target.value);
                         setJoinError('');
                       }}
-                      placeholder="Ej: EMPRESA-2024 o nombre del espacio"
+                      placeholder="Ej: EMPRESA-2024"
                       className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
                       onKeyDown={(e) => e.key === 'Enter' && handleJoinWorkspace()}
                     />

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { PDFDocument, rgb, type PDFPage } from 'pdf-lib';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { PDFBool, PDFDocument, PDFName, rgb, type PDFPage } from 'pdf-lib';
 import QRCode from 'qrcode';
 import {
   applyFinalPdfMetadata,
@@ -7,13 +9,24 @@ import {
 } from '@/lib/documents/final-pdf-metadata';
 import { embedDocuboxPdfFonts, type DocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 import { getDefaultSignatureStampStyle, getStampSizePreset } from '@/lib/signatures/stamp-sizing';
+import {
+  SIGNERS_SHEET_PDF_PAGE_KEY,
+  SIGNING_METHOD_LABELS,
+  isSignaturePosition,
+  isSigningMethod,
+  type SigningMethod,
+} from '@/lib/signatures/signing-options';
 
 export type SignatureStampResponse = {
   participante_id?: string | null;
   participante_email?: string | null;
   participante_nombre?: string | null;
+  participant_record_id?: string | null;
+  participant_reference_id?: string | null;
   firma_data?: string | null;
   firma_completada_at?: string | null;
+  consent_accepted?: boolean | null;
+  consent_accepted_at?: string | null;
   signature_method?: string | null;
   signature_stamp_style?: string | null;
   signature_hash?: string | null;
@@ -103,7 +116,7 @@ function shortHash(value: string | null | undefined) {
   return hash ? `${hash.slice(0, 16)}...` : 'No disponible';
 }
 
-function responseMethod(response: SignatureStampResponse) {
+function responseMethod(response: SignatureStampResponse): SigningMethod {
   const method = normalize(response.signature_method);
   if (method === 'efirma' || method === 'autografa' || method === 'clicksign') return method;
   const style = String(response.signature_stamp_style || '').toUpperCase();
@@ -117,6 +130,19 @@ function responseStyle(response: SignatureStampResponse) {
   if (style) return style;
   const method = responseMethod(response);
   return getDefaultSignatureStampStyle(method);
+}
+
+function sheetStampStyle(response: SignatureStampResponse) {
+  const savedStyle = String(response.signature_stamp_style || '').trim().toUpperCase();
+  const validStyles = {
+    clicksign: /^(?:CC[1-5]|CM[1-5]|CL[1-4])$/,
+    autografa: /^(?:AC[0-5]|AM[1-5]|AL[1-4])$/,
+    efirma: /^(?:EC[1-5]|EM[1-5]|EL[1-4])$/,
+  };
+  const method = responseMethod(response);
+  const validStyle = validStyles[method].test(savedStyle);
+  if (!isSigningMethod(normalize(response.signature_method)) && !validStyle) return null;
+  return { method, style: validStyle ? savedStyle : getDefaultSignatureStampStyle(method) };
 }
 
 export type ResolvedSignatureStampBox = {
@@ -175,9 +201,12 @@ function dataUrlToBytes(value: string) {
 
 function matchesField(field: SignatureStampField, response: SignatureStampResponse) {
   const participant = normalize(field.participantId);
-  const responseId = normalize(response.participante_id);
-  const email = normalize(response.participante_email);
-  return participant && (participant === responseId || participant === email);
+  return Boolean(participant) && [
+    response.participant_reference_id,
+    response.participant_record_id,
+    response.participante_id,
+    response.participante_email,
+  ].some((identity) => participant === normalize(identity));
 }
 
 function drawTextLines(
@@ -1614,7 +1643,7 @@ async function drawClickSignShortStamp(params: {
   );
   const centered = style === 'CC4' || style === 'CC5';
   const lateral = style === 'CC3';
-  const withAcceptance = style !== 'CC1';
+  const withAcceptance = style !== 'CC1' && response.consent_accepted !== false;
   const withQr = style === 'CC2' || style === 'CC4' || style === 'CC5';
   const ticket = style === 'CC5';
   const outerInset = Math.max(3, Math.min(7, width * 0.03));
@@ -1802,6 +1831,7 @@ async function drawClickSignMediumStamp(params: {
   const framed = style === 'CM4';
   const ticket = style === 'CM5';
   const centered = framed || ticket;
+  const withAcceptance = response.consent_accepted !== false;
   const inset = Math.max(3, Math.min(7, width * 0.03));
 
   page.drawRectangle({
@@ -1878,20 +1908,24 @@ async function drawClickSignMediumStamp(params: {
   let cursorTop = contentTop;
   if (dark) {
     const headerY = y + height - headerHeight;
-    page.drawText(fitText(name, frameWidth - inset * 2 - pillWidth - 4, bold, titleSize), {
+    page.drawText(fitText(name, frameWidth - inset * 2 - (withAcceptance ? pillWidth + 4 : 0), bold, titleSize), {
       x: frameX + inset,
       y: headerY + (headerHeight - titleSize) / 2,
       size: titleSize,
       font: bold,
       color: rgb(1, 1, 1),
     });
-    drawAcceptancePill(
-      frameX + frameWidth - inset - pillWidth,
-      headerY + (headerHeight - pillHeight) / 2
-    );
+    if (withAcceptance) {
+      drawAcceptancePill(
+        frameX + frameWidth - inset - pillWidth,
+        headerY + (headerHeight - pillHeight) / 2
+      );
+    }
   } else if (centered) {
-    drawAcceptancePill(contentX + (contentWidth - pillWidth) / 2, cursorTop - pillHeight);
-    cursorTop -= pillHeight + 3;
+    if (withAcceptance) {
+      drawAcceptancePill(contentX + (contentWidth - pillWidth) / 2, cursorTop - pillHeight);
+      cursorTop -= pillHeight + 3;
+    }
     const fittedName = fitText(name, contentWidth, bold, titleSize);
     page.drawText(fittedName, {
       x: contentX + Math.max(0, (contentWidth - bold.widthOfTextAtSize(fittedName, titleSize)) / 2),
@@ -1901,14 +1935,14 @@ async function drawClickSignMediumStamp(params: {
       color: ink,
     });
   } else {
-    page.drawText(fitText(name, contentWidth - pillWidth - 4, bold, titleSize), {
+    page.drawText(fitText(name, contentWidth - (withAcceptance ? pillWidth + 4 : 0), bold, titleSize), {
       x: contentX,
       y: cursorTop - titleSize,
       size: titleSize,
       font: bold,
       color: ink,
     });
-    drawAcceptancePill(contentX + contentWidth - pillWidth, cursorTop - pillHeight);
+    if (withAcceptance) drawAcceptancePill(contentX + contentWidth - pillWidth, cursorTop - pillHeight);
   }
 
   if (!dark) cursorTop -= titleSize + 3;
@@ -2046,7 +2080,7 @@ async function drawClickSignLongStamp(params: {
   const lateral = style === 'CL3';
   const framed = style === 'CL4';
   const withAvatar = style !== 'CL2';
-  const withAcceptance = style !== 'CL4';
+  const withAcceptance = style !== 'CL4' && response.consent_accepted !== false;
   const withQr = style !== 'CL2';
   const inset = Math.max(4, Math.min(8, width * 0.03));
   const stripeWidth = lateral ? Math.max(3, Math.min(5, width * 0.02)) : 0;
@@ -2632,32 +2666,172 @@ async function drawStamp(
   );
 }
 
+async function appendSignersSheet(
+  pdf: PDFDocument,
+  responses: SignatureStampResponse[],
+  metadata: FinalPdfTechnicalMetadata,
+  fonts: DocuboxPdfFonts,
+  verificationUrl?: string
+) {
+  const { regular, bold } = fonts;
+  const sheetWidth = 612;
+  const sheetHeight = 792;
+  const margin = 40;
+  const contentWidth = sheetWidth - margin * 2;
+  const cardHeight = 246;
+  const cardsPerPage = 2;
+  const sheetPages = Math.ceil(responses.length / cardsPerPage);
+  const [logo, qr] = await Promise.all([
+    readFile(path.join(process.cwd(), 'public', 'assets', 'images', 'docubox-logo-2026.png'))
+      .then((bytes) => pdf.embedPng(bytes)).catch(() => null),
+    verificationUrl ? embedQrCode(pdf, verificationUrl) : null,
+  ]);
+  const folio = metadata.documentFolio || metadata.documentId;
+
+  for (let index = 0; index < sheetPages; index += 1) {
+    const page = pdf.addPage([sheetWidth, sheetHeight]);
+    page.node.set(PDFName.of(SIGNERS_SHEET_PDF_PAGE_KEY), PDFBool.True);
+    const text = (
+      value: string, x: number, y: number, size: number,
+      color = ink, font = regular, width = contentWidth
+    ) => {
+      const line = fitText(value.replace(/[\u0000-\u001f\u007f]/g, ' '), width, font, size);
+      page.drawText(line, { x, y, size, color, font });
+    };
+
+    page.drawRectangle({ x: 0, y: sheetHeight - 8, width: sheetWidth, height: 8, color: blue });
+    if (logo) {
+      const logoSize = logo.scaleToFit(107, 26);
+      page.drawImage(logo, { x: margin, y: 742, ...logoSize });
+    } else {
+      text('Docubox', margin, 746, 18, blue, bold);
+    }
+    text('Firmantes del documento', margin, 708, 26, ink, bold);
+    text(metadata.title || 'Documento firmado', margin, 682, 12, ink, bold, contentWidth - 80);
+    text(`Folio ${folio}`, margin, 661, 10, muted, regular, contentWidth - 80);
+    if (qr) {
+      page.drawImage(qr, { x: sheetWidth - margin - 58, y: 674, width: 58, height: 58 });
+      text('Verificar', sheetWidth - margin - 45, 660, 8, muted);
+    }
+    page.drawLine({ start: { x: margin, y: 645 }, end: { x: sheetWidth - margin, y: 645 }, color: lightBorder });
+    text(`${responses.length} ${responses.length === 1 ? 'firma registrada' : 'firmas registradas'}`, margin, 622, 10, muted);
+
+    const start = index * cardsPerPage;
+    for (const [offset, response] of responses.slice(start, start + cardsPerPage).entries()) {
+      const top = 608 - offset * (cardHeight + 13);
+      const bottom = top - cardHeight;
+      const left = margin + 17;
+      const right = margin + 296;
+      const stamp = sheetStampStyle(response);
+      const methodLabel = stamp ? SIGNING_METHOD_LABELS[stamp.method] : 'Firma electrónica';
+      const details = response.signature_metadata || {};
+      const hash = String(response.signature_hash || '').trim().toUpperCase();
+      const certificate = typeof details.certificate_serial === 'string' ? details.certificate_serial.trim() : '';
+      const expiry = typeof details.certificate_valid_until === 'string' ? details.certificate_valid_until : null;
+
+      page.drawRectangle({ x: margin, y: bottom, width: contentWidth, height: cardHeight, borderColor: lightBorder, borderWidth: 0.8 });
+      page.drawRectangle({ x: margin, y: bottom, width: 3, height: cardHeight, color: blue });
+      text('FIRMANTE', left, top - 21, 8, blue, bold);
+      text(response.participante_nombre || response.participante_email || 'Firmante', left, top - 41, 13, ink, bold, 259);
+      text(response.participante_email || '', left, top - 57, 9, muted, regular, 259);
+      text(`Firma registrada el ${formatDate(response.firma_completada_at)}`, left, top - 75, 9, ink, regular, 259);
+      text('MÉTODO DE FIRMA', right, top - 21, 8, blue, bold);
+      text(methodLabel, right, top - 41, 12, ink, bold, 219);
+
+      if (stamp?.method === 'efirma') {
+        if (certificate) text(`Certificado ${certificate}`, right, top - 57, 9, muted, regular, 219);
+        if (expiry) text(`Vigencia ${formatDate(expiry)}`, right, top - 74, 8.5, muted, regular, 219);
+      } else if (stamp?.method === 'clicksign' && response.consent_accepted === true) {
+        text('Aceptación electrónica registrada', right, top - 57, 9, muted, regular, 219);
+        if (response.consent_accepted_at) {
+          text(formatDate(response.consent_accepted_at), right, top - 74, 8.5, muted, regular, 219);
+        }
+      } else if (stamp?.method === 'autografa' && details.otp_verified === true) {
+        text('Código de un solo uso verificado', right, top - 57, 9, muted, regular, 219);
+      }
+
+      if (stamp) {
+        const preset = getStampSizePreset(stamp.style);
+        const width = preset.id === 'short' ? 350 : preset.id === 'medium' ? 425 : contentWidth - 36;
+        const stampBox = { x: margin + (contentWidth - width) / 2, y: bottom + 35, width, height: 113 };
+        page.drawLine({ start: { x: left, y: top - 87 }, end: { x: margin + contentWidth - 17, y: top - 87 }, color: lightBorder });
+        await drawStamp(pdf, page, {
+          ...response,
+          consent_accepted: response.consent_accepted === true,
+          signature_method: stamp.method,
+          signature_stamp_style: stamp.style,
+          signature_metadata: {
+            ...details,
+            verification_url: verificationUrl,
+            participant_role: stampText(details.participant_role || details.role, 'Firmante'),
+            ocsp_status: stampText(details.ocsp_status, 'No disponible'),
+            authentication_status: stampText(
+              details.authentication_status,
+              details.otp_verified === true ? 'OTP verificado' : 'No disponible'
+            ),
+          },
+        }, null, 0, fonts, stampBox);
+      }
+      if (/^[A-F0-9]{64}$/.test(hash)) {
+        text('HUELLA SHA-256 DE LA FIRMA', left, bottom + 21, 8, muted, bold);
+        text(hash, left, bottom + 9, 8.5, ink);
+      }
+    }
+
+    page.drawLine({ start: { x: margin, y: 96 }, end: { x: sheetWidth - margin, y: 96 }, color: lightBorder });
+    text('Hoja de firmantes del PDF final', margin, 76, 9, muted);
+    text(`${index + 1} de ${sheetPages}`, sheetWidth - margin - 43, 76, 9, muted);
+  }
+
+  return sheetPages;
+}
+
 export async function createSignedDocumentPdf(params: {
   originalBytes: Uint8Array;
   fields: SignatureStampField[];
   responses: SignatureStampResponse[];
   technicalMetadata: FinalPdfTechnicalMetadata;
+  allowSignersSheet?: boolean;
+  verificationUrl?: string;
 }) {
   const pdf = await PDFDocument.load(params.originalBytes, { ignoreEncryption: false });
+  // The appendix marker belongs to pages generated here, never to uploaded source pages.
+  pdf.getPages().forEach((page) => page.node.delete(PDFName.of(SIGNERS_SHEET_PDF_PAGE_KEY)));
   const fonts = await embedDocuboxPdfFonts(pdf);
   const signatureFields = params.fields.filter(isSignatureStampField);
+  const originalPageCount = pdf.getPageCount();
+  let signersStamped = 0;
   let stampsApplied = 0;
 
   for (const response of params.responses) {
-    const matching = signatureFields.filter((field) => matchesField(field, response));
-    for (const field of matching) {
-      const pageIndex = Math.max(0, Math.min(pdf.getPageCount() - 1, Number(field.page || 1) - 1));
-      await drawStamp(pdf, pdf.getPage(pageIndex), response, field, 0, fonts);
+    const assignedFields = signatureFields
+      .filter((field) => matchesField(field, response))
+      .map((field) => ({ ...field, page: field.page ?? 1, width: field.width ?? 34, height: field.height ?? 12 }))
+      .filter((field) => isSignaturePosition(field) && field.page <= originalPageCount);
+    const savedPositions = response.signature_metadata?.signature_positions;
+    const positions = assignedFields.length
+      ? assignedFields
+      : params.allowSignersSheet && Array.isArray(savedPositions)
+        ? savedPositions.filter(isSignaturePosition).filter((field) => field.page <= originalPageCount)
+        : [];
+    for (const field of positions) {
+      await drawStamp(pdf, pdf.getPage(field.page - 1), response, field, 0, fonts);
       stampsApplied += 1;
     }
+    if (positions.length > 0) signersStamped += 1;
   }
 
+  const signatureSheetPages = params.allowSignersSheet && signersStamped < params.responses.length
+    ? await appendSignersSheet(pdf, params.responses, params.technicalMetadata, fonts, params.verificationUrl)
+    : 0;
   const metadataResult = applyFinalPdfMetadata(pdf, params.technicalMetadata);
   const bytes = await pdf.save({ useObjectStreams: false });
   return {
     bytes,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     stampsApplied,
+    signaturesApplied: signatureSheetPages ? params.responses.length : signersStamped,
+    signatureSheetPages,
     metadataSnapshotSha256: metadataResult.snapshotSha256,
   };
 }

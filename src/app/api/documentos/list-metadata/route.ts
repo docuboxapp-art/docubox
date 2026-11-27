@@ -3,6 +3,7 @@ import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
 import { isTemporaryDatabaseFailure } from '@/lib/supabase/backend-failure';
 import { emitObservedEvent } from '@/lib/observability/events';
+import { verifyDocumentBearer } from '@/lib/documents/bootstrap-auth.server';
 
 export async function GET(request: Request) {
   const startedAt = performance.now();
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
     const {
       data: { user },
       error: authError,
-    } = await anonClient.auth.getUser(token);
+    } = await verifyDocumentBearer(token, () => anonClient.auth.getUser(token));
     if (authError || !user) {
       const invalid = !authError || isDefinitivelyInvalidAuthToken(authError);
       return NextResponse.json(
@@ -40,7 +41,10 @@ export async function GET(request: Request) {
         .eq('owner_id', user.id)
         .is('deleted_at', null)
         .order('nombre'),
-      supabase.from('etiquetas').select('id, nombre, color').order('nombre'),
+      createAnonClient(token, deadline)
+        .from('etiquetas')
+        .select('id, nombre, color')
+        .order('nombre'),
     ]);
     const dbMs = performance.now() - dbStartedAt;
 

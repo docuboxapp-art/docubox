@@ -1,113 +1,401 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BottomNotice } from '@/components/ui/BottomNotice';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { BarChart3, ChevronDown, ChevronUp, FileText, LayoutGrid, List, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  BarChart3,
+  ChevronDown,
+  FileText,
+  LayoutGrid,
+  List,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
-import { createClient } from '@/lib/supabase/client';
+import WorkspacePageHeader from '@/components/workspaces/WorkspacePageHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { BUILTIN_REPORTS, DATASETS, datasetIds, type DatasetId, type ReportDefinition } from '@/lib/reporting/catalog';
-import { safeConfig } from '@/lib/reporting/engine';
+import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
+import { createClient } from '@/lib/supabase/client';
+import {
+  DATASETS,
+  datasetIds,
+  type DatasetId,
+  type ReportDefinition,
+} from '@/lib/reporting/catalog';
+import { fetchReportCount, listReportPresets, listSavedReports } from '@/lib/reporting/client';
+import { searchableReportText } from '@/lib/reporting/engine';
+import { compareListDates } from '@/lib/workspaces/list-order';
+import { reportCard, reportControl, reportError, reportPrimary } from './components/styles';
 
 export default function ReportesPage() {
-  const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
-  const { user } = useAuth();
-  const userId = user?.id;
-  const { activeWorkspace } = useWorkspace();
-  const workspaceId = activeWorkspace?.id;
-  const [saved, setSaved] = useState<ReportDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { user, loading: authLoading } = useAuth();
+  const { activeWorkspace, loading: workspaceLoading } = useWorkspace();
+  return (
+    <AppLayout>
+      <WorkspacePageHeader
+        title="Reportes"
+        description="Consulta informes del espacio y crea análisis con datos actualizados."
+      >
+        {activeWorkspace && user && (
+          <Link href="/reportes/constructor" className={reportPrimary}>
+            <Plus size={16} aria-hidden="true" />
+            Crear informe
+          </Link>
+        )}
+      </WorkspacePageHeader>
+      {authLoading || workspaceLoading ? (
+        <p role="status" className={reportCard + ' p-6 text-sm text-muted-foreground'}>
+          Cargando el espacio de trabajo…
+        </p>
+      ) : activeWorkspace && user ? (
+        <ReportLibrary
+          key={user.id + ':' + activeWorkspace.id}
+          workspaceId={activeWorkspace.id}
+          userId={user.id}
+        />
+      ) : (
+        <p className={reportCard + ' p-6 text-sm text-muted-foreground'}>
+          Selecciona un espacio de trabajo para consultar sus informes.
+        </p>
+      )}
+    </AppLayout>
+  );
+}
+
+function ReportLibrary({ workspaceId, userId }: { workspaceId: string; userId: string }) {
+  const db = useMemo(() => createClient(), []);
+  const [reports, setReports] = useState<ReportDefinition[] | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [loadingError, setLoadingError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [removing, setRemoving] = useState('');
   const [summaryOpen, toggleSummary] = useSummaryExpansion('reports-summary-metrics', true);
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [summary, setSummary] = useState<{ documents: number | null; tasks: number | null }>({ documents: null, tasks: null });
+  const [counts, setCounts] = useState<(number | null)[] | null>(null);
   const [query, setQuery] = useState('');
   const [dataset, setDataset] = useState<DatasetId | 'all'>('all');
   const [origin, setOrigin] = useState<'all' | 'system' | 'user'>('all');
   const [sort, setSort] = useState<'recent' | 'name'>('recent');
   const [view, setView] = useState<'grid' | 'list'>('grid');
 
-  const load = useCallback(async () => {
-    if (!workspaceId || !userId) { setSaved([]); setSummary({ documents: null, tasks: null }); setLoading(false); setSummaryLoading(false); return; }
-    setLoading(true);
-    setSummaryLoading(true);
-    setSaved([]);
-    setSummary({ documents: null, tasks: null });
-    const { data, error: loadError } = await supabase.from('report_definitions')
-      .select('id,workspace_id,created_by,name,description,dataset,config,created_at,updated_at')
-      .eq('workspace_id', workspaceId).order('updated_at', { ascending: false });
-    if (loadError) setError('No se pudieron consultar los informes guardados.');
-    else { setError(''); setSaved((data || []).filter(row => datasetIds.includes(row.dataset as DatasetId)).map(row => ({
-      ...row, dataset: row.dataset as DatasetId, config: safeConfig(row.config, row.dataset as DatasetId), system: false,
-    }))); }
-    setLoading(false);
-    const session = await supabase.auth.getSession();
-    const jwt = session.data.session?.access_token;
-    if (!jwt) { setSummaryLoading(false); setError('Inicia sesión para consultar el resumen de datos.'); return; }
-    const getCount = async (kind: DatasetId) => {
-      try {
-        const response = await fetch(`/api/reportes/datos?workspaceId=${workspaceId}&dataset=${kind}`,
-          { headers: { Authorization: `Bearer ${jwt}` }, cache: 'no-store' });
-        if (!response.ok) return null;
-        const result = await response.json();
-        return kind === 'tareas' ? (result.rows || []).filter((row: { estado: string }) => !['completada','cancelada','rechazada'].includes(row.estado)).length : Number(result.total || 0);
-      } catch { return null; }
-    };
-    const [documents, tasks] = await Promise.all([getCount('documentos'), getCount('tareas')]);
-    setSummary({ documents, tasks });
-    setSummaryLoading(false);
-    if (documents === null || tasks === null) setError('No se pudo actualizar el resumen de datos. Intenta recargar la página.');
-  }, [workspaceId, userId, supabase]);
-  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    void Promise.allSettled([
+      listReportPresets(db, signal),
+      listSavedReports(db, workspaceId, signal),
+    ]).then(([presets, saved]) => {
+      if (signal.aborted) return;
+      setLoadingError(
+        [presets, saved]
+          .flatMap((result) => (result.status === 'rejected' ? [result.reason.message] : []))
+          .join(' ')
+      );
+      setReports([
+        ...(presets.status === 'fulfilled'
+          ? presets.value.filter((item) => item.listed !== false)
+          : []),
+        ...(saved.status === 'fulfilled' ? saved.value : []),
+      ]);
+    });
+    return () => controller.abort();
+  }, [db, workspaceId, revision]);
 
-  const reports = useMemo(() => [...BUILTIN_REPORTS, ...saved].filter(report => {
-    if (dataset !== 'all' && report.dataset !== dataset) return false;
-    if (origin === 'system' && !report.system) return false;
-    if (origin === 'user' && report.system) return false;
-    const term = query.trim().toLocaleLowerCase('es');
-    return !term || `${report.name} ${report.description} ${DATASETS[report.dataset].label}`.toLocaleLowerCase('es').includes(term);
-  }).sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name, 'es')
-    : (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || '')
-      || a.name.localeCompare(b.name, 'es')), [saved, dataset, origin, query, sort]);
+  useEffect(() => {
+    if (!summaryOpen) return;
+    const controller = new AbortController();
+    void Promise.allSettled([
+      fetchReportCount(db, workspaceId, 'documentos', controller.signal),
+      fetchReportCount(db, workspaceId, 'tareas', controller.signal),
+    ]).then((results) => {
+      if (!controller.signal.aborted)
+        setCounts(
+          results.map((result) => (result.status === 'fulfilled' ? result.value.total : null))
+        );
+    });
+    return () => controller.abort();
+  }, [db, workspaceId, summaryOpen, revision]);
 
-  const remove = async (report: ReportDefinition) => {
-    if (!userId || report.system || report.created_by !== userId) return;
-    if (!window.confirm(`¿Eliminar el informe “${report.name}”?`)) return;
-    const { error: removeError } = await supabase.from('report_definitions').delete().eq('id', report.id).eq('workspace_id', workspaceId);
-    if (removeError) setError('No se pudo eliminar el informe.'); else void load();
-  };
+  const availableModules = datasetIds.filter((id) =>
+    reports?.some((report) => report.dataset === id)
+  );
+  const filtered = useMemo(() => {
+    const term = searchableReportText(query);
+    return (reports || [])
+      .filter(
+        (report) =>
+          (dataset === 'all' || report.dataset === dataset) &&
+          (origin === 'all' || (origin === 'system' ? report.system : !report.system)) &&
+          (!term ||
+            searchableReportText(
+              [report.name, report.description, DATASETS[report.dataset].label].join(' ')
+            ).includes(term))
+      )
+      .sort((a, b) => {
+        if (sort === 'recent') {
+          const byDate = compareListDates(
+            a.updated_at || a.created_at,
+            b.updated_at || b.created_at,
+            'desc'
+          );
+          if (byDate) return byDate;
+          // Presets share no modification date and arrive in their published order.
+          if (a.system && b.system) return 0;
+          if (Boolean(a.system) !== Boolean(b.system)) return a.system ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name, 'es') || a.id.localeCompare(b.id);
+      });
+  }, [dataset, origin, query, reports, sort]);
 
-  return <AppLayout><main>
+  async function remove(report: ReportDefinition) {
+    if (report.system || report.created_by !== userId || removing) return;
+    if (!window.confirm('¿Eliminar el informe “' + report.name + '”?')) return;
+    setRemoving(report.id);
+    setActionError('');
+    try {
+      const result = await db
+        .from('report_definitions')
+        .delete()
+        .eq('id', report.id)
+        .eq('created_by', userId)
+        .eq('workspace_id', workspaceId)
+        .select('id')
+        .maybeSingle();
+      if (result.error || !result.data) throw new Error();
+      setReports((current) => (current || []).filter((item) => item.id !== report.id));
+    } catch {
+      setActionError('No se pudo eliminar el informe. Intenta nuevamente.');
+    } finally {
+      setRemoving('');
+    }
+  }
+
+  const metrics = [
+    {
+      label: 'Informes disponibles',
+      value: reports?.length ?? '…',
+      icon: BarChart3,
+      tone: 'bg-primary/10 text-primary',
+    },
+    {
+      label: 'Documentos analizados',
+      value: counts ? (counts[0] ?? '—') : '…',
+      icon: FileText,
+      tone: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300',
+    },
+    {
+      label: 'Tareas activas',
+      value: counts ? (counts[1] ?? '—') : '…',
+      icon: List,
+      tone: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+    },
+  ];
+
+  return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 pb-4">
-        <div><h1 className="text-2xl font-semibold text-slate-950">Reportes</h1><p className="mt-1 text-sm text-slate-500">Consulta informes del espacio y crea análisis con datos actualizados.</p></div>
-        <Link href="/reportes/constructor" className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"><Plus size={16} />Crear informe</Link>
-      </header>
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <button type="button" onClick={toggleSummary} aria-expanded={summaryOpen} className="flex w-full items-center text-left"><span className="flex-1"><span className="block text-sm font-semibold text-slate-950">Resumen de reportes</span><span className="text-xs text-slate-500">Datos del espacio de trabajo actual.</span></span><span className="mr-3 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{BUILTIN_REPORTS.length + saved.length} informes</span>{summaryOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-        {summaryOpen && <div className="mt-4 grid gap-3 sm:grid-cols-3">{[
-          { label: 'Informes disponibles', value: BUILTIN_REPORTS.length + saved.length, icon: BarChart3, color: 'text-blue-600 bg-blue-50' },
-          { label: 'Documentos analizados', value: summaryLoading ? '…' : summary.documents ?? '—', icon: FileText, color: 'text-indigo-600 bg-indigo-50' },
-          { label: 'Tareas activas', value: summaryLoading ? '…' : summary.tasks ?? '—', icon: List, color: 'text-amber-600 bg-amber-50' },
-        ].map(item => { const Icon = item.icon; return <div key={item.label} className="flex items-center gap-3 rounded-md border border-slate-200 p-4"><span className={`flex h-10 w-10 items-center justify-center rounded-md ${item.color}`}><Icon size={18} /></span><span><strong className="block text-xl font-semibold text-slate-950">{item.value}</strong><span className="text-xs text-slate-500">{item.label}</span></span></div>; })}</div>}
+      <section className={reportCard}>
+        <button
+          type="button"
+          onClick={toggleSummary}
+          aria-expanded={summaryOpen}
+          aria-controls="reports-summary"
+          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+        >
+          <span>
+            <span className="block text-sm font-semibold">Resumen de reportes</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Datos del espacio de trabajo actual.
+            </span>
+          </span>
+          <ChevronDown size={17} className={summaryOpen ? 'rotate-180' : ''} aria-hidden="true" />
+        </button>
+        {summaryOpen && (
+          <div
+            id="reports-summary"
+            className="grid gap-px border-t border-border bg-border sm:grid-cols-3"
+          >
+            {metrics.map(({ label, value, icon: Icon, tone }) => (
+              <div
+                key={label}
+                className="flex min-h-20 min-w-0 items-center gap-3 bg-card px-5 py-3"
+              >
+                <span className={'grid size-9 shrink-0 place-items-center rounded-md ' + tone}>
+                  <Icon size={17} aria-hidden="true" />
+                </span>
+                <span>
+                  <strong className="block text-xl font-semibold tabular-nums">{value}</strong>
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
-      <section className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="relative min-w-[220px] flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar informes..." aria-label="Buscar informes" className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" /></div>
-        <select aria-label="Filtrar módulo" value={dataset} onChange={event => setDataset(event.target.value as DatasetId | 'all')} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="all">Todos los módulos</option>{datasetIds.map(id => <option key={id} value={id}>{DATASETS[id].label}</option>)}</select>
-        <select aria-label="Filtrar origen" value={origin} onChange={event => setOrigin(event.target.value as typeof origin)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="all">Todos los informes</option><option value="system">Creados por Docubox</option><option value="user">Personalizados</option></select>
-        <select aria-label="Ordenar" value={sort} onChange={event => setSort(event.target.value as typeof sort)} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"><option value="recent">Más recientes</option><option value="name">Nombre</option></select>
-        <div className="flex h-9 items-center rounded-md border border-slate-200 p-1"><button onClick={() => setView('list')} aria-label="Vista de lista" aria-pressed={view === 'list'} className={`flex h-7 w-8 items-center justify-center rounded ${view === 'list' ? 'bg-slate-100 text-slate-900' : 'text-slate-400'}`}><List size={16} /></button><button onClick={() => setView('grid')} aria-label="Vista de cuadrícula" aria-pressed={view === 'grid'} className={`flex h-7 w-8 items-center justify-center rounded ${view === 'grid' ? 'bg-slate-100 text-slate-900' : 'text-slate-400'}`}><LayoutGrid size={16} /></button></div>
-      </section>
-      {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {loading ? <p className="rounded-lg border border-slate-200 bg-white p-8 text-sm text-slate-500">Cargando informes...</p> : reports.length === 0 ? <p className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No hay informes que coincidan con los filtros.</p> : <div className={view === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'space-y-2'}>{reports.map(report => <article key={report.id} className={`group rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300 hover:shadow-md ${view === 'list' ? 'flex flex-wrap items-center gap-3' : ''}`}>
-        <button onClick={() => router.push(`/reportes/ver/${report.id}`)} className={`flex min-w-0 flex-1 items-start gap-3 text-left ${view === 'grid' ? 'w-full' : ''}`}><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600"><BarChart3 size={19} /></span><span className="min-w-0"><span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm font-semibold text-slate-950 group-hover:text-blue-700">{report.name}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${report.system ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>{report.system ? 'Creado por Docubox' : 'Personalizado'}</span></span><span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-500">{report.description || 'Informe personalizado del espacio.'}</span><span className="mt-2 block text-xs text-slate-400">{DATASETS[report.dataset].label} · {report.config.fields.length} campos</span></span></button>
-        {!report.system && report.created_by === userId && <div className="flex items-center gap-1 self-end"><Link href={`/reportes/constructor?report=${report.id}`} aria-label={`Editar ${report.name}`} className="rounded-md p-2 text-slate-500 hover:bg-slate-100"><Pencil size={15} /></Link><button onClick={() => void remove(report)} aria-label={`Eliminar ${report.name}`} className="rounded-md p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button></div>}
-      </article>)}</div>}
-      {!loading && <p className="text-right text-xs text-slate-500">{reports.length} {reports.length === 1 ? 'informe visible' : 'informes visibles'}</p>}
+
+      <div className={reportCard + ' flex flex-wrap items-center gap-2 p-3'}>
+        <label className="relative min-w-[12rem] flex-1 basis-full sm:basis-48">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <input
+            aria-label="Buscar informes"
+            placeholder="Buscar informes…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className={reportControl + ' w-full bg-muted/30 pl-9'}
+          />
+        </label>
+        <select
+          aria-label="Filtrar módulo"
+          value={dataset}
+          onChange={(event) => setDataset(event.target.value as typeof dataset)}
+          className={reportControl}
+        >
+          <option value="all">Todos los módulos</option>
+          {availableModules.map((id) => (
+            <option key={id} value={id}>
+              {DATASETS[id].label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Filtrar origen"
+          value={origin}
+          onChange={(event) => setOrigin(event.target.value as typeof origin)}
+          className={reportControl}
+        >
+          <option value="all">Todos los informes</option>
+          <option value="system">Creados por Docubox</option>
+          <option value="user">Personalizados</option>
+        </select>
+        <select
+          aria-label="Ordenar"
+          value={sort}
+          onChange={(event) => setSort(event.target.value as typeof sort)}
+          className={reportControl}
+        >
+          <option value="recent">Más recientes</option>
+          <option value="name">Nombre</option>
+        </select>
+        <div
+          role="group"
+          aria-label="Vista de la biblioteca"
+          className="flex h-9 items-center rounded-md border border-border p-0.5"
+        >
+          {(
+            [
+              ['list', List, 'Lista'],
+              ['grid', LayoutGrid, 'Cuadrícula'],
+            ] as const
+          ).map(([id, Icon, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={label}
+              aria-pressed={view === id}
+              onClick={() => setView(id)}
+              className={
+                'grid size-8 place-items-center rounded focus-visible:outline-primary ' +
+                (view === id
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50')
+              }
+            >
+              <Icon size={15} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {actionError && <BottomNotice message={actionError} tone="critical" onClose={() => setActionError('')} />}
+      {loadingError && (
+        <p role="alert" className={reportError}>
+          {loadingError}
+          {loadingError && (
+            <>
+              {' '}
+              <button
+                type="button"
+                onClick={() => setRevision((value) => value + 1)}
+                className="font-medium underline"
+              >
+                Reintentar
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {!reports ? (
+        <p role="status" className={reportCard + ' p-8 text-sm text-muted-foreground'}>
+          Cargando informes…
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className={reportCard + ' p-10 text-center text-sm text-muted-foreground'}>
+          No hay informes que coincidan con los filtros.
+        </p>
+      ) : (
+        <div className={view === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'space-y-2'}>
+          {filtered.map((report) => (
+            <article
+              key={report.id}
+              className={reportCard + ' flex min-w-0 items-start gap-2 p-4 hover:border-primary/30'}
+            >
+              <Link
+                href={'/reportes/ver/' + report.id}
+                className="group flex min-w-0 flex-1 items-start gap-3 rounded focus-visible:outline-primary"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                  <BarChart3 size={18} aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="break-words text-sm font-semibold group-hover:text-primary">
+                    {report.name}
+                  </h2>
+                  {report.description && (
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                      {report.description}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {DATASETS[report.dataset].label} ·{' '}
+                    {report.system ? 'Creado por Docubox' : 'Personalizado'}
+                  </p>
+                </div>
+              </Link>
+              {!report.system && report.created_by === userId && (
+                <div className="flex shrink-0 gap-1">
+                  <Link
+                    href={'/reportes/constructor?report=' + report.id}
+                    aria-label={'Editar ' + report.name}
+                    className="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-primary"
+                  >
+                    <Pencil size={15} aria-hidden="true" />
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={Boolean(removing)}
+                    onClick={() => void remove(report)}
+                    aria-label={'Eliminar ' + report.name}
+                    className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-primary disabled:opacity-50"
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+      {reports && (
+        <p className="text-right text-xs text-muted-foreground">
+          {filtered.length} {filtered.length === 1 ? 'informe visible' : 'informes visibles'}
+        </p>
+      )}
     </div>
-  </main></AppLayout>;
+  );
 }

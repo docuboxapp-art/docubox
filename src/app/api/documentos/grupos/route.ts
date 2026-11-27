@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { readDocumentTypeGroups } from '@/lib/catalog/document-reads';
+import { createAnonClient } from '@/lib/supabase/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .from('grupo_tipo_documento')
-      .select('id, nombre, orden')
-      .order('orden');
+    const authorization = request.headers.get('authorization');
+    const supabase = createAnonClient(
+      authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined
+    );
+    const { data, error } = await readDocumentTypeGroups(supabase);
 
     if (error) {
-      console.error('Error fetching grupos:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'No se pudieron cargar los grupos.' }, { status: 503 });
     }
 
-    return NextResponse.json({ data: data || [] });
-  } catch (err: any) {
-    console.error('Unexpected error fetching grupos:', err);
-    return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 });
+    return NextResponse.json(
+      { data: data || [] },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch {
+    return NextResponse.json({ error: 'No se pudieron cargar los grupos.' }, { status: 503 });
   }
 }

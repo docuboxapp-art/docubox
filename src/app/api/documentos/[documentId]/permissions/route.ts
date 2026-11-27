@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { createAnonClient, createServiceClient } from '@/lib/supabase/server';
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { canEditUnsignedDocument } from '@/lib/documents/workspace-actions.server';
 
 type AccessLevel = 'view' | 'download' | 'evidence';
 const levels = new Set<AccessLevel>(['view', 'download', 'evidence']);
@@ -28,7 +29,7 @@ async function authorize(request: NextRequest, documentId: string) {
   }
   const service = createServiceClient();
   const { data: document, error: documentError } = await service.from('documentos')
-    .select('id,owner_id,workspace_id,current_custodian_workspace_id,estado,nombre,participantes')
+    .select('id,owner_id,workspace_id,current_custodian_workspace_id,estado,nombre,participantes,fecha_completado')
     .eq('id', documentId).is('deleted_at', null).maybeSingle();
   if (documentError) throw documentError;
   if (!document) return { response: NextResponse.json({ error: 'Documento no encontrado.' }, { status: 404 }) };
@@ -95,7 +96,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ doc
     const access = await authorize(request, documentId);
     if ('response' in access) return access.response;
     if (access.document.estado !== 'completado') {
-      return NextResponse.json({ permissions: [], capabilities: { canManage: true, canInvite: false, canEdit: true } });
+      const canEdit = await canEditUnsignedDocument(access.service, access.document);
+      return NextResponse.json(
+        { permissions: [], capabilities: { canManage: true, canInvite: false, canEdit } },
+        { headers: { 'Cache-Control': 'private, no-store' } }
+      );
     }
     const query = request.nextUrl.searchParams.get('q')?.trim() || '';
     if (query) {

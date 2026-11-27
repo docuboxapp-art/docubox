@@ -288,7 +288,7 @@ export default function OrganizationDirectoryPerson({ personId }: { personId: st
     );
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <div className="flex items-start gap-3">
         <Link
           href="/organizacion/directorio"

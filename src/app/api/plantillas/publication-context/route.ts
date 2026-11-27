@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
             .eq('status', 'active')
             .order('name')
         : Promise.resolve({ data: [], error: null }),
-      context.service.from('tipo_documento').select('id,nombre').order('nombre'),
+      context.userClient.from('tipo_documento').select('id,nombre').order('nombre'),
       rootTemplateId && context.canCreateVersion
         ? context.service
             .from('plantillas')

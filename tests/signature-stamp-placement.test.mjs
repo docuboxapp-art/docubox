@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { getAvailableSigningMethods, getConfiguredSigningMethods } from '../src/lib/signatures/signing-options.ts';
 
 const stampPath = new URL('../src/lib/signatures/pdf-stamp.ts', import.meta.url);
 const routePath = new URL(
@@ -57,18 +58,22 @@ test('signature stamps fit the exact user field and only use recommended sizes a
   assert.match(signingSource, /tipo === 'firma' \? shortStampPreset\.heightPercent : 4/);
 });
 
-test('signature renderer never invents a fallback evidence page', async () => {
-  const source = await readFile(stampPath, 'utf8');
-  assert.doesNotMatch(source, /EVIDENCIA DE FIRMAS/);
-  assert.doesNotMatch(source, /pdf\.addPage/);
-  assert.match(source, /stampsApplied \+= 1/);
+test('the sealing endpoint allows the signers sheet for documents and keeps forms field-bound', async () => {
+  const source = await readFile(routePath, 'utf8');
+  assert.match(source, /const allowSignersSheet = !document\.source_form_response_id/);
+  assert.match(source, /!allowSignersSheet && signatureFields\.length === 0/);
+  assert.match(source, /signaturesApplied = rendered\.signaturesApplied/);
+  assert.match(source, /signaturesApplied === 0/);
 });
 
-test('signature endpoint rejects documents without configured signature fields', async () => {
-  const source = await readFile(routePath, 'utf8');
-  assert.match(source, /signatureFields\.length === 0/);
-  assert.match(source, /no tiene campos de firma configurados para estampar/);
-  assert.match(source, /stampsApplied === 0/);
+test('the signer chooses only from their configured methods or the supported legacy defaults', () => {
+  assert.deepEqual(getAvailableSigningMethods({ tipoFirma: ['click_sign', 'e.firma SAT'] }), [
+    'efirma',
+    'clicksign',
+  ]);
+  assert.deepEqual(getConfiguredSigningMethods({ metodo_firma: 'Firma autógrafa digital' }), ['autografa']);
+  assert.deepEqual(getAvailableSigningMethods({ tipoFirma: [] }), ['autografa', 'efirma', 'clicksign']);
+  assert.deepEqual(getAvailableSigningMethods({ tipoFirma: ['método desconocido'] }), []);
 });
 
 test('signature endpoint resolves the historic current-user field to the owner UUID', async () => {
@@ -375,12 +380,12 @@ test('viewer downloads are proxied through the authorized document endpoint', as
   assert.doesNotMatch(source, /functions\/v1\/seal-pdf/);
 });
 
-test('viewer only requests a derived stamped PDF when a signature field exists', async () => {
+test('viewer can request the final PDF when a completed document has signatures without fields', async () => {
   const source = await readFile(viewerPath, 'utf8');
   assert.match(source, /hasConfiguredSignatureFields/);
-  assert.match(source, /!hasConfiguredSignatureFields/);
+  assert.match(source, /participationResponses\.some\(\(response\) => response\.firma_completada\)/);
   assert.match(source, /document\?\.estado !== 'completado'/);
-  assert.match(source, /hasConfiguredSignatureFields &&[\s\S]*?!document\.sealed_pdf_path/);
+  assert.match(source, /canSealSignedPdf &&[\s\S]*?!document\.sealed_pdf_path/);
 });
 
 test('NOM-151 waits for the exact final PDF when signature fields are configured', async () => {
@@ -410,7 +415,7 @@ test('NOM-151 waits for the exact final PDF when signature fields are configured
   assert.match(orchestratorSource, /WAITING_FOR_PADES[\s\S]*WAITING_FOR_NOM151/);
   assert.match(
     viewerSource,
-    /hasConfiguredSignatureFields &&[\s\S]*?!document\.sealed_pdf_path[\s\S]*?void ensureFinalSignedPdf\(\);[\s\S]*?return;/
+    /canSealSignedPdf &&[\s\S]*?!document\.sealed_pdf_path[\s\S]*?void ensureFinalSignedPdf\(\);[\s\S]*?return;/
   );
   assert.match(
     viewerSource,

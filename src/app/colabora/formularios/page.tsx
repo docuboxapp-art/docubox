@@ -2,9 +2,17 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ClipboardList, Loader2, Plus, RefreshCw, Search, Send, ListChecks } from 'lucide-react';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import ResizableTableHeader from '@/components/workspaces/ResizableTableHeader';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { orderedTableCells } from '@/components/workspaces/useColumnReorder';
+import { useTableColumnLayout } from '@/components/workspaces/useTableColumnLayout';
+import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCollaboration } from '@/contexts/CollaborationContext';
 import { useCollaborationApi } from '@/lib/collaboration/client';
+import { tableDate } from '@/lib/workspaces/list-order';
 
 type FormRow = {
   id: string;
@@ -22,10 +30,24 @@ const statusLabel: Record<string, string> = {
   paused: 'Pausado',
   archived: 'Archivado',
 };
+const columns = [
+  { id: 'name', label: 'Formulario' },
+  { id: 'status', label: 'Estado' },
+  { id: 'requests', label: 'Solicitudes', defaultDirection: 'desc' },
+  { id: 'responses', label: 'Respuestas', defaultDirection: 'desc' },
+  { id: 'updated', label: 'Actualización', defaultDirection: 'desc' },
+] as const;
 export default function CollaborationFormsPage() {
   const { activeWorkspace } = useWorkspace();
+  const { user } = useAuth();
   const { can } = useCollaboration();
   const api = useCollaborationApi();
+  const tableLayout = useTableColumnLayout(columns, {
+    table: 'colabora-formularios',
+    userId: user?.id,
+    workspaceId: activeWorkspace?.id,
+    primaryId: 'name',
+  });
   const [data, setData] = useState<FormRow[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
@@ -64,8 +86,17 @@ export default function CollaborationFormsPage() {
         .toLocaleLowerCase()
         .includes(search.toLocaleLowerCase())
   );
+  const { orderedRows, sortHeading } = useTableOrdering(rows, {
+    name: (row) => row.name,
+    status: (row) => statusLabel[row.status] || row.status,
+    requests: (row) => row.request_count,
+    responses: (row) => row.response_count,
+    updated: (row) => tableDate(row.updated_at),
+  });
+  const pagination = useTablePagination(orderedRows.length, JSON.stringify([search, status]));
+  const pageRows = orderedRows.slice(pagination.start, pagination.end);
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="app-page-width space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
         <div>
           <h2 className="text-xl font-medium">Formularios</h2>
@@ -128,52 +159,72 @@ export default function CollaborationFormsPage() {
             <Loader2 size={23} className="animate-spin text-primary" />
           </div>
         ) : rows.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30 text-muted-foreground">
+          <TableScrollArea
+            label="Tabla de formularios de Colabora"
+            footer={<TablePagination {...pagination} />}
+          >
+            <table className="workspace-actions-table w-full text-left text-sm">
+              <thead className="workspace-table-heading">
                 <tr>
-                  {[
-                    'Formulario',
-                    'Estado',
-                    'Solicitudes',
-                    'Respuestas',
-                    'Actualización',
-                    'Acciones',
-                  ].map((label) => (
-                    <th key={label} className="px-5 py-3 text-left font-medium">
-                      {label}
-                    </th>
-                  ))}
+                  {tableLayout.columns.map((column) => {
+                    const { id, label } = column;
+                    const heading = sortHeading(
+                      id,
+                      label,
+                      'defaultDirection' in column ? column.defaultDirection : 'asc'
+                    );
+                    return (
+                      <ResizableTableHeader
+                        key={id}
+                        {...tableLayout.headerProps(column)}
+                        className="px-5 py-3"
+                        ariaSort={heading['aria-sort']}
+                      >
+                        {heading.children}
+                      </ResizableTableHeader>
+                    );
+                  })}
+                  <th scope="col" className="workspace-table-actions py-3">
+                    Acciones
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {rows.map((row) => (
+              <tbody className="divide-y divide-border xl:divide-y-0">
+                {pageRows.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-5 py-4">
-                      <div className="flex items-start gap-3">
-                        <ClipboardList size={18} className="mt-1 shrink-0 text-primary" />
-                        <div>
-                          <p className="font-medium">{row.name}</p>
-                          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                            {row.description || `Versión ${row.version_number || 1}`}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs ${row.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}
-                      >
-                        {statusLabel[row.status] || row.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">{row.request_count}</td>
-                    <td className="px-5 py-4">{row.response_count}</td>
-                    <td className="px-5 py-4 text-xs text-muted-foreground">
-                      {new Date(row.updated_at).toLocaleDateString('es-MX')}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
+                    {orderedTableCells(tableLayout.columns, {
+                      name: (
+                        <td className="px-5 py-4">
+                          <div className="flex items-start gap-3">
+                            <ClipboardList size={18} className="mt-1 shrink-0 text-primary" />
+                            <div>
+                              <p className="font-medium">{row.name}</p>
+                              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                                {row.description || `Versión ${row.version_number || 1}`}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                      ),
+                      status: (
+                        <td className="px-5 py-4">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs ${row.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}
+                          >
+                            {statusLabel[row.status] || row.status}
+                          </span>
+                        </td>
+                      ),
+                      requests: <td className="px-5 py-4">{row.request_count}</td>,
+                      responses: <td className="px-5 py-4">{row.response_count}</td>,
+                      updated: (
+                        <td className="px-5 py-4 text-xs text-muted-foreground">
+                          {new Date(row.updated_at).toLocaleDateString('es-MX')}
+                        </td>
+                      ),
+                    })}
+                    <td className="workspace-table-actions py-4">
+                      <div className="inline-flex items-center gap-2">
                         <Link
                           aria-label={`Ver respuestas de ${row.name}`}
                           href={`/formularios/respuestas?id=${row.id}`}
@@ -198,7 +249,7 @@ export default function CollaborationFormsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScrollArea>
         ) : (
           <div className="p-14 text-center text-sm text-muted-foreground">
             {search || status

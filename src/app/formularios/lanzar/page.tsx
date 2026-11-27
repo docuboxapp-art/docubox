@@ -94,7 +94,10 @@ const publicLaunchSteps = [
 function LaunchContent() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
-  const initialId = useSearchParams().get('id');
+  const searchParams = useSearchParams();
+  const initialId = searchParams.get('id');
+  const initialContactId = searchParams.get('contact');
+  const appliedContactId = useRef<string | null>(null);
   const { user } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const { isModuleActive, loading: modulesLoading } = useAppModules();
@@ -173,28 +176,32 @@ function LaunchContent() {
       const creatorIds = [...new Set(availableForms.map((item) => item.created_by).filter(Boolean))];
       const creators = await loadVisibleProfileCards(creatorIds).catch(() => []);
       if (!active) return;
-      setCreatorNames(Object.fromEntries(
-        creators.map((profile) => [profile.id, profile.name.trim()]
-        )
-      ));
+      setCreatorNames(Object.fromEntries(creators.map((profile) => [profile.id, profile.name.trim()])));
       setForms(availableForms);
-      setContacts(
-        (contactResult.data || [])
-          .filter((item) => item.email)
-          .map((item) => ({
-            id: item.id,
-            name: [item.nombre, item.apellido_paterno, item.apellido_materno]
-              .filter(Boolean)
-              .join(' '),
-            email: item.email,
-            firstName: item.nombre || '',
-            paternalSurname: item.apellido_paterno || '',
-            maternalSurname: item.apellido_materno || '',
-            phone: item.telefono || '',
-            rfc: item.rfc || '',
-            curp: item.curp || '',
-          }))
-      );
+      const availableContacts: Participant[] = (contactResult.data || [])
+        .filter((item) => item.email)
+        .map((item) => ({
+          id: item.id,
+          name: [item.nombre, item.apellido_paterno, item.apellido_materno]
+            .filter(Boolean)
+            .join(' '),
+          email: item.email,
+          firstName: item.nombre || '',
+          paternalSurname: item.apellido_paterno || '',
+          maternalSurname: item.apellido_materno || '',
+          phone: item.telefono || '',
+          rfc: item.rfc || '',
+          curp: item.curp || '',
+        }));
+      setContacts(availableContacts);
+      if (initialContactId && appliedContactId.current !== initialContactId) {
+        const initialContact = availableContacts.find((item) => item.id === initialContactId);
+        if (initialContact) {
+          appliedContactId.current = initialContactId;
+          setParticipant((current) => current || initialContact);
+          setPublicRecipientEmail((current) => current || initialContact.email);
+        }
+      }
       if (formResult.error) setError('No se pudieron cargar los formularios publicados.');
       setLoading(false);
     };
@@ -202,7 +209,7 @@ function LaunchContent() {
     return () => {
       active = false;
     };
-  }, [activeWorkspace?.id, user?.id, supabase]);
+  }, [activeWorkspace?.id, user?.id, supabase, initialContactId]);
 
   useEffect(() => {
     if (!sent) return;

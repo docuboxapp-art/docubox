@@ -9,6 +9,8 @@ const participantsStep = readFileSync(
   'utf8'
 );
 const capacityHelper = readFileSync('src/lib/templates/field-capacity.ts', 'utf8');
+const appLayout = readFileSync('src/app/layout.tsx', 'utf8');
+const appToaster = readFileSync('src/components/ui/AppToaster.tsx', 'utf8');
 
 test('template signature capacity counts every visible signature placement', () => {
   assert.match(capacityHelper, /campos_insertados\.reduce/);
@@ -36,15 +38,15 @@ test('template signature capacity counts every visible signature placement', () 
   );
 });
 
-test('a template requires exactly one configured signer per signature placement', () => {
-  assert.match(participantsStep, /configuredSignerCount > templateSignatureCapacity/);
-  assert.match(participantsStep, /onSignatureCapacityExceeded\?\.\(templateSignatureCapacity\)/);
+test('the template keeps its signature assignments while allowing additional signers', () => {
+  assert.doesNotMatch(participantsStep, /configuredSignerCount > templateSignatureCapacity/);
   assert.match(participantsStep, /if \(saved !== false\) onClose\(\)/);
-  assert.match(page, /configuredSignerCount !== templateSignatureCapacity/);
-  assert.match(page, /!templateSignerCapacityMismatch/);
+  assert.match(page, /configuredSignerCount < templateSignatureCapacity/);
+  assert.match(page, /!templateMissingSigners/);
+  assert.match(page, /if \(templateSource && !templateFieldsReady\) return false/);
 });
 
-test('a template without signature fields rejects signer participants', () => {
+test('a template without signature fields allows signer participants', () => {
   assert.equal(
     getTemplateSignatureCapacity({
       campos_insertados: [
@@ -54,23 +56,15 @@ test('a template without signature fields rejects signer participants', () => {
     }),
     0
   );
-  assert.match(
-    participantsStep,
-    /templateSignatureCapacity !== null && configuredSignerCount > templateSignatureCapacity/
-  );
-  assert.match(participantsStep, /return false/);
-  assert.match(
-    page,
-    /Esta plantilla no contiene espacios de firma\. No es posible configurar firmantes\./
-  );
-  assert.match(page, /configuredSignerCount === templateSignatureCapacity/);
+  assert.doesNotMatch(page, /No es posible configurar firmantes/);
 });
 
 test('the capacity restriction is communicated as a transient indicator', () => {
-  assert.match(page, /Esta plantilla solo tiene un espacio de firma/);
+  assert.match(page, /Esta plantilla contiene un espacio de firma/);
   assert.match(page, /Esta plantilla contiene \$\{capacity\} espacios de firma/);
-  assert.match(page, /Debes configurar \$\{capacity\} firmantes antes de continuar/);
+  assert.match(page, /Debes configurar al menos \$\{capacity\} firmantes antes de continuar/);
   assert.match(page, /toast\.warning\(/);
   assert.match(page, /toast\.warning\(\s*getTemplateSignatureCapacityMessage/);
-  assert.match(page, /<Toaster position="bottom-right" richColors/);
+  assert.match(appLayout, /<AppToaster\s*\/>/);
+  assert.match(appToaster, /<Toaster\s+position="bottom-center"/);
 });

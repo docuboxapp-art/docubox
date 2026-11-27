@@ -74,6 +74,8 @@ globalThis.__caseConsultationService = {
               ? [{ user_id: actor, storage_key: `expedientes:${workspace}`, item_id: completed }]
               : [];
     let single = false;
+    const orderBy = [];
+    let pagination;
     const query = {
       select() {
         return this;
@@ -121,10 +123,14 @@ globalThis.__caseConsultationService = {
         }
         return this;
       },
-      order() {
+      order(key, { ascending = true } = {}) {
+        orderBy.push({ key, ascending });
+        filters.push([table, 'order', key, ascending]);
         return this;
       },
-      range() {
+      range(from, to) {
+        pagination = [from, to + 1];
+        filters.push([table, 'range', from, to]);
         return this;
       },
       maybeSingle() {
@@ -132,8 +138,18 @@ globalThis.__caseConsultationService = {
         return this;
       },
       then(resolve) {
+        const sorted = data.toSorted((left, right) => {
+          for (const { key, ascending } of orderBy) {
+            if (left[key] == null && right[key] == null) continue;
+            if (left[key] == null) return 1;
+            if (right[key] == null) return -1;
+            const comparison = left[key] < right[key] ? -1 : Number(left[key] > right[key]);
+            if (comparison) return ascending ? comparison : -comparison;
+          }
+          return 0;
+        });
         return Promise.resolve({
-          data: single ? data[0] || null : data,
+          data: single ? sorted[0] || null : pagination ? sorted.slice(...pagination) : sorted,
           error: null,
           count: data.length,
         }).then(resolve);
@@ -200,6 +216,29 @@ test('completed results are sealed instances of the selected type and workspace'
         table === 'case_files' && key === 'workspace_id' && value === workspace
     )
   );
+});
+test('choosing a case list header orders the authorized results before slicing pages', async () => {
+  const first = await request('orden=name');
+  assert.deepEqual(first.body.data.items.map(({ id }) => id), [open, completed]);
+  assert.deepEqual(filters.filter(([table, operation]) => table === 'case_files' && ['order', 'range'].includes(operation)), [
+    ['case_files', 'order', 'title', true],
+    ['case_files', 'order', 'id', true],
+    ['case_files', 'range', 0, 49],
+  ]);
+  const reverse = await request('orden=name_desc');
+  assert.deepEqual(reverse.body.data.items.map(({ id }) => id), [completed, open]);
+});
+test('the requested case page size is bounded and is applied to the server range', async () => {
+  const result = await request('page=3&size=100');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.page, 3);
+  assert.equal(result.body.data.pageSize, 100);
+  assert.ok(filters.some(([table, operation, from, to]) =>
+    table === 'case_files' && operation === 'range' && from === 200 && to === 299
+  ));
+
+  const invalid = await request('size=10000');
+  assert.equal(invalid.body.data.pageSize, 50);
 });
 test('favorites are scoped to the actor and this workspace, with empty-safe filtering', async () => {
   const result = await request('vista=favorites');

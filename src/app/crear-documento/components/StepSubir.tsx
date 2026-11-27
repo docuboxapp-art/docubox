@@ -2016,6 +2016,7 @@ function FileUploadedLayout({
   onInPersonSigningEnabledChange = () => undefined,
   documentRequirements = [],
   onDocumentRequirementsChange = () => undefined,
+  propertiesOnly = false,
 }: {
   file: File | null;
   templateSource?: PublishedTemplateSummary | null;
@@ -2052,6 +2053,7 @@ function FileUploadedLayout({
   onInPersonSigningEnabledChange?: (enabled: boolean) => void;
   documentRequirements?: ParticipantRequirementDraft[];
   onDocumentRequirementsChange?: (requirements: ParticipantRequirementDraft[]) => void;
+  propertiesOnly?: boolean;
 }) {
   const { user } = useAuth();
   const [userId, setUserId] = useState<string | undefined>(user?.id);
@@ -2306,27 +2308,19 @@ function FileUploadedLayout({
           if (!ct.includes('application/json')) return {};
           return res.json();
         };
-        const [gruposRes, etiquetasRes, carpetasRes] = await Promise.all([
+        const [gruposRes, tiposRes, etiquetasRes, carpetasRes] = await Promise.all([
           fetch('/api/documentos/grupos', { headers }).then(safeJson),
+          fetch('/api/documentos/tipos', { headers }).then(safeJson),
           fetch('/api/documentos/etiquetas', { headers }).then(safeJson),
           fetch('/api/documentos/carpetas', { headers }).then(safeJson),
         ]);
         const gruposData: GrupoTipoDocumento[] = gruposRes.data || [];
         if (gruposData.length > 0) {
           setGrupos(gruposData);
-          // Load tipos for all groups in parallel
-          const tiposResults = await Promise.all(
-            gruposData.map((g) =>
-              fetch(`/api/documentos/tipos?grupo_id=${g.id}`, { headers })
-                .then(safeJson)
-                .then((d) => ({ grupoId: g.id, tipos: (d.data || []) as TipoDocumento[] }))
-                .catch(() => ({ grupoId: g.id, tipos: [] as TipoDocumento[] }))
-            )
-          );
           const map: Record<string, TipoDocumento[]> = {};
-          tiposResults.forEach(({ grupoId, tipos }) => {
-            map[grupoId] = tipos;
-          });
+          for (const type of (tiposRes.data || []) as TipoDocumento[]) {
+            if (type.grupo_id) (map[type.grupo_id] ??= []).push(type);
+          }
           setTiposDocumentoMap(map);
         }
         if (etiquetasRes.data) setEtiquetas(etiquetasRes.data);
@@ -2527,7 +2521,8 @@ function FileUploadedLayout({
 
   return (
     <div className="w-full">
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <div className={propertiesOnly ? 'grid grid-cols-1' : 'grid grid-cols-1 gap-5 xl:grid-cols-2'}>
+        {!propertiesOnly && (
         <div className="flex flex-col gap-5">
           <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
             <h2 className="mb-4 text-base font-600 text-slate-950">Archivo cargado</h2>
@@ -3343,6 +3338,7 @@ function FileUploadedLayout({
           </div>
         </div>
 
+        )}
         <div className="h-fit rounded-lg border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
           <h2 className="mb-5 text-base font-600 leading-5 text-slate-950">
             Propiedades del documento
@@ -3391,6 +3387,7 @@ function FileUploadedLayout({
             </div>
 
             {/* Ruta de guardado */}
+            {!propertiesOnly && (
             <div>
               <label className="mb-1.5 block text-[13px] font-medium leading-5 text-gray-700">
                 Ruta de guardado
@@ -3402,6 +3399,7 @@ function FileUploadedLayout({
                 placeholder="Mi Espacio (Raíz)"
               />
             </div>
+            )}
 
             {/* Merged: Tipo de documento + Documento */}
             <div>
@@ -3542,6 +3540,29 @@ function FileUploadedLayout({
         />
       )}
     </div>
+  );
+}
+
+export function DocumentPropertiesEditor({
+  config,
+  onConfigChange,
+}: {
+  config: DocumentConfig;
+  onConfigChange: (config: DocumentConfig) => void;
+}) {
+  return (
+    <FileUploadedLayout
+      propertiesOnly
+      file={null}
+      config={config}
+      onConfigChange={onConfigChange}
+      onRemove={() => {}}
+      onGuardarAvance={() => {}}
+      savingDraft={false}
+      viewMode="stacked"
+      supplementalResources={[]}
+      onSupplementalResourcesChange={() => {}}
+    />
   );
 }
 

@@ -94,7 +94,7 @@ export default function CollaborationReportsPage() {
     );
   const max = Math.max(1, ...rows.map((item) => item.value));
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="app-page-width space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">

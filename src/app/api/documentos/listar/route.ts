@@ -9,6 +9,7 @@ import {
   type DocumentLifecycleRecord,
 } from '@/lib/documents/lifecycle-policy';
 import { getTrashCountdown } from '@/lib/documents/trash-countdown';
+import { verifyDocumentBearer } from '@/lib/documents/bootstrap-auth.server';
 
 const DOC_SELECT =
   'id, nombre, descripcion, estado, etiquetas_ids, file_size, updated_at, ultimo_paso, is_favorite, fecha_vencimiento, scan_status, scan_threat, carpeta_id, created_at, fecha_completado, numero_oficio, folio_interno, ruta_guardado, priority, es_urgente, participantes, tipo_documento_id, tipo_documento:tipo_documento_id(nombre), source_template_id, source_form_response_id, deleted_at, owner_id, tiene_codigo_acceso, legal_hold, legal_hold_status, retention_status, retention_until, lifecycle_status, trashed_at, trashed_by, restore_until';
@@ -29,6 +30,7 @@ function isTemplateOriginColumnMissing(error: { code?: string; message?: string 
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = performance.now();
   try {
     const deadline = AbortSignal.timeout(20_000);
     // Authenticate user via Bearer token using anon client (proper JWT validation)
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
     const {
       data: { user },
       error: authError,
-    } = await anonClient.auth.getUser(token);
+    } = await verifyDocumentBearer(token, () => anonClient.auth.getUser(token));
     if (authError || !user) {
       const invalid = !authError || isDefinitivelyInvalidAuthToken(authError);
       return NextResponse.json(
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const dataStartedAt = performance.now();
     const { searchParams } = new URL(request.url);
     const tipo = searchParams.get('tipo') || 'todos';
 
@@ -133,8 +136,14 @@ export async function GET(request: NextRequest) {
     ]);
     if (holdHistory.error) throw holdHistory.error;
     if (formSources.error) {
-      console.error('[listar-documentos] Form description query error:', formSources.error.message);
+      emitObservedEvent({
+        service: 'next',
+        outcome: 'error',
+        route: '/api/documentos/listar',
+        code: formSources.error.code,
+      });
     }
+    const transformationStartedAt = performance.now();
     const formDescriptions = new Map<string, string | null>();
     for (const source of formSources.data || []) {
       const template = source.form_templates as {
@@ -210,11 +219,27 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    console.info('[listar-documentos] Query completed', {
-      tipo,
-      count: responseData.length,
-    });
-    return NextResponse.json({ data: responseData });
+    const response = NextResponse.json({ data: responseData });
+    const finishedAt = performance.now();
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set(
+      'X-Docubox-Owner-Timing',
+      [
+        `owner_auth;dur=${(dataStartedAt - startedAt).toFixed(1)}`,
+        `owner_data;dur=${(transformationStartedAt - dataStartedAt).toFixed(1)}`,
+        `owner_format;dur=${(finishedAt - transformationStartedAt).toFixed(1)}`,
+      ].join(', ')
+    );
+    if (finishedAt - startedAt > 1_000) {
+      emitObservedEvent({
+        service: 'next',
+        outcome: 'slow',
+        route: '/api/documentos/listar',
+        status: 200,
+        durationMs: finishedAt - startedAt,
+      });
+    }
+    return response;
   } catch (err: unknown) {
     const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : null;
     const temporary =

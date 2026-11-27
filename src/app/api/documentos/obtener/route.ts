@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isDefinitivelyInvalidAuthToken } from '@/lib/supabase/auth-verification';
+import { readDocumentTags } from '@/lib/catalog/document-reads';
 import {
   assertKioskDocumentScope,
   kioskParticipantMatchesUser,
@@ -220,10 +221,7 @@ export async function GET(request: NextRequest) {
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
         Array.isArray(doc.etiquetas_ids) && doc.etiquetas_ids.length > 0
-          ? supabaseAdmin
-              .from('etiquetas')
-              .select('id,nombre,color')
-              .in('id', doc.etiquetas_ids)
+          ? readDocumentTags(supabaseAdmin, { ownerId: doc.owner_id, tagIds: doc.etiquetas_ids })
           : Promise.resolve({ data: [], error: null }),
         doc.carpeta_id
           ? supabaseAdmin

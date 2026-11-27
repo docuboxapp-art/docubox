@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { FileText, FolderKanban } from 'lucide-react';
 import { useAppModules } from '@/contexts/AppModulesContext';
-import SectionTabs from './SectionTabs';
+import SectionTabs, { sectionTabLinkClassName } from './SectionTabs';
 
 export default function WorkspaceTabs({
   active,
@@ -24,7 +24,7 @@ export default function WorkspaceTabs({
     >
       {heading}
       {showTabs && (
-        <SectionTabs label="Contenido de Mi Espacio" className="h-14 rounded-lg border">
+        <SectionTabs label="Contenido de Mi Espacio">
           {(
             [
               ['documentos', 'Documentos', FileText, '/mi-espacio'],
@@ -36,7 +36,7 @@ export default function WorkspaceTabs({
               href={href}
               prefetch={false}
               aria-current={active === id ? 'page' : undefined}
-              className={`flex min-h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40 motion-reduce:transition-none sm:flex-none sm:px-4 sm:text-[13px] ${active === id ? 'bg-primary text-white shadow-sm focus-visible:ring-white/70' : 'text-slate-600 hover:bg-white/80 hover:text-primary dark:text-slate-300 dark:hover:bg-primary/15 dark:hover:text-white'}`}
+              className={sectionTabLinkClassName}
             >
               <Icon size={15} className="shrink-0" aria-hidden="true" />
               {label}

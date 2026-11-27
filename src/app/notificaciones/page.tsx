@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client';
 import { updateNotifications } from '@/lib/notifications/client';
 import { isRetiredNotification, notificationArea, notificationAreaLabel, notificationDestination, NOTIFICATION_AREAS } from '@/lib/notifications/presentation';
 import { useAuth } from '@/contexts/AuthContext';
+import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
 
 interface Notification {
   id: string;
@@ -284,7 +285,7 @@ function NotificationsContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_TABLE_PAGE_SIZE);
   const [typeOpen, setTypeOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -886,47 +887,49 @@ function NotificationsContent() {
             </div>
 
             {/* Footer */}
-            <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700">
-              <label className="flex items-center gap-2 text-xs text-slate-500">
-                <span>Registros por página</span>
-                <select
-                  value={pageSize}
-                  onChange={(event) => setPageSize(Number(event.target.value))}
-                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-600 text-slate-700 outline-none focus:ring-2 focus:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                  aria-label="Registros por página"
-                >
-                  {[15, 30, 50, 100].map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {shouldShowTablePagination(filtered.length) && (
+              <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700">
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>Registros por página</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => setPageSize(Number(event.target.value))}
+                    className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-600 text-slate-700 outline-none focus:ring-2 focus:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    aria-label="Registros por página"
+                  >
+                    {[15, 30, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <div className="flex items-center justify-between gap-3 sm:justify-end">
-                <span className="text-xs text-slate-500">
-                  {filtered.length === 0 ? '0 de 0' : `${currentPage} de ${totalPages}`}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={currentPage === 1}
-                    aria-label="Página anterior"
-                    className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                  >
-                    <ChevronLeft size={15} />
-                  </button>
-                  <button
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    disabled={currentPage === totalPages}
-                    aria-label="Página siguiente"
-                    className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                  >
-                    <ChevronRight size={15} />
-                  </button>
+                <div className="flex items-center justify-between gap-3 sm:justify-end">
+                  <span className="text-xs text-slate-500">
+                    {filtered.length === 0 ? '0 de 0' : `${currentPage} de ${totalPages}`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPage((current) => Math.max(1, current - 1))}
+                      disabled={currentPage === 1}
+                      aria-label="Página anterior"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    >
+                      <ChevronLeft size={15} />
+                    </button>
+                    <button
+                      onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                      disabled={currentPage === totalPages}
+                      aria-label="Página siguiente"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    >
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
         </div>
       </div>

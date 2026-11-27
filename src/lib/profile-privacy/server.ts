@@ -8,6 +8,8 @@ const failures: Record<string, [number, string]> = {
   profile_contact_not_registered: [404, 'Este contacto no tiene una cuenta de Docubox disponible.'],
   profile_communication_closed: [403, 'La persona no está recibiendo este tipo de comunicación.'],
   profile_contact_consent_required: [403, 'Para agregar a esa persona necesitas su aprobación.'],
+  profile_invalid_visibility: [422, 'Revisa las opciones de visibilidad e inténtalo de nuevo.'],
+  profile_privacy_update_required: [409, 'Actualiza la página para editar tu visibilidad.'],
   PGRST202: [503, 'La configuración de privacidad aún no está disponible en este entorno.'],
   '42883': [503, 'La configuración de privacidad aún no está disponible en este entorno.'],
 };

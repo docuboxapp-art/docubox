@@ -1,5 +1,15 @@
 import { activityDate, type ActivityDateField, type ActivityItem } from './model';
 
+export const DOCUMENT_ACTIVITY_DEFAULTS = {
+  view: 'lista',
+  listLayout: 'list',
+  status: 'en-progreso',
+  terminalPeriod: '30',
+  sort: 'recientes',
+  calendarView: 'mes',
+  calendarStatus: 'todos',
+} as const;
+
 export type ActivityCalendarView = 'mes' | 'semana' | 'dia';
 export const ACTIVITY_TERMINAL_STATES = ['completed', 'expired', 'cancelled'];
 

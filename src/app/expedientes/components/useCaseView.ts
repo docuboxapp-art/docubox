@@ -1,53 +1,93 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import {
   loadCaseView,
   normalizeCaseView,
+  saveCaseColumnWidths,
   saveCaseView,
+  type CaseColumnWidths,
   type CaseViewPreferences,
 } from '@/lib/case-files/view-preferences';
 
-const defaults = normalizeCaseView(null);
+const defaults = {
+  key: '',
+  value: normalizeCaseView(null),
+  widths: {} as CaseColumnWidths,
+  error: '',
+  widthError: false,
+};
+
 export function useCaseView(workspaceId?: string) {
   const { user } = useAuth();
-  const key = `${user?.id}:${workspaceId}`;
-  const [state, setState] = useState<{ key: string; value: CaseViewPreferences; error: string }>({
-    key: '',
-    value: defaults,
-    error: '',
-  });
+  const userId = user?.id;
+  const key = `${userId}:${workspaceId}`;
+  const [state, setState] = useState(defaults);
   const [retry, setRetry] = useState(0);
+  const latestWidths = useRef({ key: '', widths: defaults.widths });
+  const widthWrites = useRef(Promise.resolve());
+
   useEffect(() => {
-    if (!user?.id || !workspaceId) return;
+    if (!userId || !workspaceId) return;
     let live = true;
-    loadCaseView(createClient(), user.id, workspaceId)
-      .then((value) => {
-        if (live) setState({ key, value, error: '' });
+    loadCaseView(createClient(), userId, workspaceId)
+      .then(({ view, widths }) => {
+        if (!live) return;
+        latestWidths.current = { key, widths };
+        setState({ ...defaults, key, value: view, widths });
       })
       .catch(() => {
         if (live)
           setState({
+            ...defaults,
             key,
-            value: defaults,
             error: 'No se pudo cargar la personalización de la vista.',
           });
       });
     return () => {
       live = false;
     };
-  }, [user?.id, workspaceId, key, retry]);
+  }, [userId, workspaceId, key, retry]);
+
+  const current = state.key === key ? state : defaults;
+  const ready = state.key === key && !state.error;
+
+  function persistWidths(widths: CaseColumnWidths) {
+    if (!ready || !userId || !workspaceId) return;
+    const write = widthWrites.current.then(() =>
+      saveCaseColumnWidths(createClient(), userId, workspaceId, widths)
+    );
+    widthWrites.current = write.catch(() => {});
+    const finish = (widthError: boolean) =>
+      setState((previous) => (previous.key === key ? { ...previous, widthError } : previous));
+    void write.then(
+      () => finish(false),
+      () => finish(true)
+    );
+  }
+
   return {
-    value: state.key === key ? state.value : defaults,
-    ready: state.key === key && !state.error,
-    error: state.key === key ? state.error : '',
+    value: current.value,
+    widths: current.widths,
+    widthError: current.widthError,
+    ready,
+    error: current.error,
     retry: () => setRetry((v) => v + 1),
+    retryWidths: () => persistWidths(latestWidths.current.widths),
+    resizeColumn: (id: string, width: number) => {
+      const saved = latestWidths.current;
+      if (!ready || saved.key !== key || saved.widths[id] === width) return;
+      const widths = { ...saved.widths, [id]: width };
+      latestWidths.current = { key, widths };
+      setState((previous) => (previous.key === key ? { ...previous, widths } : previous));
+      persistWidths(widths);
+    },
     save: async (value: CaseViewPreferences) => {
-      if (!user?.id || !workspaceId || state.key !== key || state.error)
+      if (!userId || !workspaceId || !ready)
         throw new Error('Espera a que cargue la personalización de la vista.');
-      const saved = await saveCaseView(createClient(), user.id, workspaceId, value);
-      setState({ key, value: saved, error: '' });
+      const saved = await saveCaseView(createClient(), userId, workspaceId, value);
+      setState((previous) => (previous.key === key ? { ...previous, value: saved } : previous));
     },
   };
 }

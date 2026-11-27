@@ -4,14 +4,15 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import StatusBadge, { DocumentStatus } from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { compareTableValues, tableAriaSort, tableDate, type ListDirection } from '@/lib/workspaces/list-order';
 import {
   Search,
   Filter,
   Eye,
   Send,
   MoreHorizontal,
-  ChevronUp,
-  ChevronDown,
   FileText,
   CheckCircle2,
   Clock,
@@ -38,6 +39,23 @@ interface Documento {
   fechaLimite: string;
   hash: string;
 }
+
+function documentDate(value: string) {
+  const [day, month, year] = value.split('/');
+  return year ? tableDate(`${year}-${month}-${day}`) : null;
+}
+
+const documentSortValues = {
+  nombre: (row: Documento) => row.nombre,
+  rfc: (row: Documento) => row.rfc,
+  tipo: (row: Documento) => row.tipo,
+  estado: (row: Documento) => row.estado,
+  firmantes: (row: Documento) => row.firmantes.length,
+  metodo: (row: Documento) => row.metodo,
+  nom151: (row: Documento) => row.nom151,
+  fechaEnvio: (row: Documento) => documentDate(row.fechaEnvio),
+  fechaLimite: (row: Documento) => documentDate(row.fechaLimite),
+};
 
 // Backend integration: fetch from /api/documents?page=1&limit=12
 const documentos: Documento[] = [
@@ -290,12 +308,11 @@ export default function DocumentsTable() {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('todos');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [sortField, setSortField] = useState<string>('fechaEnvio');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState<keyof typeof documentSortValues>('fechaEnvio');
+  const [sortDir, setSortDir] = useState<ListDirection>('desc');
   const [openActionRow, setOpenActionRow] = useState<string | null>(null);
-  const itemsPerPage = 8;
 
+  const readSortValue = documentSortValues[sortField];
   const filtered = documentos.filter((doc) => {
     const matchSearch =
       doc.nombre.toLowerCase().includes(search.toLowerCase()) ||
@@ -303,39 +320,22 @@ export default function DocumentsTable() {
       doc.tipo.toLowerCase().includes(search.toLowerCase());
     const matchFilter = activeFilter === 'todos' || doc.estado === activeFilter;
     return matchSearch && matchFilter;
-  });
+  }).sort((left, right) => compareTableValues(readSortValue(left), readSortValue(right), sortDir));
 
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const pagination = useTablePagination(filtered.length);
+  const setCurrentPage = pagination.onPageChange;
+  const paginated = filtered.slice(pagination.start, pagination.end);
 
   const toggleRow = (id: string) => {
     setSelectedRows((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
   };
 
+  const pageIds = paginated.map((row) => row.id);
+  const pageSelected = pageIds.length > 0 && pageIds.every((id) => selectedRows.includes(id));
   const toggleAll = () => {
-    if (selectedRows.length === paginated.length) {
-      setSelectedRows([]);
-    } else {
-      setSelectedRows(paginated.map((d) => d.id));
-    }
-  };
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
-  };
-
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field)
-      return <ChevronUp size={12} className="text-muted-foreground opacity-30" />;
-    return sortDir === 'asc' ? (
-      <ChevronUp size={12} className="text-primary" />
-    ) : (
-      <ChevronDown size={12} className="text-primary" />
+    setSelectedRows((ids) => pageSelected
+      ? ids.filter((id) => !pageIds.includes(id))
+      : [...new Set([...ids, ...pageIds])]
     );
   };
 
@@ -416,17 +416,17 @@ export default function DocumentsTable() {
       {/* Table */}
       <div className="overflow-x-auto scrollbar-thin">
         <table className="w-full min-w-[900px]">
-          <thead>
+          <thead className="workspace-table-heading">
             <tr className="border-b border-border">
               <th className="px-4 py-3 text-left w-10">
                 <input
                   type="checkbox"
-                  checked={selectedRows.length === paginated.length && paginated.length > 0}
+                  checked={pageSelected}
                   onChange={toggleAll}
                   className="rounded border-border"
                 />
               </th>
-              {[
+              {([
                 { label: 'Documento', field: 'nombre' },
                 { label: 'RFC', field: 'rfc' },
                 { label: 'Tipo', field: 'tipo' },
@@ -436,20 +436,18 @@ export default function DocumentsTable() {
                 { label: 'NOM-151', field: 'nom151' },
                 { label: 'Enviado', field: 'fechaEnvio' },
                 { label: 'Vence', field: 'fechaLimite' },
-              ].map((col) => (
-                <th
-                  key={`col-${col.field}`}
-                  onClick={() => handleSort(col.field)}
-                  className="px-3 py-3 text-left cursor-pointer group"
-                >
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-600 uppercase tracking-wide text-muted-foreground group-hover:text-foreground transition-colors">
-                      {col.label}
-                    </span>
-                    <SortIcon field={col.field} />
-                  </div>
-                </th>
-              ))}
+              ] as const).map((col) => {
+                const direction = sortField === col.field ? sortDir : undefined;
+                return (
+                  <th key={col.field} scope="col" className="px-3 py-3 text-left" aria-sort={tableAriaSort(direction)}>
+                    <TableSortButton label={col.label} direction={direction} onSort={(next) => {
+                      setSortField(col.field);
+                      setSortDir(next);
+                      setCurrentPage(1);
+                    }} />
+                  </th>
+                );
+              })}
               <th className="px-3 py-3 text-right">
                 <span className="text-[11px] font-600 uppercase tracking-wide text-muted-foreground">
                   Acciones
@@ -598,42 +596,7 @@ export default function DocumentsTable() {
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="px-5 py-3 border-t border-border flex items-center justify-between">
-        <p className="text-xs text-muted-foreground tabular-nums">
-          Mostrando {Math.min((currentPage - 1) * itemsPerPage + 1, filtered.length)}–
-          {Math.min(currentPage * itemsPerPage, filtered.length)} de {filtered.length} documentos
-        </p>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="px-2.5 py-1.5 rounded-lg text-xs border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-          >
-            Anterior
-          </button>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-            <button
-              key={`page-${page}`}
-              onClick={() => setCurrentPage(page)}
-              className={`w-8 h-7 rounded-lg text-xs font-500 transition-all duration-150 ${
-                currentPage === page
-                  ? 'bg-primary text-white'
-                  : 'border border-border text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {page}
-            </button>
-          ))}
-          <button
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="px-2.5 py-1.5 rounded-lg text-xs border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-          >
-            Siguiente
-          </button>
-        </div>
-      </div>
+      <TablePagination {...pagination} />
     </div>
   );
 }

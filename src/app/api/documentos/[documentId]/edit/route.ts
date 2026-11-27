@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
+import { canRenameDocument } from '@/lib/documents/workspace-actions';
+import { canEditUnsignedDocument } from '@/lib/documents/workspace-actions.server';
 
 const ALLOWED_DOCUMENT_FIELDS = new Set([
   'nombre',
@@ -7,9 +9,14 @@ const ALLOWED_DOCUMENT_FIELDS = new Set([
   'numero_oficio',
   'grupo_tipo_documento_id',
   'tipo_documento_id',
+  'otro_tipo_documento',
   'etiquetas_ids',
   'participantes',
+  'participant_mode',
+  'participation_order',
   'fecha_vencimiento',
+  'fecha_vencimiento_timezone',
+  'tiene_vencimiento',
   'campos_solicitados',
   'tiene_codigo_acceso',
   'es_urgente',
@@ -25,29 +32,67 @@ export async function PATCH(
     const { user, document, service } = await requireDocumentAccess(request, documentId, {
       requireEdit: true,
     });
-    if (String(document.estado).toLowerCase() !== 'en_proceso') {
-      return NextResponse.json(
-        { error: 'Sólo se puede editar un documento que está en proceso.' },
-        { status: 409 }
-      );
-    }
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
     const updates = Object.fromEntries(
-      Object.entries(body?.updates || {}).filter(([key, value]) => ALLOWED_DOCUMENT_FIELDS.has(key) && value !== undefined)
+      Object.entries(body?.updates || {}).filter(
+        ([key, value]) => ALLOWED_DOCUMENT_FIELDS.has(key) && value !== undefined
+      )
     );
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No hay cambios válidos para guardar.' }, { status: 400 });
     }
     if ('nombre' in updates && (typeof updates.nombre !== 'string' || !updates.nombre.trim())) {
-      return NextResponse.json({ error: 'El nombre del documento es obligatorio.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'El nombre del documento es obligatorio.' },
+        { status: 400 }
+      );
     }
-    const { data, error } = await service
+    const renameOnly = body?.operation === 'rename';
+    if (renameOnly && (Object.keys(updates).length !== 1 || !('nombre' in updates))) {
+      return NextResponse.json({ error: 'Esta acción solo admite el nombre.' }, { status: 400 });
+    }
+    if (
+      renameOnly
+        ? !canRenameDocument(document)
+        : !(await canEditUnsignedDocument(service, document))
+    ) {
+      return NextResponse.json(
+        {
+          error: renameOnly
+            ? 'Un documento completado no se puede renombrar.'
+            : 'Solo puedes editar un documento en proceso que aún no tenga una firma registrada o en curso.',
+          code: 'DOCUMENT_EDIT_CONFLICT',
+        },
+        { status: 409 }
+      );
+    }
+    if (typeof updates.nombre === 'string') updates.nombre = updates.nombre.trim();
+    const query = service
       .from('documentos')
       .update(updates)
       .eq('id', documentId)
-      .select('id,nombre,file_url,file_size,file_type,fecha_vencimiento,campos_solicitados,participantes')
-      .single();
+      .eq('estado', document.estado)
+      .is('deleted_at', null)
+      .is('fecha_completado', null);
+    const { data, error } = await (
+      document.updated_at
+        ? query.eq('updated_at', document.updated_at)
+        : query.is('updated_at', null)
+    )
+      .select(
+        'id,nombre,descripcion,numero_oficio,grupo_tipo_documento_id,tipo_documento_id,otro_tipo_documento,etiquetas_ids,updated_at,fecha_vencimiento,fecha_vencimiento_timezone,tiene_vencimiento,campos_solicitados,participantes,participant_mode,participation_order'
+      )
+      .maybeSingle();
     if (error) throw error;
+    if (!data) {
+      return NextResponse.json(
+        {
+          error: 'El documento cambió mientras lo editabas. Vuelve a abrirlo e inténtalo de nuevo.',
+          code: 'DOCUMENT_EDIT_CONFLICT',
+        },
+        { status: 409 }
+      );
+    }
     await service.from('document_lifecycle_audit_events').insert({
       workspace_id: document.workspace_id || null,
       document_id: documentId,

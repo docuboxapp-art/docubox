@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
         '*, tipo_documento:tipo_documento_id(id, nombre), grupo_tipo:grupo_tipo_id(id, nombre)'
       )
       .eq('workspace_id', workspaceId)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('id');
 
     if (context.workspace.workspace_type === 'personal') {
       query = query.eq('created_by', context.user.id);

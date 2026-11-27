@@ -1,4 +1,5 @@
 'use client';
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import type { ReactNode } from 'react';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
@@ -46,6 +47,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 import OrganizationPageHeader from './OrganizationPageHeader';
 import { OrganizationRetentionPolicies } from '@/components/organization/OrganizationRetentionPolicies';
 import OrganizationRecordActions from './OrganizationRecordActions';
@@ -414,6 +417,42 @@ export default function OrganizationAdvancedAdministration({
   const access = permissionFor[section];
   const canRead = elevated || permissions.includes(access.read);
   const canManage = Boolean(access.manage && (elevated || permissions.includes(access.manage)));
+  const auditNeedle = auditQuery.toLowerCase();
+  const filteredAudit = section === 'auditoria'
+    ? rows.filter((item) =>
+        !auditNeedle || [item.summary, item.event_type, item.resource_type, item.correlation_id, item.actor_user_id]
+          .some((value) => String(value || '').toLowerCase().includes(auditNeedle))
+      )
+    : [];
+  const rowOrder = useTableOrdering(section === 'auditoria' ? filteredAudit : rows, {
+    sessionName: (item) => item.full_name,
+    sessionActivity: (item) => tableDate(item.last_active_at),
+    certificateName: (item) => item.alias || item.subject_name,
+    certificateExpiry: (item) => tableDate(item.valid_until),
+    certificateEnvironment: (item) => humanize(item.environment),
+    auditDate: (item) => tableDate(item.occurred_at),
+    auditAction: (item) => item.summary || item.event_type,
+    auditResource: (item) => item.resource_type,
+    auditOutcome: (item) => item.outcome,
+  });
+  const detailOrder = useTableOrdering(extra, {
+    credential: (item) => item.name,
+    lastUse: (item) => tableDate(item.last_used_at),
+    credentialStatus: (item) => item.status,
+    costCenter: (item) => item.code,
+    alert: (item) => item.alert_threshold_percent,
+  });
+  const historyOrder = useTableOrdering<Row>(
+    (section === 'plan-consumo' ? overview.billing_history : overview.deliveries) || [],
+    {
+      deliveryDate: (item) => tableDate(item.created_at),
+      deliveryEvent: (item) => item.event_type,
+      deliveryAttempt: (item) => item.attempt_number,
+      billingDate: (item) => tableDate(item.created_at),
+      billingPlan: (item) => item.plan_name,
+      billingAmount: (item) => Number(item.amount || 0),
+    }
+  );
 
   const api = useCallback(
     async (path: string, init?: NonNullable<Parameters<typeof fetch>[1]>) => {
@@ -1092,7 +1131,7 @@ export default function OrganizationAdvancedAdministration({
         security_settings: { ...(current.security_settings || {}), [key]: value },
       }));
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="app-page-width space-y-5">
         <Header
           section={section}
           actions={
@@ -1238,50 +1277,54 @@ export default function OrganizationAdvancedAdministration({
             </div>
             {rows.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-medium">Usuario y dispositivo</th>
-                      <th className="px-4 py-3 text-left font-medium">Ubicación</th>
-                      <th className="px-4 py-3 text-left font-medium">Última actividad</th>
-                      <th className="px-4 py-3 text-left font-medium">Riesgo</th>
-                      <th className="px-5 py-3 text-right font-medium">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {rows.map((item) => (
-                      <tr key={item.session_id}>
-                        <td className="px-5 py-4">
-                          <p className="font-medium">{item.full_name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {item.device_name || 'Navegador web'} ·{' '}
-                            {[item.browser, item.os].filter(Boolean).join(' / ') || 'Sin detalle'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p>{item.location || 'No disponible'}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.ip_address || 'IP no registrada'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">{formatDate(item.last_active_at)}</td>
-                        <td className="px-4 py-4">
-                          <Status value={item.risk_level} />
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          {canManage && (
-                            <button
-                              onClick={() => revokeSession(item.session_id)}
-                              className="text-sm text-red-600"
-                            >
-                              Revocar
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={rowOrder.orderedRows} label="Registros de administración">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left" {...rowOrder.sortHeading('sessionName', 'Usuario y dispositivo')} />
+                          <th className="px-4 py-3 text-left font-medium">Ubicación</th>
+                          <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('sessionActivity', 'Última actividad')} />
+                          <th className="px-4 py-3 text-left font-medium">Riesgo</th>
+                          <th className="px-5 py-3 text-right font-medium">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.session_id}>
+                            <td className="px-5 py-4">
+                              <p className="font-medium">{item.full_name}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {item.device_name || 'Navegador web'} ·{' '}
+                                {[item.browser, item.os].filter(Boolean).join(' / ') || 'Sin detalle'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">
+                              <p>{item.location || 'No disponible'}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.ip_address || 'IP no registrada'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">{formatDate(item.last_active_at)}</td>
+                            <td className="px-4 py-4">
+                              <Status value={item.risk_level} />
+                            </td>
+                            <td className="px-5 py-4 text-right">
+                              {canManage && (
+                                <button
+                                  onClick={() => revokeSession(item.session_id)}
+                                  className="text-sm text-red-600"
+                                >
+                                  Revocar
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -1621,7 +1664,7 @@ export default function OrganizationAdvancedAdministration({
   if (section === 'certificados') {
     const currentTab = tab || 'certificates';
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="app-page-width space-y-5">
         <Header
           section={section}
           actions={
@@ -1658,48 +1701,52 @@ export default function OrganizationAdvancedAdministration({
           <section className="overflow-hidden rounded-lg border border-border bg-background">
             {rows.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-medium">Certificado</th>
-                      <th className="px-4 py-3 text-left font-medium">Custodia</th>
-                      <th className="px-4 py-3 text-left font-medium">Vigencia</th>
-                      <th className="px-4 py-3 text-left font-medium">Ambiente</th>
-                      <th className="px-5 py-3 text-left font-medium">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {rows.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-5 py-4">
-                          <p className="font-medium">{item.alias || item.subject_name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {item.subject_name} · {item.rfc || 'RFC no registrado'}
-                          </p>
-                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                            Serie {item.serial_number || '—'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p>{humanize(item.custody_type)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.provider_name || 'Sin proveedor'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p>{formatDate(item.valid_until, true)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Desde {formatDate(item.valid_from, true)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4 capitalize">{humanize(item.environment)}</td>
-                        <td className="px-5 py-4">
-                          <Status value={item.status} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={rowOrder.orderedRows} label="Registros de administración">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left" {...rowOrder.sortHeading('certificateName', 'Certificado')} />
+                          <th className="px-4 py-3 text-left font-medium">Custodia</th>
+                          <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('certificateExpiry', 'Vigencia')} />
+                          <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('certificateEnvironment', 'Ambiente')} />
+                          <th className="px-5 py-3 text-left font-medium">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-5 py-4">
+                              <p className="font-medium">{item.alias || item.subject_name}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {item.subject_name} · {item.rfc || 'RFC no registrado'}
+                              </p>
+                              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                                Serie {item.serial_number || '—'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">
+                              <p>{humanize(item.custody_type)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.provider_name || 'Sin proveedor'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">
+                              <p>{formatDate(item.valid_until, true)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Desde {formatDate(item.valid_from, true)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4 capitalize">{humanize(item.environment)}</td>
+                            <td className="px-5 py-4">
+                              <Status value={item.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -1923,7 +1970,7 @@ export default function OrganizationAdvancedAdministration({
       setModal(currentTab === 'api' ? 'api-key' : 'webhook');
     };
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="app-page-width space-y-5">
         <Header
           section={section}
           actions={
@@ -1986,59 +2033,63 @@ export default function OrganizationAdvancedAdministration({
           <section className="overflow-hidden rounded-lg border border-border bg-background">
             {extra.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-medium">Credencial</th>
-                      <th className="px-4 py-3 text-left font-medium">Alcances</th>
-                      <th className="px-4 py-3 text-left font-medium">Uso</th>
-                      <th className="px-4 py-3 text-left font-medium">Estado</th>
-                      <th className="px-5 py-3 text-right font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {extra.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-5 py-4">
-                          <p className="font-medium">{item.name}</p>
-                          <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                            {item.key_prefix}••••••••
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {humanize(item.environment)} · Creada {formatDate(item.created_at)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="text-xs text-muted-foreground">
-                            {(item.scopes || []).join(', ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">{formatDate(item.last_used_at)}</td>
-                        <td className="px-4 py-4">
-                          <Status value={item.status} />
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          {canManage && item.status === 'active' && (
-                            <div className="inline-flex gap-3">
-                              <button
-                                onClick={() => actOnSecret('api-key', item.id, 'rotate')}
-                                className="text-primary"
-                              >
-                                Rotar
-                              </button>
-                              <button
-                                onClick={() => actOnSecret('api-key', item.id, 'revoke')}
-                                className="text-red-600"
-                              >
-                                Revocar
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={detailOrder.orderedRows} label="Detalles del registro">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left" {...detailOrder.sortHeading('credential', 'Credencial')} />
+                          <th className="px-4 py-3 text-left font-medium">Alcances</th>
+                          <th className="px-4 py-3 text-left" {...detailOrder.sortHeading('lastUse', 'Uso', 'desc')} />
+                          <th className="px-4 py-3 text-left" {...detailOrder.sortHeading('credentialStatus', 'Estado')} />
+                          <th className="px-5 py-3 text-right font-medium">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-5 py-4">
+                              <p className="font-medium">{item.name}</p>
+                              <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                {item.key_prefix}••••••••
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {humanize(item.environment)} · Creada {formatDate(item.created_at)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className="text-xs text-muted-foreground">
+                                {(item.scopes || []).join(', ')}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">{formatDate(item.last_used_at)}</td>
+                            <td className="px-4 py-4">
+                              <Status value={item.status} />
+                            </td>
+                            <td className="px-5 py-4 text-right">
+                              {canManage && item.status === 'active' && (
+                                <div className="inline-flex gap-3">
+                                  <button
+                                    onClick={() => actOnSecret('api-key', item.id, 'rotate')}
+                                    className="text-primary"
+                                  >
+                                    Rotar
+                                  </button>
+                                  <button
+                                    onClick={() => actOnSecret('api-key', item.id, 'revoke')}
+                                    className="text-red-600"
+                                  >
+                                    Revocar
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -2143,32 +2194,36 @@ export default function OrganizationAdvancedAdministration({
           <section className="overflow-hidden rounded-lg border border-border bg-background">
             {(overview.deliveries || []).length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-medium">Evento</th>
-                      <th className="px-4 py-3 text-left font-medium">Intento</th>
-                      <th className="px-4 py-3 text-left font-medium">Respuesta</th>
-                      <th className="px-4 py-3 text-left font-medium">Fecha</th>
-                      <th className="px-5 py-3 text-left font-medium">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {overview.deliveries.map((item: Row) => (
-                      <tr key={item.id}>
-                        <td className="px-5 py-4">{item.event_type}</td>
-                        <td className="px-4 py-4">{item.attempt_number}</td>
-                        <td className="px-4 py-4">
-                          {item.response_status || item.error_code || '—'}
-                        </td>
-                        <td className="px-4 py-4">{formatDate(item.created_at)}</td>
-                        <td className="px-5 py-4">
-                          <Status value={item.status} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={historyOrder.orderedRows} label="Historial del registro">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left" {...historyOrder.sortHeading('deliveryEvent', 'Evento')} />
+                          <th className="px-4 py-3 text-left" {...historyOrder.sortHeading('deliveryAttempt', 'Intento')} />
+                          <th className="px-4 py-3 text-left font-medium">Respuesta</th>
+                          <th className="px-4 py-3 text-left" {...historyOrder.sortHeading('deliveryDate', 'Fecha')} />
+                          <th className="px-5 py-3 text-left font-medium">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-5 py-4">{item.event_type}</td>
+                            <td className="px-4 py-4">{item.attempt_number}</td>
+                            <td className="px-4 py-4">
+                              {item.response_status || item.error_code || '—'}
+                            </td>
+                            <td className="px-4 py-4">{formatDate(item.created_at)}</td>
+                            <td className="px-5 py-4">
+                              <Status value={item.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -2329,7 +2384,7 @@ export default function OrganizationAdvancedAdministration({
         branding_settings: { ...(current.branding_settings || {}), [key]: value },
       }));
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="app-page-width space-y-5">
         <Header
           section={section}
           actions={
@@ -2677,7 +2732,7 @@ export default function OrganizationAdvancedAdministration({
       return sum;
     }, {});
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="app-page-width space-y-5">
         <Header
           section={section}
           actions={
@@ -2798,49 +2853,53 @@ export default function OrganizationAdvancedAdministration({
           <section className="overflow-hidden rounded-lg border border-border bg-background">
             {extra.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-medium">Centro</th>
-                      <th className="px-4 py-3 text-left font-medium">Presupuesto</th>
-                      <th className="px-4 py-3 text-left font-medium">Alerta</th>
-                      <th className="px-5 py-3 text-left font-medium">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {extra.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-5 py-4">
-                          <p className="font-medium">
-                            {item.code} · {item.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.description || 'Sin descripción'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4">
-                          {item.budget
-                            ? new Intl.NumberFormat('es-MX', {
-                                style: 'currency',
-                                currency: item.currency || 'MXN',
-                              }).format(item.budget)
-                            : 'Sin límite'}
-                        </td>
-                        <td className="px-4 py-4">{item.alert_threshold_percent}%</td>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2">
-                            <Status value={item.status} />
-                            <OrganizationRecordActions
-                              resource="centers"
-                              id={item.id}
-                              onSaved={load}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={detailOrder.orderedRows} label="Detalles del registro">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left" {...detailOrder.sortHeading('costCenter', 'Centro')} />
+                          <th className="px-4 py-3 text-left font-medium">Presupuesto</th>
+                          <th className="px-4 py-3 text-left" {...detailOrder.sortHeading('alert', 'Alerta')} />
+                          <th className="px-5 py-3 text-left font-medium">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-5 py-4">
+                              <p className="font-medium">
+                                {item.code} · {item.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.description || 'Sin descripción'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4">
+                              {item.budget
+                                ? new Intl.NumberFormat('es-MX', {
+                                    style: 'currency',
+                                    currency: item.currency || 'MXN',
+                                  }).format(item.budget)
+                                : 'Sin límite'}
+                            </td>
+                            <td className="px-4 py-4">{item.alert_threshold_percent}%</td>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-2">
+                                <Status value={item.status} />
+                                <OrganizationRecordActions
+                                  resource="centers"
+                                  id={item.id}
+                                  onSaved={load}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -2861,31 +2920,35 @@ export default function OrganizationAdvancedAdministration({
             </div>
             {(overview.billing_history || []).length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="p-4 text-left">Fecha</th>
-                      <th className="p-4 text-left">Plan</th>
-                      <th className="p-4 text-left">Movimiento</th>
-                      <th className="p-4 text-right">Importe registrado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {overview.billing_history.map((entry: Row) => (
-                      <tr key={entry.id}>
-                        <td className="p-4">{formatDate(entry.created_at)}</td>
-                        <td className="p-4">{entry.plan_name}</td>
-                        <td className="p-4">{humanize(entry.event_type)}</td>
-                        <td className="p-4 text-right">
-                          {new Intl.NumberFormat('es-MX', {
-                            style: 'currency',
-                            currency: 'MXN',
-                          }).format(Number(entry.amount || 0))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={historyOrder.orderedRows} label="Historial del registro">
+                  {(pageRows) => (
+                    <table className="w-full text-sm">
+                      <thead className="workspace-table-heading bg-muted/50">
+                        <tr>
+                          <th className="p-4 text-left" {...historyOrder.sortHeading('billingDate', 'Fecha')} />
+                          <th className="p-4 text-left" {...historyOrder.sortHeading('billingPlan', 'Plan')} />
+                          <th className="p-4 text-left">Movimiento</th>
+                          <th className="p-4 text-right" {...historyOrder.sortHeading('billingAmount', 'Importe registrado')} />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pageRows.map((entry) => (
+                          <tr key={entry.id}>
+                            <td className="p-4">{formatDate(entry.created_at)}</td>
+                            <td className="p-4">{entry.plan_name}</td>
+                            <td className="p-4">{humanize(entry.event_type)}</td>
+                            <td className="p-4 text-right">
+                              {new Intl.NumberFormat('es-MX', {
+                                style: 'currency',
+                                currency: 'MXN',
+                              }).format(Number(entry.amount || 0))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             ) : (
               <Empty
@@ -2979,23 +3042,8 @@ export default function OrganizationAdvancedAdministration({
     );
   }
 
-  const filteredAudit = rows.filter(
-    (item) =>
-      !auditQuery ||
-      [
-        item.summary,
-        item.event_type,
-        item.resource_type,
-        item.correlation_id,
-        item.actor_user_id,
-      ].some((value) =>
-        String(value || '')
-          .toLowerCase()
-          .includes(auditQuery.toLowerCase())
-      )
-  );
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="app-page-width space-y-5">
       <Header section="auditoria" />
       <Notice error={error} success={success} />
       <div className="flex gap-3">
@@ -3028,44 +3076,48 @@ export default function OrganizationAdvancedAdministration({
         <section className="overflow-hidden rounded-lg border border-border bg-background">
           {filteredAudit.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="px-5 py-3 text-left font-medium">Fecha y actor</th>
-                    <th className="px-4 py-3 text-left font-medium">Acción</th>
-                    <th className="px-4 py-3 text-left font-medium">Recurso</th>
-                    <th className="px-4 py-3 text-left font-medium">Resultado</th>
-                    <th className="px-5 py-3 text-left font-medium">Correlation ID</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredAudit.map((item) => (
-                    <tr
-                      key={item.id}
-                      onClick={() => setSelectedAudit(item)}
-                      className="cursor-pointer hover:bg-muted/40"
-                    >
-                      <td className="px-5 py-4">
-                        <p>{formatDate(item.occurred_at)}</p>
-                        <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                          {String(item.actor_user_id || 'system').slice(0, 12)}
-                        </p>
-                      </td>
-                      <td className="px-4 py-4">
-                        <p className="font-medium">{item.summary}</p>
-                        <p className="text-xs text-muted-foreground">{item.event_type}</p>
-                      </td>
-                      <td className="px-4 py-4">{item.resource_type}</td>
-                      <td className="px-4 py-4">
-                        <Status value={item.outcome} />
-                      </td>
-                      <td className="px-5 py-4 font-mono text-xs text-muted-foreground">
-                        {String(item.correlation_id || '').slice(0, 18)}…
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <PaginatedTableScrollArea items={rowOrder.orderedRows} label="Registros de administración">
+                {(pageRows) => (
+                  <table className="w-full text-sm">
+                    <thead className="workspace-table-heading bg-muted/50">
+                      <tr>
+                        <th className="px-5 py-3 text-left" {...rowOrder.sortHeading('auditDate', 'Fecha y actor')} />
+                        <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('auditAction', 'Acción')} />
+                        <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('auditResource', 'Recurso')} />
+                        <th className="px-4 py-3 text-left" {...rowOrder.sortHeading('auditOutcome', 'Resultado')} />
+                        <th className="px-5 py-3 text-left font-medium">Correlation ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {pageRows.map((item) => (
+                        <tr
+                          key={item.id}
+                          onClick={() => setSelectedAudit(item)}
+                          className="cursor-pointer hover:bg-muted/40"
+                        >
+                          <td className="px-5 py-4">
+                            <p>{formatDate(item.occurred_at)}</p>
+                            <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                              {String(item.actor_user_id || 'system').slice(0, 12)}
+                            </p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <p className="font-medium">{item.summary}</p>
+                            <p className="text-xs text-muted-foreground">{item.event_type}</p>
+                          </td>
+                          <td className="px-4 py-4">{item.resource_type}</td>
+                          <td className="px-4 py-4">
+                            <Status value={item.outcome} />
+                          </td>
+                          <td className="px-5 py-4 font-mono text-xs text-muted-foreground">
+                            {String(item.correlation_id || '').slice(0, 18)}…
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTableScrollArea>
             </div>
           ) : (
             <Empty

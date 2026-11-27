@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CUSTOM_FILTER_ICON_OPTIONS } from '@/lib/filters/custom-filter-icons';
 import { caseCategories } from '@/lib/case-files/category-catalog';
+import { caseOrderOptions } from '@/lib/case-files/consultation-order';
 import { CASE_STATUS_META } from '@/lib/case-files/schema';
 import {
   CASE_FILTER_CRITERIA,
@@ -205,11 +206,7 @@ export default function CaseFilterEditor({
           { id: 'true', name: 'Solo envíos programados' },
         ];
       case 'sort':
-        return [
-          { id: 'recent', name: 'Más recientes' },
-          { id: 'oldest', name: 'Más antiguos' },
-          { id: 'name', name: 'Nombre A–Z' },
-        ];
+        return [...caseOrderOptions];
       default:
         return [];
     }

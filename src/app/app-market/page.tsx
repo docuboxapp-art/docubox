@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -338,11 +339,7 @@ export default function AppMarketPage() {
                 </p>
               </div>
 
-              {moduleNotice && (
-                <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-                  {moduleNotice}
-                </p>
-              )}
+              {moduleNotice && <BottomNotice message={moduleNotice} onClose={() => setModuleNotice('')} />}
 
               {activeModules.length > 0 ? (
                 <div className="mt-4 divide-y divide-slate-200 border-t border-slate-200 dark:divide-border dark:border-border">

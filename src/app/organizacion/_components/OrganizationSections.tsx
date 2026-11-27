@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { deferRead } from '@/lib/client/defer-read';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -32,6 +33,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 
 export type SectionKey =
   | 'perfil'
@@ -50,6 +53,10 @@ export type SectionKey =
   | 'auditoria';
 
 type Row = Record<string, any>;
+
+function memberProfile(member: Row) {
+  return Array.isArray(member.user_profiles) ? member.user_profiles[0] : member.user_profiles;
+}
 type Icon = typeof Building2;
 
 const meta: Record<SectionKey, { title: string; description: string; icon: Icon }> = {
@@ -249,6 +256,19 @@ export default function OrganizationSections({ section }: { section: SectionKey 
   const [inviteMessage, setInviteMessage] = useState('');
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
+  const memberOrder = useTableOrdering(section === 'miembros' ? rows : [], {
+    person: (member) => {
+      const profile = memberProfile(member);
+      return profile?.full_name || profile?.email;
+    },
+    role: (member) => member.role,
+    status: (member) => member.status,
+  });
+  const auditOrder = useTableOrdering(section === 'auditoria' ? rows : [], {
+    event: (item) => item.summary,
+    resource: (item) => item.resource_type,
+    date: (item) => tableDate(item.occurred_at),
+  });
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -593,7 +613,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
 
   if (section === 'perfil')
     return (
-      <form onSubmit={saveProfile} className="max-w-[1200px] mx-auto space-y-5">
+      <form onSubmit={saveProfile} className="app-page-width space-y-5">
         <Header section={section}>
           {canManage && (
             <button
@@ -653,7 +673,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
 
   if (section === 'miembros')
     return (
-      <div className="max-w-[1400px] mx-auto space-y-5">
+      <div className="app-page-width space-y-5">
         <Header section={section}>
           {canInvite && (
             <button
@@ -763,60 +783,62 @@ export default function OrganizationSections({ section }: { section: SectionKey 
             </div>
           ) : rows.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/60">
-                  <tr>
-                    <th className="text-left font-medium px-5 py-3">Persona</th>
-                    <th className="text-left font-medium px-4 py-3">Rol</th>
-                    <th className="text-left font-medium px-4 py-3">Estado</th>
-                    <th className="text-right font-medium px-5 py-3">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.map((member) => {
-                    const person = Array.isArray(member.user_profiles)
-                      ? member.user_profiles[0]
-                      : member.user_profiles;
-                    return (
-                      <tr key={member.id}>
-                        <td className="px-5 py-3.5">
-                          <Link
-                            href={`/organizacion/miembros/${member.id}`}
-                            className="font-medium hover:text-primary"
-                          >
-                            {person?.full_name || person?.email || 'Usuario'}
-                          </Link>
-                          <p className="text-xs text-muted-foreground mt-0.5">{person?.email}</p>
-                        </td>
-                        <td className="px-4 py-3.5 capitalize">{member.role}</td>
-                        <td className="px-4 py-3.5">
-                          <Status value={member.status} />
-                        </td>
-                        <td className="px-5 py-3.5 text-right">
-                          <div className="inline-flex gap-3">
-                            <Link
-                              href={`/organizacion/miembros/${member.id}`}
-                              className="text-primary"
-                            >
-                              Administrar
-                            </Link>
-                            {member.role !== 'owner' &&
-                              canOffboardMembers &&
-                              member.status !== 'offboarded' && (
-                                <Link
-                                  href={`/organizacion/continuidad?member=${member.id}`}
-                                  className="text-red-600"
-                                >
-                                  Dar de baja
-                                </Link>
-                              )}
-                          </div>
-                        </td>
+              <PaginatedTableScrollArea items={memberOrder.orderedRows} label="Miembros de la organización">
+                {(pageRows) => (
+                  <table className="w-full text-sm">
+                    <thead className="workspace-table-heading">
+                      <tr>
+                        <th className="text-left px-5 py-3" {...memberOrder.sortHeading('person', 'Persona')} />
+                        <th className="text-left px-4 py-3" {...memberOrder.sortHeading('role', 'Rol')} />
+                        <th className="text-left px-4 py-3" {...memberOrder.sortHeading('status', 'Estado')} />
+                        <th className="text-right font-medium px-5 py-3">Acciones</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {pageRows.map((member) => {
+                        const person = memberProfile(member);
+                        return (
+                          <tr key={member.id}>
+                            <td className="px-5 py-3.5">
+                              <Link
+                                href={`/organizacion/miembros/${member.id}`}
+                                className="font-medium hover:text-primary"
+                              >
+                                {person?.full_name || person?.email || 'Usuario'}
+                              </Link>
+                              <p className="text-xs text-muted-foreground mt-0.5">{person?.email}</p>
+                            </td>
+                            <td className="px-4 py-3.5 capitalize">{member.role}</td>
+                            <td className="px-4 py-3.5">
+                              <Status value={member.status} />
+                            </td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="inline-flex gap-3">
+                                <Link
+                                  href={`/organizacion/miembros/${member.id}`}
+                                  className="text-primary"
+                                >
+                                  Administrar
+                                </Link>
+                                {member.role !== 'owner' &&
+                                  canOffboardMembers &&
+                                  member.status !== 'offboarded' && (
+                                    <Link
+                                      href={`/organizacion/continuidad?member=${member.id}`}
+                                      className="text-red-600"
+                                    >
+                                      Dar de baja
+                                    </Link>
+                                  )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTableScrollArea>
             </div>
           ) : (
             <Empty
@@ -889,7 +911,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
       return groups;
     }, {});
     return (
-      <div className="max-w-[1400px] mx-auto space-y-5">
+      <div className="app-page-width space-y-5">
         <Header section={section}>
           {canManage && (
             <button
@@ -1163,7 +1185,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
       ? record.subscription_plans[0]
       : record.subscription_plans;
     return (
-      <div className="max-w-[1200px] mx-auto space-y-5">
+      <div className="app-page-width space-y-5">
         <Header section={section} />
         {notices}
         <section className="grid sm:grid-cols-3 bg-background border border-border rounded-lg overflow-hidden divide-y sm:divide-y-0 sm:divide-x divide-border">
@@ -1209,7 +1231,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
 
   if (section === 'auditoria')
     return (
-      <div className="max-w-[1400px] mx-auto space-y-5">
+      <div className="app-page-width space-y-5">
         <Header section={section} />
         {notices}
         <section className="bg-background border border-border rounded-lg overflow-hidden">
@@ -1219,29 +1241,33 @@ export default function OrganizationSections({ section }: { section: SectionKey 
             </div>
           ) : rows.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/60">
-                  <tr>
-                    <th className="px-5 py-3 text-left font-medium">Evento</th>
-                    <th className="px-4 py-3 text-left font-medium">Recurso</th>
-                    <th className="px-4 py-3 text-left font-medium">Fecha</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-5 py-3.5">
-                        <p className="font-medium">{item.summary}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.event_type}</p>
-                      </td>
-                      <td className="px-4 py-3.5">{item.resource_type}</td>
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {formatDate(item.occurred_at)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <PaginatedTableScrollArea items={auditOrder.orderedRows} label="Auditoría de la organización">
+                {(pageRows) => (
+                  <table className="w-full text-sm">
+                    <thead className="workspace-table-heading">
+                      <tr>
+                        <th className="px-5 py-3 text-left" {...auditOrder.sortHeading('event', 'Evento')} />
+                        <th className="px-4 py-3 text-left" {...auditOrder.sortHeading('resource', 'Recurso')} />
+                        <th className="px-4 py-3 text-left" {...auditOrder.sortHeading('date', 'Fecha')} />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {pageRows.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-5 py-3.5">
+                            <p className="font-medium">{item.summary}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{item.event_type}</p>
+                          </td>
+                          <td className="px-4 py-3.5">{item.resource_type}</td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {formatDate(item.occurred_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTableScrollArea>
             </div>
           ) : (
             <Empty
@@ -1257,7 +1283,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
   if (section === 'integraciones' || section === 'certificados') {
     const integrations = section === 'integraciones';
     return (
-      <div className="max-w-[1200px] mx-auto space-y-5">
+      <div className="app-page-width space-y-5">
         <Header section={section} />
         {notices}
         <section className="bg-background border border-border rounded-lg overflow-hidden">
@@ -1303,7 +1329,7 @@ export default function OrganizationSections({ section }: { section: SectionKey 
   const config = resources[section];
   const sectionMeta = meta[section];
   return (
-    <div className="max-w-[1300px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header section={section}>
         {canManage && config && (
           <button

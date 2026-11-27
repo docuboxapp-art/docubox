@@ -1,4 +1,5 @@
 'use client';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle2,
@@ -274,22 +275,8 @@ export function CaseControlPanel({
           </div>
         </section>
       )}
-      {error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-        >
-          {error}
-        </div>
-      )}
-      {notice && (
-        <p
-          role="status"
-          className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800"
-        >
-          {notice}
-        </p>
-      )}
+      {error && <BottomNotice message={error} tone="critical" onClose={() => setError('')} />}
+      {notice && <BottomNotice message={notice} tone="success" onClose={() => setNotice('')} />}
       {show('resumen', 'cierre') && (
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <section className={panel}>

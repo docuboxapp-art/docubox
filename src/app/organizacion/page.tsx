@@ -152,7 +152,7 @@ export default function OrganizationDashboardPage() {
   ].filter((item) => canAccess(item.permission));
 
   return (
-    <div className="organization-dashboard max-w-[1500px] mx-auto" aria-busy={loading}>
+    <div className="organization-dashboard app-page-width" aria-busy={loading}>
       <div className="organization-dashboard-heading">
         <div>
           <h2>Panel de administración</h2>

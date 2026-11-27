@@ -10,6 +10,14 @@ import {
 import { sha256Hex } from '@/lib/certification/canonical';
 import { participationTermsText, type ParticipationRole } from '@/lib/signing/participation-terms';
 import {
+  SIGNING_METHOD_LABELS,
+  getAvailableSigningMethods,
+  getConfiguredSigningMethods,
+  isSignaturePosition,
+  isSigningMethod,
+  type SigningMethod,
+} from '@/lib/signatures/signing-options';
+import {
   assertCaseDocumentSigningReady,
   refreshCasesForDocument,
   CaseRuntimeError,
@@ -28,7 +36,7 @@ type CompletionBody = {
   participantRecordId?: string;
   participantReferenceId?: string;
   actionType?: 'signature' | 'approval' | 'witness';
-  signatureMethod?: 'autografa' | 'efirma' | 'clicksign' | null;
+  signatureMethod?: SigningMethod | null;
   idempotencyKey?: string;
   attemptId?: string;
   evidenceId?: string | null;
@@ -171,11 +179,23 @@ export async function POST(request: NextRequest) {
     const correlationId = request.headers.get('x-request-id');
     const priorCompletion = await service
       .from('participant_completion_attempts')
-      .select('id,status,action_type,actor_user_id,effective_actor_user_id')
+      .select('id,status,action_type,actor_user_id,effective_actor_user_id,signature_method')
       .eq('document_id', documentId)
       .eq('idempotency_key', idempotencyKey)
       .maybeSingle();
     if (priorCompletion.error) throw priorCompletion.error;
+    const participant = Array.isArray(document.participantes)
+      ? document.participantes.find((candidate: Record<string, unknown>) => {
+          const candidateIds = [candidate.id, candidate.user_id].map(normalized).filter(Boolean);
+          return (
+            [reference.participant_json_id, reference.participant_user_id]
+              .map(normalized)
+              .some((id) => candidateIds.includes(id)) ||
+            Boolean(reference.participant_email_normalized &&
+              normalized(candidate.email) === reference.participant_email_normalized)
+          );
+        })
+      : null;
     if (
       !(
         priorCompletion.data?.status === 'committed' &&
@@ -189,6 +209,19 @@ export async function POST(request: NextRequest) {
       if (!['signature', 'approval', 'witness'].includes(String(body.actionType || ''))) {
         return NextResponse.json(
           { error: 'Tipo de participación inválido.', code: 'COMPLETION_ACTION_INVALID' },
+          { status: 422, headers }
+        );
+      }
+      const availableMethods = document.source_form_response_id
+        ? getConfiguredSigningMethods(participant)
+        : getAvailableSigningMethods(participant);
+      if (
+        body.actionType === 'signature' &&
+        (!isSigningMethod(body.signatureMethod) ||
+          !availableMethods.includes(body.signatureMethod))
+      ) {
+        return NextResponse.json(
+          { error: 'El método de firma no está habilitado para esta participación.', code: 'SIGNATURE_METHOD_NOT_ALLOWED' },
           { status: 422, headers }
         );
       }
@@ -223,15 +256,6 @@ export async function POST(request: NextRequest) {
           { status: 422, headers }
         );
       }
-      const participant = Array.isArray(document.participantes)
-        ? document.participantes.find((candidate: Record<string, unknown>) => {
-            const candidateIds = [candidate.id, candidate.user_id].filter(Boolean).map(String);
-            return [reference.participant_json_id, reference.participant_user_id, user.id]
-              .filter(Boolean)
-              .map(String)
-              .some((id) => candidateIds.includes(id));
-          })
-        : null;
       const rawRole = normalized(participant?.role || participant?.acto);
       const role: ParticipationRole =
         rawRole === 'aprobador' || rawRole === 'testigo' || rawRole === 'observador'
@@ -246,10 +270,20 @@ export async function POST(request: NextRequest) {
         clientMetadata && typeof clientMetadata === 'object' && !Array.isArray(clientMetadata)
           ? (clientMetadata as Record<string, unknown>)
           : {};
+      const claimedMethod = priorCompletion.data?.id === attemptId
+        ? priorCompletion.data.signature_method
+        : null;
+      const signatureMethod = isSigningMethod(claimedMethod) ? claimedMethod : null;
       const committedResponse = {
         ...body.response,
+        signature_method: signatureMethod,
         signature_metadata: {
           ...metadata,
+          signature_method_label: signatureMethod ? SIGNING_METHOD_LABELS[signatureMethod] : null,
+          signature_positions: signatureMethod && Array.isArray(metadata.signature_positions)
+            ? metadata.signature_positions.filter(isSignaturePosition).slice(0, 50)
+              .map(({ page, x, y, width, height }) => ({ page, x, y, width, height }))
+            : [],
           consent_text: termsText,
           consent_version: termsVersion,
           participation_terms_sha256: sha256Hex(termsText.normalize('NFC')),

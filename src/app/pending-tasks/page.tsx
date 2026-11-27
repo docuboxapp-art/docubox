@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import NewTaskWizard from './components/NewTaskWizard';
 import { fetchAllPages } from '@/lib/tasks/pagination';
+import { compareListDates } from '@/lib/workspaces/list-order';
 import { completionMode } from '@/lib/tasks/completion-policy';
 import { dueCalendarLabel, isScheduledForLater, toLocalDateTimeInput } from '@/lib/tasks/schedule';
 import { resourceStatusLabel } from '@/lib/tasks/resource-labels';
@@ -25,6 +26,7 @@ type TaskType =
   | 'responder_formulario' | 'seguimiento_formulario' | 'revisar_expediente';
 
 type Priority = 'critica' | 'alta' | 'media' | 'baja';
+const priorityRank: Record<Priority, number> = { critica: 0, alta: 1, media: 2, baja: 3 };
 type ViewMode = 'lista' | 'kanban' | 'calendario' | 'documento';
 
 interface ChecklistItem { id: string; text: string; done: boolean; position?: number; }
@@ -1393,11 +1395,14 @@ export default function PendingTasksPage() {
     if (typeScope !== 'all' && task.type !== typeScope) return false;
     if (!matchesQuickTaskFilters(task, { owner: ownerScope, attention: attentionScope, origin: originScope, userId: user?.id ?? null, now })) return false;
     return true;
-  }).sort((a, b) => sortMode === 'recent'
-    ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    : sortMode === 'priority'
-      ? ['critica','alta','media','baja'].indexOf(a.priority) - ['critica','alta','media','baja'].indexOf(b.priority)
-      : (a.dueDate ? new Date(a.dueDate).getTime() : Infinity) - (b.dueDate ? new Date(b.dueDate).getTime() : Infinity));
+  }).sort((a, b) => {
+    const bySelection = sortMode === 'priority'
+      ? priorityRank[a.priority] - priorityRank[b.priority]
+      : sortMode === 'due'
+        ? compareListDates(a.dueDate, b.dueDate, 'asc')
+        : 0;
+    return bySelection || compareListDates(a.createdAt, b.createdAt, 'desc') || b.id.localeCompare(a.id);
+  });
   const hasAppliedFilters = Boolean(search.trim() || statusScope !== 'active' || kindScope !== 'all' || typeScope !== 'all' || ownerScope !== 'all' || attentionScope !== 'all' || originScope !== 'all');
   const resetFilters = () => {
     setSearch(''); setStatusScope('active'); setKindScope('all'); setTypeScope('all'); setOwnerScope('all'); setAttentionScope('all'); setOriginScope('all');
@@ -1412,8 +1417,8 @@ export default function PendingTasksPage() {
 
   return (
     <AppLayout noPadding>
-      <div className="-mx-4 -my-4 min-h-[calc(100vh-4rem)] bg-[#f6f8fb] px-4 py-4 sm:px-5 md:-my-6 md:py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[1600px]">
+      <div className="app-page-bleed app-page-frame bg-[#f6f8fb]">
+        <div className="app-page-width">
 
         {/* Page Header */}
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
@@ -1507,7 +1512,7 @@ export default function PendingTasksPage() {
             <span className="mr-1 text-xs font-medium text-slate-500">Responsabilidad</span>
             {OWNER_FILTERS.map(filter => (
               <button key={filter.id} type="button" onClick={() => setOwnerScope(filter.id)} aria-pressed={ownerScope === filter.id}
-                className={`inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium transition-colors ${ownerScope === filter.id ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'}`}>
+                className={`workspace-filter-pill workspace-filter-trigger inline-flex h-8 items-center rounded-md border px-3 transition-colors ${ownerScope === filter.id ? 'border-primary bg-primary/10' : 'border-slate-200 bg-white hover:border-primary/40'}`}>
                 {filter.label}
               </button>
             ))}
@@ -1516,7 +1521,7 @@ export default function PendingTasksPage() {
             <span className="mr-1 text-xs font-medium text-slate-500">Atención</span>
             {ATTENTION_FILTERS.map(filter => (
               <button key={filter.id} type="button" onClick={() => { setAttentionScope(filter.id); if (filter.id !== 'all') setStatusScope('active'); }} aria-pressed={attentionScope === filter.id}
-                className={`inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium transition-colors ${attentionScope === filter.id ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'}`}>
+                className={`workspace-filter-pill workspace-filter-trigger inline-flex h-8 items-center rounded-md border px-3 transition-colors ${attentionScope === filter.id ? 'border-primary bg-primary/10' : 'border-slate-200 bg-white hover:border-primary/40'}`}>
                 {filter.label}
               </button>
             ))}

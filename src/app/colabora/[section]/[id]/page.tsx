@@ -551,7 +551,7 @@ export default function ColaboraDetailPage() {
   );
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
+    <div className="app-page-width space-y-5">
       {reasonModal}
       <div>
         <Link

@@ -5,6 +5,7 @@ import test from 'node:test';
 const helperPath = new URL('../src/lib/documents/viewer-select.ts', import.meta.url);
 const viewerPath = new URL('../src/app/visor-documento/[id]/page.tsx', import.meta.url);
 const routePath = new URL('../src/app/api/documentos/obtener/route.ts', import.meta.url);
+const catalogPath = new URL('../src/lib/catalog/document-reads.ts', import.meta.url);
 
 test('the document viewer retries without optional custody columns', async () => {
   const [helper, viewer, route] = await Promise.all([
@@ -35,16 +36,27 @@ test('the document API only reports not found when no row exists', async () => {
 });
 
 test('viewer details use persisted document fields and resolve supplemental data after access checks', async () => {
-  const [helper, route] = await Promise.all([
+  const [helper, route, catalog] = await Promise.all([
     readFile(helperPath, 'utf8'),
     readFile(routePath, 'utf8'),
+    readFile(catalogPath, 'utf8'),
   ]);
 
-  for (const field of ['descripcion', 'etiquetas_ids', 'participation_order', 'recordatorio_frecuencia']) {
+  for (const field of [
+    'descripcion',
+    'etiquetas_ids',
+    'participation_order',
+    'recordatorio_frecuencia',
+  ]) {
     assert.match(helper, new RegExp(`DOCUMENT_VIEWER_SELECT[\\s\\S]*${field}`));
   }
   assert.ok(route.indexOf('Sin acceso') < route.indexOf("includeDetails') === '1'"));
   assert.match(route, /from\('document_versions'\)/);
   assert.match(route, /from\('workspaces'\)/);
-  assert.match(route, /from\('etiquetas'\)/);
+  assert.match(
+    route,
+    /readDocumentTags\(supabaseAdmin, \{ ownerId: doc\.owner_id, tagIds: doc\.etiquetas_ids \}\)/
+  );
+  assert.match(catalog, /from\('etiquetas'\)/);
+  assert.match(catalog, /catalog_owner_id\.is\.null,catalog_owner_id\.eq\.\$\{document\.ownerId\}/);
 });

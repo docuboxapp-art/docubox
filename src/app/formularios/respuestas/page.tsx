@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { canViewFormResponses } from '@/lib/forms/publication-policy';
 import { createClient } from '@/lib/supabase/client';
 
 type ResponseRow = {
@@ -160,7 +161,7 @@ function ResponsesContent() {
       if (
         formResult.error ||
         !formResult.data ||
-        !['published', 'paused'].includes(formResult.data.status)
+        !canViewFormResponses(formResult.data.status)
       ) {
         setUnavailable(true);
         setLoading(false);
@@ -185,7 +186,8 @@ function ResponsesContent() {
           'id,response_data,submitted_at,status,respondent_name,respondent_email,document_id,folio,form_tokens(recipient_name,recipient_email)'
         )
         .eq('template_id', formId)
-        .order('submitted_at', { ascending: false });
+        .order('submitted_at', { ascending: false, nullsFirst: false })
+        .order('id');
       if (cancelled) return;
       if (responseResult.error) {
         setLoadError(

@@ -1,12 +1,11 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Archive,
-  ArrowUpDown,
   BarChart3,
   CheckCircle2,
   ChevronDown,
@@ -16,13 +15,11 @@ import {
   Eye,
   Edit3,
   FolderKanban,
-  ListFilter,
   Loader2,
   MoreHorizontal,
   Play,
   Plus,
   RotateCcw,
-  Search,
   Send,
   Star,
   X,
@@ -31,9 +28,26 @@ import {
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { caseRequest } from '@/lib/case-files/runtime-client';
+import WorkspaceTableToolbar, { tableFilter } from '@/components/WorkspaceTableToolbar';
+import { catalogDateOptions, catalogFavoriteOptions, catalogOptions, matchesCatalogDate, matchesCatalogFavorite, toggleCatalogFilter } from '@/lib/workspaces/catalog-filters';
+import WorkspaceTableToolbarSelect from '@/components/WorkspaceTableToolbarSelect';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
+import ResizableTableHeader from '@/components/workspaces/ResizableTableHeader';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import { orderedTableCells } from '@/components/workspaces/useColumnReorder';
+import { useTableColumnLayout } from '@/components/workspaces/useTableColumnLayout';
+import {
+  compareCatalogRows,
+  compareListDates,
+  getTableSortDirection,
+  tableAriaSort,
+  type CatalogSort,
+  type ListDirection,
+} from '@/lib/workspaces/list-order';
 import { type CaseFileSummary } from '@/lib/case-files/schema';
 import { parseStoredCaseTemplate, toCaseTemplate, type StoredCaseTemplate } from '@/lib/case-files/template-builder';
 import {
@@ -45,10 +59,28 @@ import {
 } from './components/CaseUI';
 import CaseTemplatePreview from './components/CaseTemplatePreview';
 
+const caseTypeSortValues = {
+  type: (row: { type: string }) => row.type,
+  requirements: (row: { requirementCount: number }) => row.requirementCount,
+  completed: (row: { completed: number }) => row.completed,
+};
+type CaseTypeSort = 'recent' | 'oldest' | CatalogSort | `${keyof typeof caseTypeSortValues}_${ListDirection}`;
+const caseTypeColumns = [
+  { id: 'name', label: 'Expediente', width: 'w-[20%]', order: ['name_asc', 'name_desc', 'asc'] },
+  { id: 'type', label: 'Tipo de expediente', width: 'w-[12%]', order: ['type_asc', 'type_desc', 'asc'] },
+  { id: 'description', label: 'Descripción', width: 'w-[23%]', order: null },
+  { id: 'requirements', label: 'Requisitos', width: 'w-[9%]', order: ['requirements_asc', 'requirements_desc', 'desc'] },
+  { id: 'completed', label: 'Completados', width: 'w-[11%]', order: ['completed_asc', 'completed_desc', 'desc'] },
+  { id: 'updated', label: 'Última actividad', width: 'w-[12%]', order: ['oldest', 'recent', 'desc'] },
+] as const;
+
 export default function ExpedientesPage() {
   const router = useRouter();
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
+  const tableLayout = useTableColumnLayout(caseTypeColumns, {
+    table: 'tipos-expediente', userId: user?.id, workspaceId: activeWorkspace?.id, primaryId: 'name',
+  });
   const [items, setItems] = useState<CaseFileSummary[]>([]);
   const [savedTemplates, setSavedTemplates] = useState<StoredCaseTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,11 +98,16 @@ export default function ExpedientesPage() {
   const [responsesLoading, setResponsesLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [activityFilter, setActivityFilter] = useState<
-    'all' | 'with_cases' | 'completed' | 'without_cases' | 'favorites'
+    'all' | 'with_cases' | 'completed' | 'without_cases'
   >('all');
   const [typeStatusFilter, setTypeStatusFilter] = useState<
     'available' | 'all' | 'active' | 'draft' | 'paused' | 'archived'
   >('available');
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [subtypeFilter, setSubtypeFilter] = useState<string[]>([]);
+  const [requirementsFilter, setRequirementsFilter] = useState('all');
+  const [favoriteFilter, setFavoriteFilter] = useState('all');
+  const [activityDateFilter, setActivityDateFilter] = useState('all');
   const [typeStatusBusyId, setTypeStatusBusyId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<StoredCaseTemplate | null>(null);
   const [archiveError, setArchiveError] = useState('');
@@ -78,9 +115,7 @@ export default function ExpedientesPage() {
   const [favoritesReady, setFavoritesReady] = useState(false);
   const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState('');
-  const [sortMode, setSortMode] = useState<'recent' | 'oldest' | 'name_asc' | 'name_desc'>(
-    'recent'
-  );
+  const [sortMode, setSortMode] = useState<CaseTypeSort>('recent');
   const [openedType, setOpenedType] = useState<string | null>(null);
   const [dialogStatus, setDialogStatus] = useState<'all' | 'sealed'>('all');
   const [caseListMode, setCaseListMode] = useState<'view' | 'edit'>('view');
@@ -152,15 +187,22 @@ export default function ExpedientesPage() {
     const load = async () => {
       setLoading(true);
       const supabase = createClient();
-      const [{ data, error }, { data: templateData, error: templateError }] = await Promise.all([supabase
-        .from('case_files')
-        .select('*')
-        .eq('workspace_id', activeWorkspace.id)
-        .order('updated_at', { ascending: false }), supabase
-        .from('case_file_templates')
-        .select('id,name,description,case_type,case_subtype,requirements_schema,status,archived_from_status')
-        .eq('workspace_id', activeWorkspace.id)
-        .order('updated_at', { ascending: false })]);
+      const [{ data, error }, { data: templateData, error: templateError }] = await Promise.all([
+        supabase
+          .from('case_files')
+          .select('*')
+          .eq('workspace_id', activeWorkspace.id)
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .order('id'),
+        supabase
+          .from('case_file_templates')
+          .select(
+            'id,name,description,case_type,case_subtype,requirements_schema,status,archived_from_status,updated_at'
+          )
+          .eq('workspace_id', activeWorkspace.id)
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .order('id'),
+      ]);
       if (cancelled) return;
       setSavedTemplates(templateError ? [] : (templateData || []) as StoredCaseTemplate[]);
       if (error) {
@@ -244,7 +286,10 @@ export default function ExpedientesPage() {
     const related = items.filter((item) => item.templateId === template.id);
     return {
       ...template,
+      category: savedTemplateById.get(template.id)?.case_type || 'Sin categoría',
+      subtype: savedTemplateById.get(template.id)?.case_subtype || 'Sin tipo',
       status: savedTemplateById.get(template.id)?.status ?? 'active',
+      updated_at: savedTemplateById.get(template.id)?.updated_at,
       requirementCount: savedRequirementCounts.get(template.id) ?? template.requirements.length,
       total: related.length,
       editable: related.filter((item) => !['sealed', 'cancelled'].includes(item.status)).length,
@@ -255,6 +300,7 @@ export default function ExpedientesPage() {
       ),
     };
   });
+  const now = Date.now();
   const filteredTypes = typeRows
     .filter((template) => {
       const matchesQuery = `${template.name} ${template.type} ${template.description}`
@@ -264,18 +310,60 @@ export default function ExpedientesPage() {
         activityFilter === 'all' ||
         (activityFilter === 'with_cases' && template.total > 0) ||
         (activityFilter === 'completed' && template.completed > 0) ||
-        (activityFilter === 'without_cases' && template.total === 0) ||
-        (activityFilter === 'favorites' && favoriteIds.has(template.id));
+        (activityFilter === 'without_cases' && template.total === 0);
       const matchesStatus = typeStatusFilter === 'all' ||
         (typeStatusFilter === 'available' ? template.status !== 'archived' : template.status === typeStatusFilter);
-      return matchesQuery && matchesActivity && matchesStatus;
+      return matchesQuery && matchesActivity && matchesStatus &&
+        (!categoryFilter.length || categoryFilter.includes(template.category)) &&
+        (!subtypeFilter.length || subtypeFilter.includes(template.subtype)) &&
+        matchesCatalogFavorite(favoriteIds.has(template.id), favoriteFilter) &&
+        (requirementsFilter === 'all' || (template.requirementCount > 0) === (requirementsFilter === 'yes')) &&
+        matchesCatalogDate(template.lastActivity, activityDateFilter, now);
     })
     .sort((left, right) => {
-      if (sortMode === 'name_asc') return left.name.localeCompare(right.name, 'es-MX');
-      if (sortMode === 'name_desc') return right.name.localeCompare(left.name, 'es-MX');
-      const difference = (left.lastActivity || '').localeCompare(right.lastActivity || '');
-      return sortMode === 'oldest' ? difference : -difference;
+      if (sortMode !== 'recent' && sortMode !== 'oldest') {
+        return compareCatalogRows(left, right, sortMode, (type) => type.name, caseTypeSortValues);
+      }
+      const oldest = sortMode === 'oldest';
+      return (
+        compareListDates(left.lastActivity, right.lastActivity, oldest ? 'asc' : 'desc') ||
+        compareCatalogRows(left, right, oldest ? 'updated_asc' : 'updated_desc', (type) => type.name)
+      );
     });
+  const pagination = useTablePagination(
+    filteredTypes.length,
+    JSON.stringify([query, activityFilter, typeStatusFilter, sortMode, categoryFilter, subtypeFilter, favoriteFilter, requirementsFilter, activityDateFilter])
+  );
+  const pageTypes = filteredTypes.slice(pagination.start, pagination.end);
+  const typeFilters = [
+    tableFilter('Estado', typeStatusFilter, [
+      { id: 'all', name: `Todos los estados (${typeRows.length})` },
+      { id: 'available', name: `Disponibles (${typeRows.filter((row) => row.status !== 'archived').length})` },
+      { id: 'active', name: `Activos (${typeRows.filter((row) => row.status === 'active').length})` },
+      { id: 'draft', name: `Borradores (${typeRows.filter((row) => row.status === 'draft').length})` },
+      { id: 'paused', name: `Pausados (${typeRows.filter((row) => row.status === 'paused').length})` },
+      { id: 'archived', name: `Archivados (${typeRows.filter((row) => row.status === 'archived').length})` },
+    ], setTypeStatusFilter, 'all'),
+    {
+      label: 'Categoría de expediente', value: categoryFilter, options: catalogOptions(typeRows.map((row) => row.category)),
+      change: (id: string) => setCategoryFilter((values) => toggleCatalogFilter(values, id)), clear: () => setCategoryFilter([]),
+    },
+    {
+      label: 'Tipo de expediente', value: subtypeFilter, options: catalogOptions(typeRows.map((row) => row.subtype)),
+      change: (id: string) => setSubtypeFilter((values) => toggleCatalogFilter(values, id)), clear: () => setSubtypeFilter([]),
+    },
+    tableFilter('Actividad', activityFilter, [
+      { id: 'all', name: `Todos (${typeRows.length})` },
+      { id: 'with_cases', name: `Con expedientes (${typeRows.filter((row) => row.total > 0).length})` },
+      { id: 'completed', name: `Con completados (${typeRows.filter((row) => row.completed > 0).length})` },
+      { id: 'without_cases', name: `Sin expedientes (${typeRows.filter((row) => row.total === 0).length})` },
+    ], setActivityFilter, 'all'),
+    tableFilter('Requisitos', requirementsFilter, [
+      { id: 'all', name: 'Todas las opciones' }, { id: 'yes', name: 'Con requisitos' }, { id: 'no', name: 'Sin requisitos' },
+    ], setRequirementsFilter, 'all'),
+    tableFilter('Favoritos', favoriteFilter, catalogFavoriteOptions, setFavoriteFilter, 'all'),
+    tableFilter('Última actividad', activityDateFilter, catalogDateOptions, setActivityDateFilter, 'all'),
+  ];
   const dialogCases = items.filter(
     (item) => item.templateId === openedType &&
       (caseListMode === 'edit' ? !['sealed', 'cancelled'].includes(item.status) :
@@ -567,12 +655,7 @@ export default function ExpedientesPage() {
             No se pudieron cargar los expedientes. Actualiza la página para intentarlo de nuevo.
           </div>
         )}
-        {actionNotice && (
-          <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            <span>{actionNotice}</span>
-            <button type="button" onClick={() => setActionNotice('')} aria-label="Cerrar aviso"><X size={14} /></button>
-          </div>
-        )}
+        {actionNotice && <BottomNotice message={actionNotice} onClose={() => setActionNotice('')} />}
 
         <div className="mb-3 mt-5 flex items-center gap-2">
           <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">
@@ -582,95 +665,34 @@ export default function ExpedientesPage() {
             {filteredTypes.length}
           </span>
         </div>
-        <section className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
-          <div className="flex flex-wrap items-center gap-2 p-3">
-            <div className="relative min-w-[180px] flex-1">
-              <Search
-                size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                }}
-                placeholder="Buscar expedientes..."
-                aria-label="Buscar tipos de expedientes"
-                className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm outline-none placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background"
-              />
-            </div>
-            <div className="relative w-full sm:w-56">
-              <ListFilter
-                size={14}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-              />
-              <select
-                value={activityFilter}
-                onChange={(event) => {
-                  setActivityFilter(event.target.value as typeof activityFilter);
-                }}
-                aria-label="Filtrar tipos de expedientes"
-                className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-              >
-                <option value="all">Todos ({typeRows.length})</option>
-                <option value="with_cases">
-                  Con expedientes ({typeRows.filter((row) => row.total > 0).length})
-                </option>
-                <option value="completed">
-                  Con completados ({typeRows.filter((row) => row.completed > 0).length})
-                </option>
-                <option value="without_cases">
-                  Sin expedientes ({typeRows.filter((row) => row.total === 0).length})
-                </option>
-                <option value="favorites">Favoritos ({typeRows.filter((row) => favoriteIds.has(row.id)).length})</option>
-              </select>
-              <ChevronDown
-                size={14}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-            </div>
-            <div className="relative w-full sm:w-44">
-              <select
-                value={typeStatusFilter}
-                onChange={(event) => setTypeStatusFilter(event.target.value as typeof typeStatusFilter)}
-                aria-label="Filtrar por estado del tipo de expediente"
-                className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white px-3 pr-9 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-              >
-                <option value="available">Disponibles ({typeRows.filter((row) => row.status !== 'archived').length})</option>
-                <option value="active">Activos ({typeRows.filter((row) => row.status === 'active').length})</option>
-                <option value="draft">Borradores ({typeRows.filter((row) => row.status === 'draft').length})</option>
-                <option value="paused">Pausados ({typeRows.filter((row) => row.status === 'paused').length})</option>
-                <option value="archived">Archivados ({typeRows.filter((row) => row.status === 'archived').length})</option>
-                <option value="all">Todos los estados ({typeRows.length})</option>
-              </select>
-              <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            </div>
-            <div className="relative min-w-[150px]">
-              <ArrowUpDown
-                size={14}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-              />
-              <select
-                value={sortMode}
-                onChange={(event) => {
-                  setSortMode(event.target.value as typeof sortMode);
-                }}
-                aria-label="Ordenar tipos de expedientes"
-                className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-8 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-              >
-                <option value="recent">Más recientes</option>
-                <option value="oldest">Más antiguos</option>
-                <option value="name_asc">Nombre A-Z</option>
-                <option value="name_desc">Nombre Z-A</option>
-              </select>
-              <ChevronDown
-                size={14}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-            </div>
-          </div>
-        </section>
+        <WorkspaceTableToolbar
+          label="Barra de tipos de expediente"
+          searchLabel="Buscar tipos de expediente"
+          query={query}
+          onQueryChange={setQuery}
+          controls={
+            <WorkspaceTableToolbarSelect
+              label="Ordenar tipos de expediente"
+              value={sortMode}
+              sortControl
+              options={[
+                { id: 'recent', name: 'Más recientes' },
+                { id: 'oldest', name: 'Más antiguos' },
+                { id: 'name_asc', name: 'Nombre A-Z' },
+                { id: 'name_desc', name: 'Nombre Z-A' },
+                { id: 'type_asc', name: 'Tipo A-Z' },
+                { id: 'type_desc', name: 'Tipo Z-A' },
+                { id: 'requirements_desc', name: 'Más requisitos' },
+                { id: 'requirements_asc', name: 'Menos requisitos' },
+                { id: 'completed_desc', name: 'Más completados' },
+                { id: 'completed_asc', name: 'Menos completados' },
+              ]}
+              onChange={(value) => setSortMode(value as CaseTypeSort)}
+            />
+          }
+          filterDefinitions={typeFilters}
+          onClearFilters={() => typeFilters.forEach((filter) => filter.clear())}
+        />
         <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
           {loading ? (
             <div className="flex min-h-64 items-center justify-center">
@@ -685,73 +707,103 @@ export default function ExpedientesPage() {
             />
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="responsive-data-table w-full min-w-[1220px] table-fixed text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/80 text-left dark:border-border dark:bg-muted/40">
-                      <Heading className="w-[20%]">Expediente</Heading>
-                      <Heading className="w-[11%]">Tipo de expediente</Heading>
-                      <Heading className="w-[23%]">Descripción</Heading>
-                      <Heading className="w-[9%]">Requisitos</Heading>
-                      <Heading className="w-[11%]">Completados</Heading>
-                      <Heading className="w-[11%]">Última actividad</Heading>
-                      <Heading className="w-[15%]" align="right">
-                        Acciones
-                      </Heading>
+              <TableScrollArea
+                label="Tabla de plantillas de expediente"
+                footer={<TablePagination {...pagination} />}
+              >
+                <table className="responsive-data-table workspace-actions-table w-full min-w-[1220px] text-sm">
+                  <thead className="workspace-table-heading">
+                    <tr>
+                      {tableLayout.columns.map((column) => {
+                        const { id, label, width, order } = column;
+                        const direction = order && getTableSortDirection(sortMode, order[0], order[1]);
+                        return (
+                          <ResizableTableHeader
+                            key={id}
+                            {...tableLayout.headerProps(column)}
+                            className={`${width} px-4 py-3 text-left`}
+                            ariaSort={tableAriaSort(direction || undefined)}
+                          >
+                            {order ? (
+                              <TableSortButton
+                                label={label}
+                                direction={direction || undefined}
+                                onSort={(next) => setSortMode(next === 'asc' ? order[0] : order[1])}
+                                defaultDirection={order[2]}
+                              />
+                            ) : <span className="truncate">{label}</span>}
+                          </ResizableTableHeader>
+                        );
+                      })}
+                      <th scope="col" className="workspace-table-actions py-3">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-border">
-                    {filteredTypes.map((template) => (
+                  <tbody>
+                    {pageTypes.map((template) => (
                       <tr
                         key={template.id}
                         className="transition hover:bg-slate-50/70 dark:hover:bg-muted/30"
                       >
-                        <td data-label="Expediente" className="px-4 py-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-primary">
-                              <FolderKanban size={17} />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block truncate font-semibold text-slate-950 dark:text-foreground">
-                                {template.name}
-                              </span>
-                              {savedTemplateById.has(template.id) && (
-                                <span className={`block text-xs ${template.status === 'paused' ? 'text-amber-700' : template.status === 'archived' ? 'text-slate-400' : template.status === 'active' ? 'text-emerald-700' : 'text-slate-500'}`}>
-                                  {template.status === 'paused' ? 'Pausado' : template.status === 'archived' ? 'Archivado' : template.status === 'active' ? 'Publicado' : 'Borrador'}
+                        {orderedTableCells(tableLayout.columns, {
+                          name: (
+                            <td data-label="Expediente" className="px-4 py-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-primary">
+                                  <FolderKanban size={17} />
                                 </span>
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                        <td data-label="Tipo de expediente" className="px-4 py-3 text-xs font-medium text-slate-700 dark:text-foreground">
-                          {template.type}
-                        </td>
-                        <td data-label="Descripción" className="px-4 py-3 text-xs leading-5 text-slate-600 dark:text-muted-foreground">
-                          {template.description}
-                        </td>
-                        <td data-label="Requisitos" className="px-4 py-3 text-xs tabular-nums text-slate-700 dark:text-foreground">
-                          {template.requirementCount} {template.requirementCount === 1 ? 'requisito' : 'requisitos'}
-                        </td>
-                        <td data-label="Completados" className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() => openCases(template.id, 'sealed')}
-                            className="inline-flex items-center gap-2 text-xs font-500 text-slate-700 hover:text-primary dark:text-foreground"
-                            aria-label={`Ver ${template.completed} expedientes completados de ${template.name}`}
-                          >
-                            <CheckCircle2 size={14} className="text-slate-400" />
-                            <span className="tabular-nums">{template.completed}</span>
-                            <span className="text-slate-400">
-                              {template.completed === 1 ? 'completado' : 'completados'}
-                            </span>
-                          </button>
-                        </td>
-                        <td data-label="Última actividad" className="px-4 py-3 text-xs text-slate-600 dark:text-muted-foreground">
-                          {template.lastActivity
-                            ? formatDate(template.lastActivity)
-                            : 'Sin actividad'}
-                        </td>
-                        <td data-label="Acciones" className="px-4 py-3 text-right">
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-foreground">
+                                    {template.name}
+                                  </span>
+                                  {savedTemplateById.has(template.id) && (
+                                    <span className={`block text-xs ${template.status === 'paused' ? 'text-amber-700' : template.status === 'archived' ? 'text-slate-400' : template.status === 'active' ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                      {template.status === 'paused' ? 'Pausado' : template.status === 'archived' ? 'Archivado' : template.status === 'active' ? 'Publicado' : 'Borrador'}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            </td>
+                          ),
+                          type: (
+                            <td data-label="Tipo de expediente" className="px-4 py-3 text-xs font-normal text-muted-foreground">
+                              {template.type}
+                            </td>
+                          ),
+                          description: (
+                            <td data-label="Descripción" className="px-4 py-3 text-xs font-normal leading-5 text-muted-foreground">
+                              {template.description}
+                            </td>
+                          ),
+                          requirements: (
+                            <td data-label="Requisitos" className="px-4 py-3 text-xs font-normal tabular-nums text-muted-foreground">
+                              {template.requirementCount} {template.requirementCount === 1 ? 'requisito' : 'requisitos'}
+                            </td>
+                          ),
+                          completed: (
+                            <td data-label="Completados" className="px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() => openCases(template.id, 'sealed')}
+                                className="inline-flex items-center gap-2 !text-xs !font-normal text-muted-foreground hover:text-primary [&>span]:!text-xs [&>span]:!font-normal"
+                                aria-label={`Ver ${template.completed} expedientes completados de ${template.name}`}
+                              >
+                                <CheckCircle2 size={14} aria-hidden="true" />
+                                <span className="tabular-nums">
+                                  {template.completed}{' '}
+                                  {template.completed === 1 ? 'completado' : 'completados'}
+                                </span>
+                              </button>
+                            </td>
+                          ),
+                          updated: (
+                            <td data-label="Última actividad" className="px-4 py-3 text-xs font-normal text-muted-foreground">
+                              {template.lastActivity
+                                ? formatDate(template.lastActivity)
+                                : 'Sin actividad'}
+                            </td>
+                          ),
+                        })}
+                        <td data-label="Acciones" className="workspace-table-actions py-3">
                           <div className="inline-flex items-center gap-1">
                             <button
                               type="button"
@@ -843,7 +895,7 @@ export default function ExpedientesPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScrollArea>
             </>
           )}
         </section>
@@ -1110,24 +1162,6 @@ function mapCaseRow(row: any): CaseFileSummary {
     targetCloseAt: row.target_close_at,
     lastActivityAt: row.updated_at,
   };
-}
-
-function Heading({
-  children,
-  align = 'left',
-  className = '',
-}: {
-  children: ReactNode;
-  align?: 'left' | 'right';
-  className?: string;
-}) {
-  return (
-    <th
-      className={`px-4 py-3 text-xs font-semibold text-slate-500 ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
-    >
-      {children}
-    </th>
-  );
 }
 
 function ResponseMetric({

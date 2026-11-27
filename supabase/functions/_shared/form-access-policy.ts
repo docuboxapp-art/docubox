@@ -14,12 +14,12 @@ export type FormAccessDenial = 'FORBIDDEN' | 'LIVENESS_REQUIRED';
 
 // A public form token is a short-lived bearer capability issued only after
 // the separately delivered code and the mobile identity check have passed.
-export function publicFormCapabilityDenial(token: FormAccessToken): FormAccessDenial | null {
+export function publicFormCapabilityDenial(token: FormAccessToken, now = Date.now()): FormAccessDenial | null {
   if (token.access_mode !== 'public' || !token.recipient_email || !token.recipient_user_id)
     return 'FORBIDDEN';
   const verifiedAt = Date.parse(token.liveness_verified_at || '');
-  return Number.isFinite(verifiedAt) && verifiedAt <= Date.now() &&
-    Date.now() - verifiedAt <= 24 * 60 * 60_000 ? null : 'LIVENESS_REQUIRED';
+  return Number.isFinite(verifiedAt) && verifiedAt <= now &&
+    now - verifiedAt <= 24 * 60 * 60_000 ? null : 'LIVENESS_REQUIRED';
 }
 
 // Private links belong to the authenticated recipient. Public capabilities

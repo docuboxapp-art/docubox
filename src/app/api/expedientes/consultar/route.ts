@@ -10,8 +10,10 @@ import {
 import { requireCaseWorkspace } from '@/lib/case-files/consultation.server';
 import { CASE_STATUS_META } from '@/lib/case-files/schema';
 import { parseCaseFilters } from '@/lib/case-files/consultation-filters';
+import { caseListOrder } from '@/lib/case-files/consultation-order';
 import { caseFolderKey, readCaseFolders } from '@/lib/case-files/folders';
 import { casePeopleNames, caseResponsibleIds } from '@/lib/case-files/list-people';
+import { DEFAULT_TABLE_PAGE_SIZE, isTablePageSize } from '@/lib/workspaces/table-pagination';
 export const runtime = 'nodejs';
 type CaseListRecord = {
   id: string;
@@ -57,8 +59,9 @@ export async function GET(request: NextRequest) {
       .eq('storage_key', `expedientes:${workspaceId}`);
     if (favorites.error) throw favorites.error;
     const favoriteIds = (favorites.data || []).map((row) => row.item_id as string).filter(isUuid);
-    const page = Math.max(1, Math.min(100000, Math.floor(Number(p.get('page')) || 1))),
-      size = 20;
+    const page = Math.max(1, Math.min(100000, Math.floor(Number(p.get('page')) || 1)));
+    const requestedSize = Number(p.get('size'));
+    const size = isTablePageSize(requestedSize) ? requestedSize : DEFAULT_TABLE_PAGE_SIZE;
     const base =
       'id,title,folio,status,progress,template_id,case_type,case_subtype,subject_name,owner_user_id,created_by,runtime_assignments,updated_at,created_at,target_close_at,closed_at,tags,priority';
     const scheduled = p.get('envio') === 'scheduled';
@@ -159,10 +162,9 @@ export async function GET(request: NextRequest) {
         query[op](filters.dateField, `${date}T${op === 'gte' ? '00:00:00' : '23:59:59.999'}Z`);
       }
     }
+    const order = caseListOrder(p.get('orden'), filters.dateField);
     const result = await query
-      .order(p.get('orden') === 'name' ? 'title' : filters.dateField, {
-        ascending: ['oldest', 'name'].includes(p.get('orden') || ''),
-      })
+      .order(order.field, { ascending: order.ascending, nullsFirst: false })
       .order('id')
       .range((page - 1) * size, page * size - 1);
     if (result.error) throw result.error;

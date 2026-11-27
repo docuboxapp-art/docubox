@@ -1,6 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { PROFILE_FIELDS, PROFILE_SCOPES, SEARCH_CRITERIA } from '@/lib/profile-privacy/model';
+import {
+  PROFILE_FIELDS,
+  PROFILE_SCOPES,
+  PROFILE_SECTIONS,
+  PROFILE_VISIBILITY_MODES,
+  SEARCH_CRITERIA,
+} from '@/lib/profile-privacy/model';
 import { ProfilePrivacyError, runProfilePrivacy } from '@/lib/profile-privacy/server';
 import { DocumentAccessError, requireDocumentIdentity } from '@/lib/security/document-access';
 import { consumeServerRateLimit } from '@/lib/security/server-rate-limit';
@@ -8,18 +14,32 @@ import { consumeServerRateLimit } from '@/lib/security/server-rate-limit';
 export const runtime = 'nodejs';
 const uuid = z.uuid();
 const peer = { peerId: uuid.optional(), contactId: uuid.optional(), documentId: uuid.optional() };
+const fieldKeys = z.enum(PROFILE_FIELDS.map(({ key }) => key));
+const legacyScopes = ['nadie', 'workspaces', 'contactos', 'cualquiera'] as const;
+const contactPreferences = {
+  allowContacts: z.boolean(),
+  allowMessages: z.boolean(),
+  allowNotes: z.boolean(),
+};
 const action = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings') }),
   z.object({
     action: z.literal('save'),
+    scope: z.enum(legacyScopes),
+    fields: z.partialRecord(fieldKeys, z.enum([...legacyScopes, 'heredar'])),
+    ...contactPreferences,
+  }),
+  z.object({ action: z.literal('settings_v2') }),
+  z.object({
+    action: z.literal('save_v2'),
+    mode: z.enum(PROFILE_VISIBILITY_MODES),
     scope: z.enum(PROFILE_SCOPES),
-    fields: z.partialRecord(
-      z.enum(PROFILE_FIELDS.map(({ key }) => key)),
-      z.enum([...PROFILE_SCOPES, 'heredar'])
-    ),
-    allowContacts: z.boolean(),
-    allowMessages: z.boolean(),
-    allowNotes: z.boolean(),
+    sections: z
+      .array(z.enum(PROFILE_SECTIONS.map(({ key }) => key)))
+      .max(PROFILE_SECTIONS.length)
+      .optional(),
+    fields: z.partialRecord(fieldKeys, z.enum(PROFILE_SCOPES)),
+    ...contactPreferences,
   }),
   z.object({
     action: z.literal('search'),
@@ -28,7 +48,18 @@ const action = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('cards'), ids: z.array(uuid).max(75) }),
   z.object({ action: z.literal('profile'), peerId: uuid.optional(), contactId: uuid.optional() }),
-  z.object({ action: z.literal('request'), peerId: uuid }),
+  z.object({
+    action: z.literal('request'),
+    peerId: uuid,
+    emailHint: z.string().trim().min(1).max(254).optional(),
+  }),
+  z
+    .object({
+      action: z.literal('add_contact'),
+      peerId: uuid.optional(),
+      email: z.email().max(254).optional(),
+    })
+    .refine(({ peerId, email }) => Boolean(peerId || email)),
   z.object({
     action: z.literal('register'),
     name: z.string().trim().min(1).max(200),
@@ -36,6 +67,7 @@ const action = z.discriminatedUnion('action', [
     phone: z.string().max(40).optional(),
   }),
   z.object({ action: z.literal('requests') }),
+  z.object({ action: z.literal('requests_v2') }),
   z.object({
     action: z.literal('decide'),
     requestId: uuid,
@@ -60,7 +92,7 @@ const action = z.discriminatedUnion('action', [
   }),
 ]);
 
-const limited = new Set(['search', 'request', 'register', 'block', 'send']);
+const limited = new Set(['search', 'request', 'add_contact', 'register', 'block', 'send']);
 
 export async function POST(request: NextRequest) {
   const reply = (body: object, status = 200) =>

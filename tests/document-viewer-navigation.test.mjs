@@ -43,7 +43,7 @@ test('viewer loading is keyed by stable user identity instead of auth object ref
   assert.match(source, /const userId = user\?\.id \?\? '';/);
   assert.match(
     source,
-    /\[authLoading, docId, loadAdditionalMetadata, userDisplayName, userEmail, userId\]/
+    /\[authLoading, docId, embedded, loadAdditionalMetadata, userDisplayName, userEmail, userId\]/
   );
   assert.doesNotMatch(source, /\}, \[docId, user, authLoading, loadAdditionalMetadata\]\);/);
 });
@@ -65,7 +65,7 @@ test('viewer resolves secondary metadata concurrently without changing its loadi
   assert.match(bootstrap, /await Promise\.all\(\[/);
   assert.match(bootstrap, /const loadedDocument: DocumentData = \{[\s\S]*file_url: viewerFileUrl/);
   assert.match(bootstrap, /setDocument\(loadedDocument\)/);
-  assert.match(bootstrap, /from\('user_profiles'\)/);
+  assert.match(bootstrap, /loadVisibleProfileCards\(\[data\.owner_id\]\)/);
   assert.match(bootstrap, /from\('carpetas'\)/);
   assert.match(bootstrap, /includeDetails=1/);
   assert.match(bootstrap, /from\('document_metadata'\)/);

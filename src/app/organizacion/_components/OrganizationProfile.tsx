@@ -318,7 +318,7 @@ export default function OrganizationProfile() {
   ) : null;
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-5">
+    <div className="app-page-width space-y-5">
       <header>
         <h2 className="text-xl font-medium text-foreground">Perfil y verificación</h2>
         <p className="mt-1 text-sm text-muted-foreground">

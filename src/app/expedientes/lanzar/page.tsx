@@ -25,10 +25,13 @@ import {
 import AppLogo from '@/components/ui/AppLogo';
 import { BottomNotice } from '@/components/ui/BottomNotice';
 import { caseRequest } from '@/lib/case-files/runtime-client';
+import { createClient } from '@/lib/supabase/client';
 import type { DeliverySummary } from '@/lib/case-files/invitations';
 import { CaseInvitationPanel } from '../components/CaseInvitationPanel';
 import {
   eligibleLaunchMembers,
+  launchContactColumns,
+  launchContactPerson,
   launchResponsibilities,
   normalizeLaunchParticipants,
   participantRoleLabels,
@@ -95,9 +98,27 @@ export default function LaunchCasePage() {
 function LaunchEntry() {
   const search = useSearchParams();
   const templateId = search.get('tipo') || '';
-  return templateId ? <LaunchCase key={templateId} templateId={templateId} /> : <TemplateChooser />;
+  const contact = search.get('contact') || '';
+  const contactId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(contact)
+    ? contact
+    : undefined;
+  return templateId ? (
+    <LaunchCase
+      key={`${templateId}:${contactId || ''}`}
+      templateId={templateId}
+      initialContactId={contactId}
+    />
+  ) : (
+    <TemplateChooser initialContactId={contactId} />
+  );
 }
-function LaunchCase({ templateId }: { templateId: string }) {
+function LaunchCase({
+  templateId,
+  initialContactId,
+}: {
+  templateId: string;
+  initialContactId?: string;
+}) {
   const router = useRouter();
   const [accessMode, setAccessMode] = useState<'private' | 'public'>('private');
   const [urgent, setUrgent] = useState(false);
@@ -135,13 +156,14 @@ function LaunchCase({ templateId }: { templateId: string }) {
   const mainRef = useRef<HTMLElement>(null);
   const stepTitleRef = useRef<HTMLHeadingElement>(null);
   const submitting = useRef(false);
+  const initialContactApplied = useRef(false);
 
   useEffect(() => {
     let live = true;
     caseRequest<LaunchOptions>(
       `/api/expedientes/opciones?templateId=${encodeURIComponent(templateId)}`
     )
-      .then((value) => {
+      .then(async (value) => {
         if (!live) return;
         setData(value);
         setTitle((current) => current || value.title);
@@ -151,6 +173,20 @@ function LaunchCase({ templateId }: { templateId: string }) {
             if (role.role === 'owner' && !next[role.key]) next[role.key] = value.actorId;
           return next;
         });
+        if (initialContactId && !initialContactApplied.current) {
+          const { data: contact } = await createClient()
+            .from('contacts')
+            .select(launchContactColumns)
+            .eq('id', initialContactId)
+            .eq('user_id', value.actorId)
+            .maybeSingle();
+          const person = contact && launchContactPerson(contact);
+          if (live && person) {
+            initialContactApplied.current = true;
+            setSubject((current) => current || person);
+            setPublicEmail((current) => current || person.email);
+          }
+        }
       })
       .catch((cause) => {
         if (live)
@@ -164,7 +200,7 @@ function LaunchCase({ templateId }: { templateId: string }) {
     return () => {
       live = false;
     };
-  }, [templateId, retry]);
+  }, [templateId, retry, initialContactId]);
   useEffect(() => {
     const change = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener('fullscreenchange', change);

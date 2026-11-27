@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { collaborationLabels, collaborationStatusOptions } from '@/lib/collaboration/presentation';
 import RequestItemsEditor from '../_components/RequestItemsEditor';
 import BulkTaskActions from '../_components/BulkTaskActions';
@@ -7,6 +8,10 @@ import BulkTaskActions from '../_components/BulkTaskActions';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
 import {
   AlertCircle,
   ArrowRight,
@@ -24,6 +29,8 @@ import { useCollaboration } from '@/contexts/CollaborationContext';
 import { useCollaborationApi } from '@/lib/collaboration/client';
 import { hasCollaborationEntitlement } from '@/lib/collaboration/domain';
 import { collaborationSectionEntitlements } from '@/lib/collaboration/navigation';
+import { tableAriaSort, tableDate, type ListDirection } from '@/lib/workspaces/list-order';
+import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
 
 type Row = Record<string, unknown> & { id: string };
 
@@ -244,6 +251,8 @@ function display(value: unknown, key: string) {
   }
   return collaborationLabels[String(value)] || String(value).replaceAll('_', ' ');
 }
+
+const isDateColumn = (key: string) => /_(at|date)$/.test(key);
 
 function statusClass(value: unknown) {
   const status = String(value || '');
@@ -1111,6 +1120,7 @@ function ColaboraSection({ section }: { section: string }) {
   const [createOpen, setCreateOpen] = useState(searchParams.get('new') === '1');
   const [workingRow, setWorkingRow] = useState('');
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [taskSort, setTaskSort] = useState<{ key: string; direction: ListDirection } | null>(null);
   const [bulkNotice, setBulkNotice] = useState('');
   const [taskPage, setTaskPage] = useState(1),
     [taskTotal, setTaskTotal] = useState(0),
@@ -1183,11 +1193,18 @@ function ColaboraSection({ section }: { section: string }) {
             : section === 'calendario'
               ? '/api/colabora/calendar'
               : '/api/colabora/resources/' + resource;
-        const taskParams = new URLSearchParams({ page: String(taskPage), page_size: '50' });
+        const taskParams = new URLSearchParams({
+          page: String(taskPage),
+          page_size: String(DEFAULT_TABLE_PAGE_SIZE),
+        });
         if (taskPriority) taskParams.set('priority', taskPriority);
         if (taskDue) taskParams.set('due', taskDue);
         if (taskMine) taskParams.set('mine', '1');
         if (taskSearch) taskParams.set('search', taskSearch);
+        if (taskSort) {
+          taskParams.set('sort', taskSort.key);
+          taskParams.set('direction', taskSort.direction);
+        }
         const payload = await api<{ data: Row[]; total?: number }>(
           path +
             '?workspace_id=' +
@@ -1222,6 +1239,7 @@ function ColaboraSection({ section }: { section: string }) {
     taskDue,
     taskMine,
     taskSearch,
+    taskSort,
   ]);
   const filtered = useMemo(
     () =>
@@ -1230,6 +1248,17 @@ function ColaboraSection({ section }: { section: string }) {
         : rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())),
     [rows, search]
   );
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, Object.fromEntries(
+    (resource === 'tasks' ? [] : definition?.columns ?? []).map(({ key }) => [key, (row: Row) => {
+      const value = row[key];
+      if (value == null || value === '') return null;
+      if (isDateColumn(key)) return tableDate(String(value));
+      return typeof value === 'number' ? value : display(value, key);
+    }])
+  ));
+  const pagination = useTablePagination(orderedRows.length, JSON.stringify([resource, search]));
+  const pageRows = orderedRows.slice(pagination.start, pagination.end);
+  const selectableRows = pageRows.slice(0, 25);
   const selectedItems = filtered
     .filter((row) => selectedTasks.includes(row.id))
     .map((row) => ({
@@ -1284,7 +1313,7 @@ function ColaboraSection({ section }: { section: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="app-page-width space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-medium text-foreground">{definition.title}</h2>
@@ -1310,11 +1339,7 @@ function ColaboraSection({ section }: { section: string }) {
         </div>
       </div>
       <section className="overflow-hidden rounded-lg border border-border bg-background">
-        {bulkNotice && (
-          <p role="status" className="border-b border-border bg-muted/40 px-4 py-3 text-sm">
-            {bulkNotice}
-          </p>
-        )}
+        {bulkNotice && <BottomNotice message={bulkNotice} tone="success" onClose={() => setBulkNotice('')} />}
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row">
           <label className="relative flex-1">
             <Search className="absolute left-3 top-3 text-muted-foreground" size={17} />
@@ -1422,37 +1447,58 @@ function ColaboraSection({ section }: { section: string }) {
             <Loader2 className="animate-spin text-primary" size={22} />
           </div>
         ) : filtered.length ? (
-          <div className="overflow-x-auto">
+          <TableScrollArea
+            label={`Tabla de ${definition.title.toLocaleLowerCase('es-MX')}`}
+            footer={<TablePagination {...pagination} />}
+          >
             <table className="w-full min-w-[760px] text-left">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
+              <thead className="workspace-table-heading">
                 <tr>
                   {selectable && (
                     <th className="w-10 px-4 py-3">
                       <input
                         type="checkbox"
-                        aria-label="Seleccionar hasta 25 tareas"
+                        aria-label="Seleccionar hasta 25 tareas de esta página"
                         checked={
-                          filtered.length > 0 &&
-                          filtered.slice(0, 25).every((row) => selectedTasks.includes(row.id))
+                          selectableRows.every((row) => selectedTasks.includes(row.id))
                         }
                         onChange={(e) =>
                           setSelectedTasks(
-                            e.target.checked ? filtered.slice(0, 25).map((row) => row.id) : []
+                            e.target.checked ? selectableRows.map((row) => row.id) : []
                           )
                         }
                       />
                     </th>
                   )}
-                  {definition.columns.map((column) => (
-                    <th key={column.key} className="px-5 py-3 font-medium">
-                      {column.label}
+                  {definition.columns.map(({ key, label }) => {
+                    if (resource !== 'tasks') return (
+                      <th key={key} className="px-5 py-3" {...sortHeading(key, label, isDateColumn(key) ? 'desc' : 'asc')} />
+                    );
+                    if (key === 'prioridad') return <th key={key} scope="col" className="px-5 py-3">{label}</th>;
+                    const direction = taskSort?.key === key ? taskSort.direction : undefined;
+                    return (
+                      <th key={key} scope="col" className="px-5 py-3" aria-sort={tableAriaSort(direction)}>
+                        <TableSortButton
+                          label={label}
+                          direction={direction}
+                          onSort={(direction) => {
+                            setTaskSort({ key, direction });
+                            setTaskPage(1);
+                            setSelectedTasks([]);
+                          }}
+                        />
+                      </th>
+                    );
+                  })}
+                  {hasActions && (
+                    <th scope="col" className="workspace-table-actions py-3">
+                      Acciones
                     </th>
-                  ))}
-                  {hasActions && <th aria-label="Acciones" className="w-14 px-5 py-3" />}
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map((row) => (
+                {pageRows.map((row) => (
                   <tr key={row.id} className="hover:bg-muted/30">
                     {selectable && (
                       <td className="px-4 py-3.5">
@@ -1490,8 +1536,8 @@ function ColaboraSection({ section }: { section: string }) {
                       </td>
                     ))}
                     {hasActions && (
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
+                      <td className="workspace-table-actions py-3.5">
+                        <div className="flex items-center justify-center gap-2">
                           {section === 'calendario' &&
                             row.source_type === 'milestone' &&
                             !['completed', 'cancelled'].includes(String(row.status)) &&
@@ -1525,7 +1571,7 @@ function ColaboraSection({ section }: { section: string }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScrollArea>
         ) : (
           <div className="px-5 py-20 text-center">
             <CalendarDays size={28} className="mx-auto text-muted-foreground/60" />
@@ -1538,10 +1584,11 @@ function ColaboraSection({ section }: { section: string }) {
           </div>
         )}
       </section>
-      {section === 'tareas' && (
+      {section === 'tareas' && shouldShowTablePagination(taskTotal) && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
           <span>
-            {taskTotal} tareas · Página {taskPage} de {Math.max(1, Math.ceil(taskTotal / 50))}
+            {taskTotal} tareas · Página {taskPage} de{' '}
+            {Math.max(1, Math.ceil(taskTotal / DEFAULT_TABLE_PAGE_SIZE))}
           </span>
           <div className="flex gap-2">
             <button
@@ -1555,7 +1602,7 @@ function ColaboraSection({ section }: { section: string }) {
               Anterior
             </button>
             <button
-              disabled={loading || taskPage * 50 >= taskTotal}
+              disabled={loading || taskPage * DEFAULT_TABLE_PAGE_SIZE >= taskTotal}
               onClick={() => {
                 setSelectedTasks([]);
                 setTaskPage((value) => value + 1);

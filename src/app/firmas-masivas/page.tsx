@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -15,10 +16,14 @@ import {
   Search,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { tableDate } from '@/lib/workspaces/list-order';
 import { bulkSignatureApiFetch } from '@/lib/bulk-signatures/client';
 import {
   BULK_TYPE_LABELS,
+  BULK_STATUS_META,
+  campaignProgress,
   DEMO_BULK_CAMPAIGNS,
   mapBulkCampaignRow,
   type BulkCampaignSummary,
@@ -72,6 +77,14 @@ export default function BulkSignaturesPage() {
   const filtered = campaigns.filter((campaign) =>
     `${campaign.name} ${campaign.description}`.toLowerCase().includes(query.toLowerCase())
   );
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, {
+    name: (row) => row.name,
+    type: (row) => BULK_TYPE_LABELS[row.campaignType],
+    progress: (row) => campaignProgress(row),
+    incidents: (row) => row.failedItems,
+    status: (row) => BULK_STATUS_META[row.status]?.label,
+    updated: (row) => tableDate(row.updatedAt),
+  });
   const metrics = useMemo(() => {
     const total = campaigns.reduce((sum, item) => sum + item.totalItems, 0);
     const signed = campaigns.reduce((sum, item) => sum + item.completedItems, 0);
@@ -166,59 +179,63 @@ export default function BulkSignaturesPage() {
             </div>
           ) : filtered.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left">
-                <thead className="bg-slate-50 text-[11px] font-600 uppercase text-slate-500 dark:bg-muted/30">
-                  <tr>
-                    <th className="px-4 py-3">Campana</th>
-                    <th className="px-4 py-3">Tipo</th>
-                    <th className="px-4 py-3">Progreso</th>
-                    <th className="px-4 py-3">Incidencias</th>
-                    <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3">Actualizada</th>
-                    <th className="w-12 px-3 py-3" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-border">
-                  {filtered.map((campaign) => (
-                    <tr
-                      key={campaign.id}
-                      onClick={() => router.push(`/firmas-masivas/${campaign.id}`)}
-                      className="cursor-pointer hover:bg-slate-50 dark:hover:bg-muted/20"
-                    >
-                      <td className="px-4 py-4">
-                        <p className="max-w-xs truncate text-sm font-600 text-slate-950 dark:text-foreground">
-                          {campaign.name}
-                        </p>
-                        <p className="mt-0.5 max-w-xs truncate text-xs text-slate-500">
-                          {campaign.ownerName} · {campaign.participantCount} participantes
-                        </p>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-600 dark:text-muted-foreground">
-                        {BULK_TYPE_LABELS[campaign.campaignType]}
-                      </td>
-                      <td className="px-4 py-4">
-                        <BulkCampaignProgress campaign={campaign} compact />
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`text-sm font-600 ${campaign.failedItems ? 'text-red-600' : 'text-slate-500'}`}
+              <PaginatedTableScrollArea items={orderedRows} label="Campañas de firma masiva">
+                {(pageRows) => (
+                  <table className="w-full min-w-[980px] text-left">
+                    <thead className="workspace-table-heading">
+                      <tr>
+                        <th className="px-4 py-3" {...sortHeading('name', 'Campaña')} />
+                        <th className="px-4 py-3" {...sortHeading('type', 'Tipo')} />
+                        <th className="px-4 py-3" {...sortHeading('progress', 'Progreso', 'desc')} />
+                        <th className="px-4 py-3" {...sortHeading('incidents', 'Incidencias', 'desc')} />
+                        <th className="px-4 py-3" {...sortHeading('status', 'Estado')} />
+                        <th className="px-4 py-3" {...sortHeading('updated', 'Actualizada', 'desc')} />
+                        <th className="w-12 px-3 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-border">
+                      {pageRows.map((campaign) => (
+                        <tr
+                          key={campaign.id}
+                          onClick={() => router.push(`/firmas-masivas/${campaign.id}`)}
+                          className="cursor-pointer hover:bg-slate-50 dark:hover:bg-muted/20"
                         >
-                          {campaign.failedItems}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <BulkCampaignStatusBadge status={campaign.status} />
-                      </td>
-                      <td className="px-4 py-4 text-xs text-slate-500">
-                        {formatDate(campaign.updatedAt)}
-                      </td>
-                      <td className="px-3 py-4">
-                        <MoreHorizontal size={17} className="text-slate-400" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          <td className="px-4 py-4">
+                            <p className="max-w-xs truncate text-sm font-600 text-slate-950 dark:text-foreground">
+                              {campaign.name}
+                            </p>
+                            <p className="mt-0.5 max-w-xs truncate text-xs text-slate-500">
+                              {campaign.ownerName} · {campaign.participantCount} participantes
+                            </p>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-slate-600 dark:text-muted-foreground">
+                            {BULK_TYPE_LABELS[campaign.campaignType]}
+                          </td>
+                          <td className="px-4 py-4">
+                            <BulkCampaignProgress campaign={campaign} compact />
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className={`text-sm font-600 ${campaign.failedItems ? 'text-red-600' : 'text-slate-500'}`}
+                            >
+                              {campaign.failedItems}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            <BulkCampaignStatusBadge status={campaign.status} />
+                          </td>
+                          <td className="px-4 py-4 text-xs text-slate-500">
+                            {formatDate(campaign.updatedAt)}
+                          </td>
+                          <td className="px-3 py-4">
+                            <MoreHorizontal size={17} className="text-slate-400" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTableScrollArea>
             </div>
           ) : (
             <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">

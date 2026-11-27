@@ -1,25 +1,35 @@
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { createServiceClient } from '@/lib/supabase/server';
 import { sendParticipationReminderEmail } from '@/lib/emailNotifications';
-import { getParticipantPortalUrl, getPublicAppUrl } from '@/lib/publicAppUrl';
+import { getParticipantPortalUrl } from '@/lib/publicAppUrl';
+import {
+  canRemindDocumentParticipant,
+  reminderAction,
+  reminderSentToday,
+  type ReminderParticipant,
+} from '@/lib/contacts/document-reminders';
+import { normalizeContactEmail } from '@/lib/contacts/detail';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+type Participant = ReminderParticipant & {
+  nombre?: string;
+  name?: string;
+  portal_token?: string;
+  tipoFirma?: string[];
+};
 
-/** Returns true if the given ISO date string is today (UTC date comparison) */
-function isToday(isoDate: string): boolean {
-  const d = new Date(isoDate);
-  const now = new Date();
-  return (
-    d.getUTCFullYear() === now.getUTCFullYear() &&
-    d.getUTCMonth() === now.getUTCMonth() &&
-    d.getUTCDate() === now.getUTCDate()
-  );
-}
+const signatureLabels: Record<string, string> = {
+  autografa: 'Firma autógrafa digital',
+  efirma: 'e.firma SAT',
+  biometria: 'Biometría',
+  click: 'Click & Sign',
+};
+
+const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+const error = (message: string, status: number) =>
+  NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,214 +39,171 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
+          getAll: () => cookieStore.getAll(),
+          setAll(values) {
+            values.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
           },
         },
       }
     );
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return error('Inicia sesión para enviar recordatorios.', 401);
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    const body = await req.json().catch(() => null);
+    const documentId = body?.documentId;
+    const email = normalizeContactEmail(body?.participantEmail);
+    if (typeof documentId !== 'string' || !uuid.test(documentId) || !email) {
+      return error('Selecciona un documento y un participante válidos.', 400);
     }
 
-    const body = await req.json();
-    const { participantEmail, participantName, documentName, documentId } = body;
-
-    if (!participantEmail || !documentName) {
-      return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
-    }
-
-    if (!documentId) {
-      return NextResponse.json({ error: 'Documento requerido' }, { status: 400 });
-    }
-
-    const { data: authorizedDocument, error: documentError } = await supabaseAdmin
+    const service = createServiceClient();
+    const { data: document, error: readError } = await service
       .from('documentos')
-      .select('owner_id,workspace_id,estado,participantes')
+      .select(
+        'id,nombre,owner_id,workspace_id,current_custodian_workspace_id,estado,participantes,fecha_vencimiento,tiene_vencimiento,deleted_at,updated_at'
+      )
       .eq('id', documentId)
       .maybeSingle();
-    if (documentError || !authorizedDocument) {
-      return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
-    }
+    if (readError) return error('No se pudo consultar el documento.', 503);
+    if (!document) return error('Documento no encontrado.', 404);
 
-    let isWorkspaceManager = false;
-    if (authorizedDocument.owner_id !== user.id && authorizedDocument.workspace_id) {
-      const { data: membership } = await supabaseAdmin
+    const now = Date.now();
+    const workspaceId = document.current_custodian_workspace_id || document.workspace_id;
+    if (document.owner_id !== user.id || workspaceId !== document.workspace_id) {
+      if (!workspaceId) return error('Sin permisos para enviar recordatorios.', 403);
+      const { data: membership, error: memberError } = await service
         .from('workspace_members')
-        .select('role')
-        .eq('workspace_id', authorizedDocument.workspace_id)
+        .select('access_expires_at')
+        .eq('workspace_id', workspaceId)
         .eq('user_id', user.id)
+        .eq('status', 'active')
         .in('role', ['owner', 'admin'])
         .maybeSingle();
-      isWorkspaceManager = Boolean(membership);
-    }
-    if (authorizedDocument.owner_id !== user.id && !isWorkspaceManager) {
-      return NextResponse.json({ error: 'Sin permisos para enviar recordatorios' }, { status: 403 });
-    }
-
-    const activeParticipants = ((authorizedDocument.participantes as any[] | null) || []).filter(
-      (participant: any) => participant.current_access !== false
-    );
-    const participantForReminder = activeParticipants.find(
-      (participant: any) =>
-        String(participant.email || '').trim().toLowerCase()
-        === String(participantEmail).trim().toLowerCase()
-    );
-    if (!participantForReminder || participantForReminder.current_access === false) {
-      return NextResponse.json(
-        { error: 'El participante ya no tiene acceso a este documento.' },
-        { status: 409 }
-      );
-    }
-    const terminalParticipantStatuses = ['firmo', 'firmado', 'aprobo', 'aprobado', 'rechazo', 'rechazado', 'cancelo', 'cancelado'];
-    const hasCompletedParticipation = [
-      participantForReminder.sub_estado,
-      participantForReminder.estado,
-      participantForReminder.status,
-      participantForReminder.participation_status,
-    ].some((status) => terminalParticipantStatuses.includes(String(status || '').toLowerCase()));
-    if (hasCompletedParticipation) {
-      return NextResponse.json(
-        { error: 'El participante ya completó su participación.' },
-        { status: 409 }
-      );
-    }
-    if (['completado', 'cancelado', 'rechazado', 'vencido', 'expirado'].includes(authorizedDocument.estado)) {
-      return NextResponse.json(
-        { error: 'No se pueden enviar recordatorios para un documento cerrado.' },
-        { status: 409 }
-      );
-    }
-
-    // ── 1-per-day limit: check existing fecha_recordatorio in JSONB ──────────
-    if (documentId) {
-      const { data: docCheck } = await supabaseAdmin
-        .from('documentos')
-        .select('participantes')
-        .eq('id', documentId)
-        .single();
-
-      if (docCheck?.participantes) {
-        const participant = (docCheck.participantes as any[]).find(
-          (p: any) => p.email === participantEmail
-        );
-        if (participant?.fecha_recordatorio && isToday(participant.fecha_recordatorio)) {
-          return NextResponse.json(
-            { error: 'Ya se envió un recordatorio a este participante hoy. Solo se permite uno por día.' },
-            { status: 429 }
-          );
-        }
+      if (memberError) return error('No se pudieron verificar los permisos.', 503);
+      if (
+        !membership ||
+        (membership.access_expires_at && !(Date.parse(membership.access_expires_at) > now))
+      ) {
+        return error('Sin permisos para enviar recordatorios.', 403);
       }
     }
 
-    // Get sender profile
+    const participants: Participant[] = Array.isArray(document.participantes)
+      ? document.participantes
+      : [];
+    const sameRecipient = (participant: Participant | null) =>
+      Boolean(participant && normalizeContactEmail(participant.email) === email);
+    const participant = participants.find(
+      (item) => sameRecipient(item) && canRemindDocumentParticipant(item, document, now)
+    );
+    if (!participant?.email)
+      return error('Este contacto ya no tiene una acción pendiente disponible.', 409);
+    if (
+      participants.some(
+        (item) => sameRecipient(item) && reminderSentToday(item.fecha_recordatorio, now)
+      )
+    ) {
+      return error('Ya se envió un recordatorio a este contacto para este documento hoy.', 429);
+    }
+
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('full_name, email')
+      .select('full_name')
       .eq('id', user.id)
       .maybeSingle();
-
     const senderName = profile?.full_name || user.email || 'Un usuario';
+    const participantName = participant.nombre || participant.name;
+    const action = reminderAction(participant);
+    const methods = Array.isArray(participant.tipoFirma) ? participant.tipoFirma : [];
+    const signatureMethod =
+      action === 'Firma pendiente'
+        ? methods.map((method) => signatureLabels[method] || method).join(', ') ||
+          'Firma electrónica'
+        : action || 'Participación';
+    const sentAt = new Date(now).toISOString();
+    const recipientHash = createHash('sha256').update(email).digest('hex');
 
-    // Build portal URL: prefer participant's portal_token, fall back to documentId (DB UUID)
-    let portalToken = documentId;
-    let participantRole = 'Participante';
-    let signatureMethod = 'Firma electr\u00f3nica';
-    let expiryDate: string | undefined;
-    if (documentId) {
-      const { data: docForToken } = await supabaseAdmin
-        .from('documentos')
-        .select('participantes, fecha_vencimiento')
-        .eq('id', documentId)
-        .single();
-      expiryDate = docForToken?.fecha_vencimiento || undefined;
-      if (docForToken?.participantes) {
-        const participant = (docForToken.participantes as any[]).find(
-          (p: any) => p.email === participantEmail
-        );
-        if (participant?.portal_token) {
-          portalToken = participant.portal_token;
-        }
-        participantRole = participant?.acto || participant?.role || 'Participante';
-        const methods = Array.isArray(participant?.tipoFirma) ? participant.tipoFirma : [];
-        const labels: Record<string, string> = {
-          autografa: 'Firma aut\u00f3grafa digital',
-          efirma: 'e.firma SAT',
-          biometria: 'Biometr\u00eda',
-          click: 'Click & Sign',
-        };
-        signatureMethod = methods.map((method: string) => labels[method] || method).join(', ') || 'Firma electr\u00f3nica';
-      }
-    }
-
-    const documentUrl = portalToken
-      ? getParticipantPortalUrl(portalToken)
-      : documentId
-        ? getParticipantPortalUrl(documentId)
-        : `${getPublicAppUrl()}/mis-participaciones`;
-
-    // Send reminder email via Resend
     await sendParticipationReminderEmail({
-      participantEmail,
+      participantEmail: participant.email.trim(),
       participantName,
-      documentName,
+      documentName: document.nombre || 'Documento',
       senderName,
-      documentUrl,
-      participantRole,
+      documentUrl: getParticipantPortalUrl(participant.portal_token || documentId),
+      participantRole: participant.acto || participant.role || participant.rol || 'Participante',
       signatureMethod,
-      expiryDate,
+      expiryDate:
+        document.tiene_vencimiento !== false ? document.fecha_vencimiento || undefined : undefined,
+      idempotencyKey: `participation-reminder/${documentId}/${recipientHash}/${sentAt.slice(0, 10)}`,
     });
 
-    // ── Update fecha_recordatorio in participant JSONB (non-blocking) ──────
-    if (documentId) {
-      try {
-        const { data: docRow } = await supabaseAdmin
+    try {
+      let snapshot = { participantes: participants, updated_at: document.updated_at };
+      // Re-read on a concurrent change to preserve the other participants and their progress.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (
+          snapshot.participantes.some(
+            (item) => sameRecipient(item) && reminderSentToday(item.fecha_recordatorio, now)
+          )
+        )
+          break;
+        if (!snapshot.participantes.some(sameRecipient)) break;
+
+        const update = service
           .from('documentos')
-          .select('participantes')
-          .eq('id', documentId)
-          .single();
-
-        if (docRow?.participantes) {
-          const now = new Date().toISOString();
-          const updatedParticipantes = (docRow.participantes as any[]).map((p: any) => {
-            if (p.email === participantEmail) {
-              return { ...p, fecha_recordatorio: now };
-            }
-            return p;
-          });
-          await supabaseAdmin
-            .from('documentos')
-            .update({ participantes: updatedParticipantes })
-            .eq('id', documentId);
-        }
-
-        // Log audit trail: recordatorio_enviado
-        await supabaseAdmin.from('audit_trail').insert({
-          documento_id: documentId,
-          actor_id: user.id,
-          action: 'recordatorio_enviado',
-          category: 'notificacion',
-          details: {
-            participant_email: participantEmail,
+          .update({
+            participantes: snapshot.participantes.map((item) =>
+              sameRecipient(item) ? { ...item, fecha_recordatorio: sentAt } : item
+            ),
+          })
+          .eq('id', documentId);
+        const { data: saved, error: updateError } = await (
+          snapshot.updated_at
+            ? update.eq('updated_at', snapshot.updated_at)
+            : update.is('updated_at', null)
+        )
+          .select('id')
+          .maybeSingle();
+        if (updateError) throw updateError;
+        if (saved) {
+          const details = {
+            participant_email: participant.email,
             participant_name: participantName,
             channel: 'email',
-          },
-        });
-      } catch (updateErr) {
-        console.error('[send-reminder] Error al actualizar fecha_recordatorio:', updateErr);
-        // Non-blocking
-      }
-    }
+          };
+          const event = {
+            documento_id: documentId,
+            actor_id: user.id,
+            action: 'recordatorio_enviado',
+            category: 'notificacion',
+            details,
+          };
+          await Promise.all([
+            service.from('audit_trail').insert(event),
+            service.from('document_activity_log').insert({
+              ...event,
+              actor_nombre: senderName,
+              actor_email: user.email,
+            }),
+          ]);
+          break;
+        }
 
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? 'Error interno' }, { status: 500 });
+        const { data: latest, error: latestError } = await service
+          .from('documentos')
+          .select('participantes,updated_at')
+          .eq('id', documentId)
+          .maybeSingle();
+        if (latestError) throw latestError;
+        if (!latest || !Array.isArray(latest.participantes)) break;
+        snapshot = latest;
+      }
+    } catch {
+      console.error('[send-reminder] Unable to record the sent reminder.');
+    }
+    return NextResponse.json({ success: true, sentAt });
+  } catch {
+    return error('No se pudo enviar el recordatorio. Intenta de nuevo más tarde.', 502);
   }
 }

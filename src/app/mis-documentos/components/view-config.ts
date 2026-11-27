@@ -1,3 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { restoreViewOrder, viewConfigRecord } from '@/lib/workspaces/view-order';
+
 export interface ColumnConfig {
   id: string;
   label: string;
@@ -133,3 +136,83 @@ export const DEFAULT_CF_COLUMNS: ColumnConfig[] = [
   { id: 'prioridad', label: 'Prioridad', visible: false },
   { id: 'folioInterno', label: 'Folio interno', visible: false },
 ];
+
+export const DOCUMENT_VIEW_KEY = 'mi_espacio_v1';
+
+export type DocumentView = {
+  columns: ColumnConfig[];
+  filters: FilterVisibilityConfig[];
+  gridColumns: GridColumnConfig[];
+};
+
+export function normalizeDocumentView(value: unknown): DocumentView {
+  const raw = viewConfigRecord(value);
+  const savedGrid = Array.isArray(raw.gridColumns)
+    ? raw.gridColumns.map(viewConfigRecord).sort((left, right) => {
+        const order = (entry: Record<string, unknown>) =>
+          typeof entry.order === 'number' && Number.isFinite(entry.order)
+            ? entry.order
+            : Number.MAX_SAFE_INTEGER;
+        return order(left) - order(right);
+      })
+    : [];
+  return {
+    columns: normalizeDocumentColumns(raw.columns),
+    filters: restoreViewOrder(raw.filters, DEFAULT_FILTERS),
+    gridColumns: restoreViewOrder(savedGrid, DEFAULT_GRID_COLUMNS).map((field, index) => ({
+      ...field,
+      order: index + 1,
+    })),
+  };
+}
+
+export const DEFAULT_DOCUMENT_VIEW = normalizeDocumentView(null);
+
+const documentViewColumns = 'columns_config,filters_config,grid_columns_config';
+
+function viewFromRow(value: unknown) {
+  const row = viewConfigRecord(value);
+  return normalizeDocumentView({
+    columns: row.columns_config,
+    filters: row.filters_config,
+    gridColumns: row.grid_columns_config,
+  });
+}
+
+export async function loadDocumentView(client: Pick<SupabaseClient, 'from'>, userId: string) {
+  const { data, error } = await client
+    .from('user_view_preferences')
+    .select(`${documentViewColumns},custom_filters`)
+    .eq('user_id', userId)
+    .eq('view_key', DOCUMENT_VIEW_KEY)
+    .maybeSingle();
+  if (error) throw new Error('No se pudieron cargar las preferencias de Mi Espacio.');
+  return {
+    view: viewFromRow(data),
+    customFilters: Array.isArray(data?.custom_filters) ? data.custom_filters : [],
+  };
+}
+
+export async function saveDocumentView(
+  client: Pick<SupabaseClient, 'from'>,
+  userId: string,
+  value: DocumentView
+) {
+  const { columns, filters, gridColumns } = normalizeDocumentView(value);
+  const { data, error } = await client
+    .from('user_view_preferences')
+    .upsert(
+      {
+        user_id: userId,
+        view_key: DOCUMENT_VIEW_KEY,
+        columns_config: columns,
+        filters_config: filters,
+        grid_columns_config: gridColumns,
+      },
+      { onConflict: 'user_id,view_key', defaultToNull: false }
+    )
+    .select(documentViewColumns)
+    .single();
+  if (error || !data) throw new Error('No se pudo guardar la vista. Intenta de nuevo.');
+  return viewFromRow(data);
+}

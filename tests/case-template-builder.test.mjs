@@ -83,6 +83,27 @@ test('classification is optional in a saved draft', () => {
   assert.deepEqual(draft.tagIds, []);
 });
 
+test('custom case classifications retain their assigned labels after the catalog entry is removed', () => {
+  const tags = [
+    { id: 'custom-tag', nombre: 'Integración regional', color: '#047857', group: 'Gestión' },
+  ];
+  const draft = parseStoredCaseTemplate({
+    name: 'Expediente personal',
+    case_type: 'Nueva categoría',
+    case_subtype: 'Nuevo tipo',
+    requirements_schema: {
+      categoryCode: 'custom-category',
+      typeCode: 'custom-type',
+      tagIds: [tags[0].id, 'unrecognized-id'],
+      catalogTags: tags,
+    },
+  });
+  assert.equal(draft.categoryCode, 'custom-category');
+  assert.equal(draft.typeCode, 'custom-type');
+  assert.deepEqual(draft.tagIds, ['custom-tag']);
+  assert.deepEqual(draft.catalogTags, tags);
+});
+
 test('older case types retain usable requirement rules', () => {
   const stored = {
     id: 'legacy',

@@ -1,16 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock,
+  ExternalLink,
   FolderKanban,
   Inbox,
   LayoutGrid,
@@ -23,7 +25,9 @@ import {
   Zap,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { WorkspaceRowActions } from '@/components/WorkspaceRowActions';
 import { ActivitySummary } from '@/components/documents/ActivitySummary';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -68,10 +72,11 @@ const tones: Record<ActivityState, string> = {
   failed: 'bg-red-50 text-red-700',
 };
 const activityActionStyle =
-  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40';
-const inlineActionStyle =
-  'border border-slate-200 bg-white font-medium text-primary hover:bg-blue-50 dark:border-border dark:bg-card';
-const boardActionStyle = 'w-full bg-primary font-semibold text-white hover:bg-primary/90';
+  'border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40';
+const alternateViewActionSize =
+  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium';
+const primaryActionStyle = 'border-primary bg-primary text-white hover:bg-primary/90';
+const secondaryActionStyle = 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/10';
 const boardCardTones: Partial<Record<ActivityState, string>> = {
   completed: 'border-emerald-200/70 from-emerald-50/50 dark:from-emerald-950/30',
   expired: 'border-amber-200/70 from-amber-50/50 dark:from-amber-950/30',
@@ -98,6 +103,162 @@ async function activityRequest<T>(url: string, body?: unknown, signal?: AbortSig
   return payload.data as T;
 }
 
+const stateBadge = (item: ActivityItem) => (
+  <span
+    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tones[item.state]}`}
+  >
+    {item.stateLabel}
+  </span>
+);
+const progress = (item: ActivityItem) =>
+  item.progress !== null ? (
+    <div className="min-w-24">
+      <span className="text-xs text-slate-600">{item.progress}%</span>
+      <div
+        role="progressbar"
+        aria-label={`Avance de ${item.title}`}
+        aria-valuenow={item.progress}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className="mt-1.5 h-1.5 rounded-full bg-slate-100"
+      >
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }}
+        />
+      </div>
+    </div>
+  ) : (
+    <span className="text-xs text-slate-500">{item.detail}</span>
+  );
+
+function ActivityItemDetails({
+  item,
+  mode,
+  id,
+  expanded,
+  singleColumn = false,
+  className,
+}: {
+  item: ActivityItem;
+  mode: ActivityMode;
+  id?: string;
+  expanded: boolean;
+  singleColumn?: boolean;
+  className: string;
+}) {
+  if (!expanded) return <div id={id} hidden />;
+
+  const details = [
+    { label: 'Espacio de trabajo', value: item.workspace },
+    { label: 'Correo electrónico', value: item.email },
+    { label: mode === 'received' ? 'Mi participación' : 'Participación', value: item.role },
+    { label: 'Acceso', value: item.access === 'public' ? 'Con código' : 'Privado' },
+    { label: 'Última actividad', value: item.updatedAt ? date(item.updatedAt) : '' },
+    { label: item.kind === 'formularios' ? 'Detalle de la respuesta' : 'Detalle del expediente', value: item.detail },
+  ].filter(({ value }) => Boolean(value));
+
+  return (
+    <div id={id} className={className}>
+      <dl className={`grid gap-x-6 gap-y-3 ${singleColumn ? '' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+        {details.map(({ label, value }) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="mt-1 break-words text-sm text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function ActivityListCard({
+  item,
+  mode,
+  expanded,
+  onToggle,
+  actions,
+}: {
+  item: ActivityItem;
+  mode: ActivityMode;
+  expanded: boolean;
+  onToggle: () => void;
+  actions: ReactNode;
+}) {
+  const detailsId = useId();
+  const Icon = item.kind === 'formularios' ? ClipboardList : FolderKanban;
+  const DetailChevron = expanded ? ChevronDown : ChevronRight;
+  const expiresSoon = matchesActivityState(item, 'due');
+
+  return (
+    <article className="rounded-lg border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:border-border dark:bg-card">
+      <div className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center xl:grid-cols-[minmax(260px,2.3fr)_auto_minmax(130px,1fr)_minmax(145px,1fr)_auto] xl:gap-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            aria-label={`${expanded ? 'Ocultar' : 'Ver'} detalles de ${item.title}`}
+            className="flex h-8 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <DetailChevron size={17} aria-hidden="true" />
+          </button>
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <Icon size={19} aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-foreground" title={item.title}>
+              {item.title}
+            </h3>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span>{item.reference || (item.kind === 'formularios' ? 'Formulario' : 'Expediente')}</span>
+              <span className="hidden text-slate-300 sm:inline" aria-hidden="true">·</span>
+              <span>{mode === 'sent' ? 'Enviado' : 'Recibido'}: {date(item.sentAt)}</span>
+              <span className="hidden text-slate-300 sm:inline" aria-hidden="true">·</span>
+              <span className="break-words">{mode === 'sent' ? 'Para' : 'De'} {item.person}</span>
+            </div>
+          </div>
+        </div>
+        <div className="w-fit">{stateBadge(item)}</div>
+        <div className="min-w-0 break-words">{progress(item)}</div>
+        <div className="flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
+          <Calendar size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 space-y-1">
+            {item.priority === 'urgent' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-600">
+                <AlertTriangle size={11} aria-hidden="true" />
+                Urgente
+              </span>
+            )}
+            {expiresSoon && item.priority !== 'urgent' && (
+              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                Próximo a vencer
+              </span>
+            )}
+            {item.state === 'scheduled' && item.scheduledAt && (
+              <p className="text-indigo-600">Programado: {date(item.scheduledAt)}</p>
+            )}
+            <p>
+              {item.expiresAt
+                ? `${item.state === 'expired' ? 'Venció' : 'Vence'}: ${date(item.expiresAt)}`
+                : 'Sin vencimiento'}
+            </p>
+          </div>
+        </div>
+        <div className="min-w-0 md:col-span-2 xl:col-span-1">{actions}</div>
+      </div>
+      <ActivityItemDetails
+        item={item}
+        mode={mode}
+        id={detailsId}
+        expanded={expanded}
+        className="border-t border-border bg-muted/40 p-3 sm:p-4"
+      />
+    </article>
+  );
+}
+
 export default function ActivityResourcePanel({
   mode,
   kind,
@@ -120,12 +281,12 @@ export default function ActivityResourcePanel({
   const loading = !user?.id || data?.key !== requestKey;
   const error = data?.key === requestKey ? data.error : '';
   const [grid, setGrid] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<'lista' | 'tablero' | 'calendario'>('lista');
   const [calendarView, setCalendarView] = useState<ActivityCalendarView>('mes');
   const [selectedCalendarDate, setCalendarDate] = useState<Date | null>(null);
   const [selectedBoardDate, setBoardDate] = useState<Date | null>(null);
   const [calendarState, setCalendarState] = useState('');
-  const [page, setPage] = useState(1);
   const [criteria, setCriteria] = useState({
     search: '',
     state: '',
@@ -167,16 +328,24 @@ export default function ActivityResourcePanel({
     setCriteria((current) => ({ ...current, [key]: value }));
     setPage(1);
   }
+  const dateField = criteria.period === 'all' ? 'sent' : activityStateDateField(criteria.state);
+  const sortableFields = [
+    { field: 'title', label: kind === 'formularios' ? 'Formulario' : 'Expediente' },
+    { field: 'person', label: mode === 'sent' ? 'Destinatario' : 'Emisor' },
+    { field: 'state', label: 'Estado' },
+    { field: 'sent', label: mode === 'sent' ? 'Envío' : 'Recibido' },
+    ...(kind === 'expedientes' ? [{ field: 'progress', label: 'Avance' }] : []),
+  ];
   const filtered = filterActivity(items, {
     ...criteria,
-    dateField: criteria.period === 'all' ? 'sent' : activityStateDateField(criteria.state),
+    dateField,
     from: criteria.period === 'custom' ? criteria.from : '',
     to: criteria.period === 'custom' ? criteria.to : '',
     period: criteria.period === 'custom' ? 'all' : criteria.period,
   });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / 20));
-  const currentPage = Math.min(page, totalPages);
-  const visible = filtered.slice((currentPage - 1) * 20, currentPage * 20);
+  const pagination = useTablePagination(filtered.length);
+  const setPage = pagination.onPageChange;
+  const visible = filtered.slice(pagination.start, pagination.end);
   const states = [
     ['', 'Todos'],
     ['in_progress', 'En progreso'],
@@ -227,66 +396,94 @@ export default function ActivityResourcePanel({
       setBusy(null);
     }
   }
-  const actions = (item: ActivityItem, board = false) => (
-    <div className="flex flex-wrap items-center gap-2">
-      {item.actions.map((action, index) => {
-        const style =
-          board && index === 0 && !action.disabledReason ? boardActionStyle : inlineActionStyle;
-        return action.href ? (
-          <Link
-            key={action.label}
-            href={action.href}
-            prefetch={false}
-            className={`${activityActionStyle} ${style}`}
-          >
-            {action.label}
-            <ChevronRight size={14} aria-hidden="true" />
-          </Link>
-        ) : (
-          <button
-            key={action.label}
-            type="button"
-            disabled={busy !== null || !!action.disabledReason}
-            title={action.disabledReason}
-            onClick={() => void open(item, action)}
-            className={`${activityActionStyle} ${style} disabled:cursor-not-allowed disabled:opacity-60`}
-          >
-            {busy === item.id ? <Loader2 size={14} className="animate-spin" /> : null}
-            {action.label}
-            <ChevronRight size={14} aria-hidden="true" />
-          </button>
-        );
-      })}
-    </div>
-  );
-  const stateBadge = (item: ActivityItem) => (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tones[item.state]}`}
-    >
-      {item.stateLabel}
-    </span>
-  );
-  const progress = (item: ActivityItem) =>
-    item.progress !== null ? (
-      <div className="min-w-24">
-        <span className="text-xs text-slate-600">{item.progress}%</span>
-        <div
-          role="progressbar"
-          aria-label={`Avance de ${item.title}`}
-          aria-valuenow={item.progress}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="mt-1.5 h-1.5 rounded-full bg-slate-100"
-        >
-          <div
-            className="h-full rounded-full bg-primary"
-            style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }}
-          />
-        </div>
+  function toggleDetails(itemId: string) {
+    setExpandedItems((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+  const actions = (item: ActivityItem, layout: 'card' | 'board' | 'list' = 'card') => {
+    const useWorkspaceSize = layout !== 'board' && view === 'lista';
+    const compactCaseActions = useWorkspaceSize && item.kind === 'expedientes';
+    const align = layout === 'list' ? 'justify-end' : '';
+    const size = compactCaseActions
+      ? 'workspace-action-button lg:[@media(pointer:fine)]:h-[34px]'
+      : useWorkspaceSize ? 'workspace-action-button' : alternateViewActionSize;
+    const iconSize = useWorkspaceSize ? 16 : 14;
+    const buttons = (
+      <div className={`flex min-w-0 flex-1 flex-wrap items-center gap-2 ${align}`}>
+        {item.actions.map((action, index) => {
+          const className = `${activityActionStyle} ${size} ${index === 0 ? primaryActionStyle : secondaryActionStyle} ${layout === 'board' ? 'w-full' : 'w-full sm:w-auto'}`;
+          const opening = busy === item.id && !!action.open && !action.disabledReason;
+          const content = (
+            <>
+              {opening && <Loader2 size={iconSize} className="animate-spin" aria-hidden="true" />}
+              <span>{action.label}</span>
+              <ChevronRight size={iconSize} className="shrink-0" aria-hidden="true" />
+            </>
+          );
+          return action.href && !action.disabledReason ? (
+            <Link key={action.label} href={action.href} prefetch={false} className={className}>
+              {content}
+            </Link>
+          ) : (
+            <button
+              key={action.label}
+              type="button"
+              disabled={!action.open || busy !== null || !!action.disabledReason}
+              aria-busy={opening || undefined}
+              title={action.disabledReason}
+              onClick={() => void open(item, action)}
+              className={`${className} disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              {content}
+            </button>
+          );
+        })}
       </div>
-    ) : (
-      <span className="text-xs text-slate-500">{item.detail}</span>
     );
+    if (!useWorkspaceSize) return buttons;
+
+    const expanded = expandedItems.has(item.id);
+    const disabledReason = item.actions.find((action) => action.disabledReason)?.disabledReason;
+    return (
+      <div className={`flex flex-wrap items-start gap-2 ${align}`}>
+        {buttons}
+        <WorkspaceRowActions
+          title={item.title}
+          triggerVariant="outlined"
+          className={compactCaseActions
+            ? 'shrink-0 lg:[@media(pointer:fine)]:[&>button]:size-[34px]'
+            : 'shrink-0'}
+          menuClassName="workspace-action-menu"
+          actions={[
+            {
+              label: expanded ? 'Ocultar detalles' : 'Ver detalles',
+              icon: expanded ? ChevronDown : ChevronRight,
+              onSelect: () => toggleDetails(item.id),
+            },
+            ...item.actions.map((action) => {
+              const entry = { label: action.label, icon: ExternalLink };
+              return action.href && !action.disabledReason
+                ? { ...entry, href: action.href }
+                : {
+                    ...entry,
+                    onSelect: () => void open(item, action),
+                    disabled: !action.open || busy !== null || !!action.disabledReason,
+                  };
+            }),
+          ]}
+        />
+        {disabledReason && disabledReason !== item.stateLabel && disabledReason !== item.detail && (
+          <p className={`basis-full text-xs text-muted-foreground ${layout === 'list' ? 'text-right' : ''}`}>
+            {disabledReason}
+          </p>
+        )}
+      </div>
+    );
+  };
   const card = (item: ActivityItem, compact = false) => (
     <article
       key={item.id}
@@ -327,6 +524,15 @@ export default function ActivityResourcePanel({
         </>
       )}
       <div className="mt-3">{actions(item)}</div>
+      {view === 'lista' && expandedItems.has(item.id) && (
+        <ActivityItemDetails
+          item={item}
+          mode={mode}
+          expanded
+          singleColumn
+          className="mt-3 rounded-lg border border-border bg-muted/40 p-3"
+        />
+      )}
     </article>
   );
   const boardCard = (item: ActivityItem) => {
@@ -392,7 +598,7 @@ export default function ActivityResourcePanel({
           <Calendar size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
           <span>{timing}</span>
         </p>
-        {actions(item, true)}
+        {actions(item, 'board')}
       </article>
     );
   };
@@ -481,13 +687,17 @@ export default function ActivityResourcePanel({
                       aria-hidden="true"
                     />
                     <select
-                      aria-label="Ordenar por fecha"
+                      aria-label="Ordenar"
                       value={criteria.sort}
                       onChange={(event) => change('sort', event.target.value)}
                       className={`${control} pl-8`}
                     >
                       <option value="recent">Más recientes</option>
                       <option value="oldest">Más antiguos</option>
+                      {sortableFields.flatMap(({ field, label }) => [
+                        <option key={`${field}_asc`} value={`${field}_asc`}>{label} ascendente</option>,
+                        <option key={`${field}_desc`} value={`${field}_desc`}>{label} descendente</option>,
+                      ])}
                     </select>
                   </div>
                   <div className="flex h-9 items-center rounded-md border border-slate-200 p-0.5 dark:border-border">
@@ -596,7 +806,7 @@ export default function ActivityResourcePanel({
                           }));
                           setPage(1);
                         }}
-                        className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${selected ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-border dark:bg-card dark:text-muted-foreground'}`}
+                        className={`workspace-filter-trigger flex min-h-8 items-center rounded-md border px-2.5 font-normal transition-colors ${selected ? 'border-primary/25 bg-primary/5' : 'border-border bg-card hover:bg-muted'}`}
                       >
                         {label}
                       </button>
@@ -661,7 +871,10 @@ export default function ActivityResourcePanel({
           <section
             aria-label={`Listado de ${kind}`}
             className={
-              view === 'tablero' && !loading && !error && boardItems.length
+              !loading && !error && (
+                (view === 'tablero' && boardItems.length > 0) ||
+                (view === 'lista' && !grid && visible.length > 0)
+              )
                 ? 'min-w-0'
                 : 'min-h-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card'
             }
@@ -722,140 +935,28 @@ export default function ActivityResourcePanel({
                 {visible.map((item) => card(item))}
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="responsive-data-table w-full text-left text-sm">
-                  <thead className="border-b border-slate-200 bg-slate-50/70 text-xs text-slate-500">
-                    <tr>
-                      {[
-                        kind === 'formularios' ? 'Formulario' : 'Expediente',
-                        mode === 'sent' ? 'Destinatario' : 'Emisor',
-                        mode === 'sent'
-                          ? kind === 'formularios'
-                            ? 'Participación'
-                            : 'Participantes'
-                          : 'Mi participación',
-                        'Estado',
-                        'Acceso',
-                        mode === 'sent' ? 'Envío' : 'Recibido',
-                        kind === 'expedientes' ? 'Avance' : 'Respuesta',
-                        'Acciones',
-                      ].map((label) => (
-                        <th key={label} className="whitespace-nowrap px-4 py-4 font-medium">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {visible.map((item) => (
-                      <tr key={item.id} className="hover:bg-blue-50/25">
-                        <td className="min-w-48 px-4 py-4">
-                          <span className="inline-flex items-start gap-2">
-                            <Icon size={16} className="mt-0.5 shrink-0 text-primary" />
-                            <span className="font-medium">{item.title}</span>
-                          </span>
-                          {item.priority === 'urgent' && (
-                            <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-600">
-                              <Zap size={12} />
-                              Urgente
-                            </span>
-                          )}
-                          <p className="mt-1 text-xs text-slate-400">
-                            {item.reference || item.workspace}
-                          </p>
-                        </td>
-                        <td
-                          data-label={mode === 'sent' ? 'Destinatario' : 'Emisor'}
-                          className="px-4 py-4 text-xs text-slate-600"
-                        >
-                          {item.person}
-                          {item.email && (
-                            <p className="mt-1 break-all text-xs text-slate-400">{item.email}</p>
-                          )}
-                        </td>
-                        <td
-                          data-label={
-                            mode === 'sent'
-                              ? kind === 'formularios'
-                                ? 'Participación'
-                                : 'Participantes'
-                              : 'Mi participación'
-                          }
-                          className="px-4 py-4 text-xs text-slate-500"
-                        >
-                          {item.role}
-                        </td>
-                        <td data-label="Estado" className="px-4 py-4">
-                          {stateBadge(item)}
-                        </td>
-                        <td data-label="Acceso" className="px-4 py-4 text-xs text-slate-500">
-                          {item.access === 'public' ? 'Con código' : 'Privado'}
-                        </td>
-                        <td
-                          data-label={mode === 'sent' ? 'Envío' : 'Recibido'}
-                          className="px-4 py-4 text-xs text-slate-500"
-                        >
-                          {date(item.sentAt)}
-                          {item.state === 'scheduled' && item.scheduledAt && (
-                            <p className="mt-1 text-indigo-600">
-                              Programado: {date(item.scheduledAt)}
-                            </p>
-                          )}
-                          {item.expiresAt && (
-                            <p className="mt-1 text-slate-400">Vence: {date(item.expiresAt)}</p>
-                          )}
-                        </td>
-                        <td
-                          data-label={kind === 'expedientes' ? 'Avance' : 'Respuesta'}
-                          className="px-4 py-4"
-                        >
-                          {progress(item)}
-                        </td>
-                        <td data-label="Acciones" className="px-4 py-4">
-                          {actions(item)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="w-full space-y-3" role="list">
+                {visible.map((item) => (
+                  <li key={item.id}>
+                    <ActivityListCard
+                      item={item}
+                      mode={mode}
+                      expanded={expandedItems.has(item.id)}
+                      onToggle={() => toggleDetails(item.id)}
+                      actions={actions(item, 'list')}
+                    />
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
-          {!loading && !error && view !== 'calendario' && (
-            <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-              <span>
-                {view !== 'lista'
-                  ? `${boardItems.length} ${kind} en este periodo`
-                  : filtered.length
-                    ? `Mostrando ${(currentPage - 1) * 20 + 1}–${Math.min(currentPage * 20, filtered.length)} de ${filtered.length} ${kind}`
-                    : `0 ${kind}`}
-              </span>
-              {view === 'lista' && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    aria-label="Página anterior"
-                    disabled={currentPage === 1}
-                    onClick={() => setPage(currentPage - 1)}
-                    className={`${control} px-2 disabled:opacity-40`}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span>
-                    {currentPage} de {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Página siguiente"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setPage(currentPage + 1)}
-                    className={`${control} px-2 disabled:opacity-40`}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              )}
-            </footer>
+          {!loading && !error && view === 'lista' && (
+            <div className="mt-4 overflow-hidden rounded-lg border border-border">
+              <TablePagination {...pagination} />
+            </div>
+          )}
+          {!loading && !error && view === 'tablero' && (
+            <p className="mt-4 text-xs text-slate-500">{boardItems.length} {kind} en este periodo</p>
           )}
         </div>
       </div>

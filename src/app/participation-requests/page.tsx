@@ -5,9 +5,12 @@ import AppLayout from '@/components/AppLayout';
 import ActivityHub, { ActivityLoading } from '@/components/activity/ActivityHub';
 import ActivityTypeTabs from '@/components/activity/ActivityTypeTabs';
 import ActivityViewTabs from '@/components/activity/ActivityViewTabs';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
 import { ActivitySummary, type ActivitySummaryMetric } from '@/components/documents/ActivitySummary';
 import { useRouter } from 'next/navigation';
 import { hasEffectiveParticipation } from '@/lib/documents/participant-visibility';
+import { DOCUMENT_ACTIVITY_DEFAULTS } from '@/lib/activity/views';
+import { compareListDates } from '@/lib/workspaces/list-order';
 
 import { Send, Search, User, UserPlus, Calendar, Clock, CheckCircle2, XCircle, LayoutList, LayoutGrid, ChevronLeft, ChevronRight, Inbox, ChevronDown, Eye, Users, Mail, AlertTriangle, Ban, AlertCircle, ArrowUpDown, PauseCircle, FileText, Tag, UserCheck, UserMinus, MoreHorizontal } from 'lucide-react';
 import { AñadirParticipantesModal, ConfigurarParticipacionModal } from '@/app/crear-documento/components/StepParticipantes';
@@ -1099,9 +1102,9 @@ function RequestCard({
             <button
               type="button"
               onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-xs font-600 text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="workspace-action-button whitespace-nowrap bg-primary text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
-              <Eye size={14} aria-hidden="true" />
+              <Eye size={16} className="shrink-0" aria-hidden="true" />
               Ver documento
             </button>
             <div className="relative" ref={actionsRef}>
@@ -1112,7 +1115,7 @@ function RequestCard({
                 aria-haspopup="menu"
                 aria-expanded={showActions}
                 aria-controls={actionsId}
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
                 <MoreHorizontal size={17} aria-hidden="true" />
               </button>
@@ -1413,7 +1416,7 @@ function RequestCardGrid({ req, onCancelled, onInvite, onParticipantRevoked }: R
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={menuId}
-          className={`flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${placement === 'footer' ? 'h-10 w-10' : 'h-9 w-9'}`}
+          className="flex size-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
           <MoreHorizontal size={17} aria-hidden="true" />
         </button>
@@ -1602,9 +1605,9 @@ function RequestCardGrid({ req, onCancelled, onInvite, onParticipantRevoked }: R
             <button
               type="button"
               onClick={() => router.push(`/visor-documento/${req.supabaseId ?? req.id}`)}
-              className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-600 text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="workspace-action-button min-w-0 flex-1 bg-primary text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
-              <Eye size={14} aria-hidden="true" /> Ver documento
+              <Eye size={16} className="shrink-0" aria-hidden="true" /> Ver documento
             </button>
             {renderActionsMenu('footer')}
           </div>
@@ -2517,27 +2520,27 @@ function DocumentRequestsPage() {
   const [inviteRequest, setInviteRequest] = useState<ParticipationRequest | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('lista');
-  const [listLayout, setListLayout] = useState<'list' | 'grid'>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>(DOCUMENT_ACTIVITY_DEFAULTS.view);
+  const [listLayout, setListLayout] = useState<'list' | 'grid'>(DOCUMENT_ACTIVITY_DEFAULTS.listLayout);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('en-progreso');
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('30');
+  const [statusFilter, setStatusFilter] = useState<string>(DOCUMENT_ACTIVITY_DEFAULTS.status);
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>(DOCUMENT_ACTIVITY_DEFAULTS.terminalPeriod);
   const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [customPeriodDraft, setCustomPeriodDraft] = useState({ start: '', end: '' });
   const [customPeriodRange, setCustomPeriodRange] = useState({ start: '', end: '' });
   const [customPeriodError, setCustomPeriodError] = useState('');
-  const [dateSort, setDateSort] = useState<'recientes' | 'antiguos'>('recientes');
+  const [dateSort, setDateSort] = useState<'recientes' | 'antiguos'>(DOCUMENT_ACTIVITY_DEFAULTS.sort);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [showCalViewDropdown, setShowCalViewDropdown] = useState(false);
-  const [calView, setCalView] = useState<CalendarView>('mes');
+  const [calView, setCalView] = useState<CalendarView>(DOCUMENT_ACTIVITY_DEFAULTS.calendarView);
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [calWeekStart, setCalWeekStart] = useState<Date>(getWeekStart(today));
   const [calDay, setCalDay] = useState<Date>(new Date(today));
   const [boardMonth, setBoardMonth] = useState(now.getMonth());
   const [boardYear, setBoardYear] = useState(now.getFullYear());
-  const [calFilter, setCalFilter] = useState<CalendarStatusFilter>('todos');
+  const [calFilter, setCalFilter] = useState<CalendarStatusFilter>(DOCUMENT_ACTIVITY_DEFAULTS.calendarStatus);
 
   const dateSortRef = useRef<HTMLDivElement>(null);
   const periodDropdownRef = useRef<HTMLDivElement>(null);
@@ -2646,16 +2649,19 @@ function DocumentRequestsPage() {
     });
 
     // Date sort
-    result = [...result].sort((a, b) => {
-      const da = new Date(a.sentAt).getTime();
-      const db = new Date(b.sentAt).getTime();
-      return dateSort === 'recientes' ? db - da : da - db;
-    });
+    result = [...result].sort((a, b) =>
+      compareListDates(a.sentAt, b.sentAt, dateSort === 'recientes' ? 'desc' : 'asc') ||
+      a.documentName.localeCompare(b.documentName, 'es-MX') ||
+      a.id.localeCompare(b.id)
+    );
 
     return result;
   }, [requests, statusFilter, timeFilter, customPeriodRange, search, dateSort]);
 
   // Month-filtered requests for tablero (filter by boardMonth/boardYear)
+  const pagination = useTablePagination(filtered.length);
+  const pageItems = filtered.slice(pagination.start, pagination.end);
+
   const boardFiltered = React.useMemo(() => {
     return requests.filter(r => {
       let dateStr: string;
@@ -2962,9 +2968,9 @@ function DocumentRequestsPage() {
                 key={opt.value}
                 aria-pressed={calFilter === opt.value}
                 onClick={() => setCalFilter(opt.value)}
-                className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${
+                className={`workspace-filter-trigger flex min-h-8 items-center rounded-md border px-2.5 font-normal transition-colors ${
                   calFilter === opt.value
-                    ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                    ? 'border-primary/25 bg-primary/5' : 'border-border bg-card hover:bg-muted'
                 }`}
               >
                 {opt.label}
@@ -2981,10 +2987,11 @@ function DocumentRequestsPage() {
                   <button
                     type="button"
                     key={opt.value}
+                    aria-pressed={statusFilter === opt.value}
                     onClick={() => setStatusFilter(opt.value)}
-                    className={`flex min-h-8 items-center rounded-md border px-2.5 text-xs font-normal transition-colors ${
+                    className={`workspace-filter-trigger flex min-h-8 items-center rounded-md border px-2.5 font-normal transition-colors ${
                       statusFilter === opt.value
-                        ? 'border-primary/25 bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        ? 'border-primary/25 bg-primary/5' : 'border-border bg-card hover:bg-muted'
                     }`}
                   >
                     {opt.label}
@@ -3110,7 +3117,7 @@ function DocumentRequestsPage() {
               </div>
             ) : listLayout === 'grid' ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {filtered.map((req) => (
+                {pageItems.map((req) => (
                   <RequestCardGrid
                     key={req.id}
                     req={req}
@@ -3122,7 +3129,7 @@ function DocumentRequestsPage() {
               </div>
             ) : (
               <div className="w-full space-y-3">
-                {filtered.map((req) => (
+                {pageItems.map((req) => (
                   <RequestCard
                     key={req.id}
                     req={req}
@@ -3133,9 +3140,9 @@ function DocumentRequestsPage() {
                 ))}
               </div>
             )}
-            <p className="mt-3 text-right text-xs text-slate-400">
-              Mostrando {filtered.length} de {requests.length} solicitudes
-            </p>
+            <div className="mt-3 overflow-hidden rounded-lg border border-border empty:hidden">
+              <TablePagination {...pagination} />
+            </div>
           </div>
         )}
 

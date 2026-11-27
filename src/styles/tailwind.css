@@ -99,19 +99,141 @@
     font-weight: 500 !important;
   }
 
-  :is(.mis-documentos-filters, .activity-filters) button,
-  :is(.mis-documentos-filters, .activity-filters) button * {
+  :is(.mis-documentos-filters, .activity-filters) :is(button, summary),
+  :is(.mis-documentos-filters, .activity-filters) :is(button, summary) *,
+  .workspace-filter-pill,
+  .workspace-filter-pill * {
     font-weight: 400 !important;
   }
 
-  .mis-documentos-filters .filter-selected-value {
+  :is(.mis-documentos-filters, .activity-filters, .workspace-filter-pill) .filter-selected-value {
     font-weight: 500 !important;
   }
 
-  .mis-documentos-sort-header,
-  .mis-documentos-sort-header span {
-    font-size: 0.75rem !important;
-    font-weight: 500 !important;
+  .workspace-filter-trigger {
+    @apply text-sm text-slate-600 dark:text-muted-foreground;
+  }
+
+  .workspace-filter-option {
+    @apply text-sm text-foreground;
+  }
+
+  .workspace-filter-trigger:is([data-active='true'], [aria-pressed='true']),
+  .workspace-filter-option:is([data-selected='true'], [aria-selected='true'], [aria-checked='true']) {
+    @apply text-primary;
+  }
+
+  .workspace-action-menu :is(button, a),
+  .workspace-action-menu :is(button, a) * {
+    font-weight: 400 !important;
+  }
+
+  .workspace-table-heading th {
+    @apply text-slate-700 dark:text-slate-200;
+    background-color: hsl(var(--muted));
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  .workspace-table-heading th button,
+  .workspace-table-heading th span {
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    letter-spacing: inherit;
+    text-transform: inherit;
+  }
+
+  .workspace-table-heading th span {
+    color: inherit;
+  }
+
+  .workspace-table-heading th[data-column-drop-target] {
+    box-shadow: inset 0 -2px hsl(var(--primary));
+  }
+
+  .workspace-actions-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .workspace-actions-table > thead th {
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  @media (forced-colors: none) {
+    .workspace-table-scroll-control {
+      appearance: none;
+      background: transparent;
+    }
+
+    .workspace-table-scroll-control::-webkit-slider-runnable-track {
+      height: 0.375rem;
+      border-radius: 9999px;
+      background: hsl(var(--border));
+    }
+
+    .workspace-table-scroll-control::-webkit-slider-thumb {
+      appearance: none;
+      width: 2.5rem;
+      height: 0.625rem;
+      margin-top: -0.125rem;
+      border-radius: 9999px;
+      background: hsl(var(--primary) / 0.7);
+    }
+
+    .workspace-table-scroll-control::-moz-range-track {
+      height: 0.375rem;
+      border-radius: 9999px;
+      background: hsl(var(--border));
+    }
+
+    .workspace-table-scroll-control::-moz-range-thumb {
+      width: 2.5rem;
+      height: 0.625rem;
+      border: 0;
+      border-radius: 9999px;
+      background: hsl(var(--primary) / 0.7);
+    }
+  }
+
+  .workspace-table-actions {
+    position: sticky;
+    right: 0;
+    z-index: 20;
+    width: 1%;
+    min-width: 4.75rem;
+    padding-inline: 0.75rem;
+    border-left: 1px solid hsl(var(--border));
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  td.workspace-table-actions {
+    background-color: hsl(var(--card));
+  }
+
+  @media (min-width: 1280px) {
+    .workspace-actions-table > tbody > tr + tr > td {
+      border-top: 1px solid hsl(var(--border) / 0.6);
+    }
+  }
+
+  @media (max-width: 1279px) {
+    .responsive-data-table .workspace-column-grip,
+    .responsive-data-table .workspace-column-resizer {
+      display: none;
+    }
+
+    .responsive-data-table .workspace-table-actions {
+      position: static;
+      min-width: 0;
+      z-index: auto;
+      border-left: 0;
+      background-color: transparent;
+      white-space: normal;
+    }
   }
 
   .custom-filter-criteria-options button,
@@ -212,6 +334,10 @@
   }
 
   /* Docubox button variants */
+  .workspace-action-button {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium;
+  }
+
   .btn-primary {
     background-color: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
@@ -771,18 +897,6 @@ button.metric-action-card .metric-action-link {
 }
 
 /* Transient feedback uses the same compact bottom-center treatment throughout the app. */
-.app-feedback-position {
-  position: fixed;
-  z-index: 10000;
-  bottom: max(1.5rem, env(safe-area-inset-bottom));
-  left: 50%;
-  width: max-content;
-  max-width: calc(100vw - 2rem);
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.app-feedback-toast,
 [data-sonner-toast] {
   display: flex !important;
   align-items: center;
@@ -792,7 +906,7 @@ button.metric-action-card .metric-action-link {
   padding: 0.7rem 0.875rem !important;
   border: 0 !important;
   border-radius: 0.375rem !important;
-  background: #020617 !important;
+  background: #1e40af !important;
   color: #fff !important;
   box-shadow: 0 12px 30px rgb(15 23 42 / 18%) !important;
   font-size: 0.75rem !important;
@@ -801,17 +915,18 @@ button.metric-action-card .metric-action-link {
   pointer-events: auto;
 }
 
-.app-feedback-toast[data-tone='critical'],
 [data-sonner-toast][data-type='error'] { background: #b91c1c !important; color: #fff !important; }
-.app-feedback-toast[data-tone='warning'],
-[data-sonner-toast][data-type='warning'] { background: #d97706 !important; color: #fff !important; }
-.app-feedback-toast[data-tone='followup'],
+[data-sonner-toast][data-type='warning'] { background: #92400e !important; color: #fff !important; }
+[data-sonner-toast].app-toast-followup,
 [data-sonner-toast][data-type='loading'] { background: #f59e0b !important; color: #111827 !important; }
-.app-feedback-toast[data-tone='success'],
 [data-sonner-toast][data-type='success'] { background: #047857 !important; color: #fff !important; }
 
-.app-feedback-toast > span { min-width: 0; overflow-wrap: anywhere; }
-.app-feedback-toast > button,
+[data-sonner-toast] [data-content] {
+  min-width: 0;
+  max-height: min(40vh, 16rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
 [data-sonner-toast] [data-close-button] {
   display: inline-flex;
   align-items: center;
@@ -829,9 +944,7 @@ button.metric-action-card .metric-action-link {
   opacity: 0.72;
   cursor: pointer;
 }
-.app-feedback-toast > button:hover,
 [data-sonner-toast] [data-close-button]:hover { opacity: 1; }
-.app-feedback-toast > button:focus-visible,
 [data-sonner-toast] [data-close-button]:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 [data-sonner-toast] [data-title],
 [data-sonner-toast] [data-description],

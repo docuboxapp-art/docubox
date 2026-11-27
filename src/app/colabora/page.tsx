@@ -150,7 +150,7 @@ export default function ColaboraDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="app-page-width space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-medium text-foreground">Centro de trabajo</h2>

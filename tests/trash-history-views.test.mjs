@@ -27,7 +27,7 @@ test('trash announces the thirty-day history window and links to the full profil
   assert.match(trashPage, /Purgado desde Papelera/);
   assert.match(trashPage, /Movido a Papelera/);
   assert.match(trashPage, /entry\.status === 'COMPLETED'/);
-  assert.match(trashPage, /DELETION_HISTORY_PAGE_SIZE = 5/);
+  assert.match(trashPage, /DELETION_HISTORY_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE/);
   assert.match(trashPage, /Mostrando \{deletionHistoryStart \+ 1\}/);
   assert.match(trashPage, /formatDateTime\(entry\.document_created_at\)/);
   assert.match(trashPage, /formatDateTime\(entry\.document_trashed_at\)/);

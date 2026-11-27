@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyDocumentBearer } from '@/lib/documents/bootstrap-auth.server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import {
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
       const {
         data: { user: tokenUser },
         error: tokenError,
-      } = await anonClient.auth.getUser(bearerToken);
+      } = await verifyDocumentBearer(bearerToken, () => anonClient.auth.getUser(bearerToken));
       if (!tokenError && tokenUser) {
         user = tokenUser;
         userClient = anonClient;

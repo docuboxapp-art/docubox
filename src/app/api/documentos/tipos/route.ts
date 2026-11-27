@@ -1,32 +1,34 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAnonClient } from '@/lib/supabase/server';
+import { readDocumentTypes } from '@/lib/catalog/document-reads';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const grupoId = searchParams.get('grupo_id');
 
-    const supabase = await createClient();
+    const authorization = request.headers.get('authorization');
+    if (!authorization?.startsWith('Bearer '))
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    const supabase = createAnonClient(authorization.slice(7));
 
-    let query = supabase
-      .from('tipo_documento')
-      .select('id, grupo_id, nombre, descripcion')
-      .order('nombre');
-
-    if (grupoId) {
-      query = query.eq('grupo_id', grupoId);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await readDocumentTypes(supabase, grupoId);
 
     if (error) {
-      console.error('Error fetching tipos:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: 'No se pudieron cargar los tipos documentales.' },
+        { status: 503 }
+      );
     }
 
-    return NextResponse.json({ data: data || [] });
-  } catch (err: any) {
-    console.error('Unexpected error fetching tipos:', err);
-    return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 });
+    return NextResponse.json(
+      { data: data || [] },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch {
+    return NextResponse.json(
+      { error: 'No se pudieron cargar los tipos documentales.' },
+      { status: 503 }
+    );
   }
 }

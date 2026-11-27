@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
 import { ClientDocumentConversionError, prepareDocument } from '@/lib/document-conversion/client';
+import { documentFieldType } from '@/lib/documents/field-type';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { StepSubir } from './components/StepSubir';
 import { StepParticipantes } from './components/StepParticipantes';
@@ -46,45 +47,10 @@ import type {
 import type { PublishedTemplateDocument } from '@/lib/templates/preview';
 import { getTemplateSignatureCapacity } from '@/lib/templates/field-capacity';
 
-// ─── Helper: derive tipo from field label ─────────────────────────────────────
-function getLabelTipo(label: string): string {
-  const map: Record<string, string> = {
-    Firma: 'firma',
-    'Nombre Completo': 'nombre_completo',
-    RFC: 'rfc',
-    CURP: 'curp',
-    'Correo Electrónico': 'correo',
-    'Número Telefónico': 'telefono',
-    Dirección: 'direccion',
-    Texto: 'texto',
-    Fecha: 'fecha',
-    Hora: 'hora',
-    Número: 'numero',
-    Moneda: 'moneda',
-    Casilla: 'checkbox',
-    Imagen: 'imagen',
-    'Botones de opción': 'radio',
-    Desplegable: 'dropdown',
-    'Cadena original': 'document_chain',
-    'Sello digital': 'document_seal',
-    'Estampa de tiempo': 'timestamp',
-    'Cadena de evidencia': 'evidence_chain',
-  };
-  return map[label] || 'texto';
-}
-
-function getTemplateSignatureCapacityMessage(capacity: number, signerCount: number) {
-  if (signerCount < capacity) {
-    return capacity === 1
-      ? 'Esta plantilla contiene un espacio de firma. Debes configurar un firmante antes de continuar.'
-      : `Esta plantilla contiene ${capacity} espacios de firma. Debes configurar ${capacity} firmantes antes de continuar.`;
-  }
-
-  return capacity === 0
-    ? 'Esta plantilla no contiene espacios de firma. No es posible configurar firmantes.'
-    : capacity === 1
-      ? 'Esta plantilla solo tiene un espacio de firma. No es posible configurar más de un firmante.'
-      : `Esta plantilla solo tiene ${capacity} espacios de firma. No es posible configurar más de ${capacity} firmantes.`;
+function getTemplateSignatureCapacityMessage(capacity: number) {
+  return capacity === 1
+    ? 'Esta plantilla contiene un espacio de firma. Debes configurar al menos un firmante antes de continuar.'
+    : `Esta plantilla contiene ${capacity} espacios de firma. Debes configurar al menos ${capacity} firmantes antes de continuar.`;
 }
 
 // ─── Pipeline de seguridad (Capa 1 + Capa 2) — ejecutado en background ───────
@@ -275,7 +241,6 @@ function CrearDocumentoPageInner() {
   });
   const [placedFields, setPlacedFields] = useState<import('./components/types').PlacedField[]>([]);
   const [ajustesFixarCampos, setAjustesFixarCampos] = useState(false);
-  const [ajustesHasFirma, setAjustesHasFirma] = useState(false);
   const [templateFieldsReady, setTemplateFieldsReady] = useState(true);
   const [securitySummary, setSecuritySummary] = useState<SecuritySettings | undefined>(undefined);
   const [documentoId] = useState<string>(() => {
@@ -287,7 +252,6 @@ function CrearDocumentoPageInner() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
   const [draftDbId, setDraftDbId] = useState<string | null>(null);
   const stepEnviarRef = useRef<StepEnviarHandle>(null);
   const [enviarSending, setEnviarSending] = useState(false);
@@ -327,36 +291,28 @@ function CrearDocumentoPageInner() {
       ((participant.acto || '').toLocaleLowerCase('es-MX') === 'firmante' ||
         (!participant.acto && participant.role === 'firmante'))
   ).length;
-  const templateSignerCapacityMismatch =
-    !!templateSource && configuredSignerCount !== templateSignatureCapacity;
-
-  const showSignatureCapacityWarning = (capacity: number) => {
-    toast.warning(getTemplateSignatureCapacityMessage(capacity, configuredSignerCount), {
-      id: 'template-signature-capacity',
-    });
-  };
+  const templateMissingSigners =
+    !!templateSource && configuredSignerCount < templateSignatureCapacity;
 
   useEffect(() => {
     if (
       currentStepLabel !== 'Participantes' ||
-      !templateSource ||
+      !templateMissingSigners ||
       participants.length === 0 ||
-      !participants.every((participant) => participant.configured === true) ||
-      configuredSignerCount === templateSignatureCapacity
+      !participants.every((participant) => participant.configured === true)
     ) {
       return;
     }
 
     toast.warning(
-      getTemplateSignatureCapacityMessage(templateSignatureCapacity, configuredSignerCount),
+      getTemplateSignatureCapacityMessage(templateSignatureCapacity),
       { id: 'template-signature-capacity' }
     );
   }, [
-    configuredSignerCount,
     currentStepLabel,
     participants,
     templateSignatureCapacity,
-    templateSource,
+    templateMissingSigners,
   ]);
 
   useEffect(() => {
@@ -534,7 +490,7 @@ function CrearDocumentoPageInner() {
     }
     if (currentStepLabel === 'Participantes') {
       return (
-        !templateSignerCapacityMismatch &&
+        !templateMissingSigners &&
         participantMode !== null &&
         participants.length > 0 &&
         participants.every((p) => p.configured === true) &&
@@ -546,9 +502,7 @@ function CrearDocumentoPageInner() {
       return grupos.length > 0 && participants.every((p) => assignedIds.has(p.id));
     }
     if (currentStepLabel === 'Ajustes') {
-      if (templateSource) {
-        if (!templateFieldsReady) return false;
-      } else if (ajustesFixarCampos && !ajustesHasFirma) return false;
+      if (templateSource && !templateFieldsReady) return false;
       if (securitySummary?.selloDigital && securitySummary.selloUbicacion === 'libre') {
         const hasVisibleCertificationField = placedFields.some(
           (field) =>
@@ -721,7 +675,7 @@ function CrearDocumentoPageInner() {
             id: f.id,
             valueKey: f.valueKey || f.id,
             label: f.label,
-            tipo: getLabelTipo(f.label),
+            tipo: documentFieldType(f.label),
             x: f.x,
             y: f.y,
             width: f.width,
@@ -752,7 +706,7 @@ function CrearDocumentoPageInner() {
         setDraftDbId(json.data.id);
       }
 
-      setDraftSaved(true);
+      toast.success('Borrador guardado.');
       return true;
     } catch (err: any) {
       console.error('Error saving draft:', err);
@@ -993,8 +947,6 @@ function CrearDocumentoPageInner() {
               supplementalResources={supplementalResources}
               inPersonSigningEnabled={inPersonSigningEnabled}
               documentRequirements={documentRequirements}
-              templateSignatureCapacity={templateSource ? templateSignatureCapacity : null}
-              onSignatureCapacityExceeded={showSignatureCapacityWarning}
             />
           )}
           {currentStepLabel === 'Agrupamiento' && (
@@ -1021,10 +973,7 @@ function CrearDocumentoPageInner() {
               documentoId={documentoId}
               securitySettings={securitySummary}
               onPlacedFieldsChange={setPlacedFields}
-              onFixarCamposChange={(fixar, hasFirma) => {
-                setAjustesFixarCampos(fixar);
-                setAjustesHasFirma(hasFirma);
-              }}
+              onFixarCamposChange={setAjustesFixarCampos}
               onTemplateFieldAssignmentChange={setTemplateFieldsReady}
               initialFixarCampos={ajustesFixarCampos}
               initialPlacedFields={placedFields}
@@ -1069,12 +1018,6 @@ function CrearDocumentoPageInner() {
             </button>
           )}
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            {draftSaved && (
-              <span className="hidden items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 sm:flex">
-                <CheckCircle2 size={12} />
-                Borrador guardado
-              </span>
-            )}
             {currentStep !== 1 && (
               <button
                 onClick={handleGuardarAvanceClick}

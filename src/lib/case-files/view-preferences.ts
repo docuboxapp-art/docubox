@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { restoreViewOrder, viewConfigRecord as object } from '../workspaces/view-order';
 
 export type CaseViewColumn = { id: string; label: string; visible: boolean };
 export type CaseViewGridRow = { id: string; label: string; selected: boolean; order: number };
@@ -7,6 +8,45 @@ export type CaseViewPreferences = {
   filters: CaseViewColumn[];
   gridColumns: CaseViewGridRow[];
 };
+export type CaseColumnWidths = Record<string, number>;
+
+export const CASE_COLUMN_WIDTHS: CaseColumnWidths = {
+  title: 248,
+  type: 164,
+  participant: 144,
+  responsible: 144,
+  issuer: 144,
+  status: 152,
+  progress: 104,
+  updated: 132,
+  category: 168,
+  priority: 112,
+  folio: 168,
+  created: 144,
+  due: 152,
+  access: 128,
+  tags: 144,
+};
+export const CASE_COLUMN_MAX_WIDTH = 720;
+
+export function caseColumnMinWidth(id: string) {
+  return id === 'title' ? 168 : 96;
+}
+
+function normalizeCaseColumnWidths(value: unknown): CaseColumnWidths {
+  const raw = object(value);
+  const widths: CaseColumnWidths = {};
+  for (const id of Object.keys(CASE_COLUMN_WIDTHS)) {
+    const width = raw[id];
+    if (typeof width === 'number' && Number.isFinite(width)) {
+      widths[id] = Math.min(
+        CASE_COLUMN_MAX_WIDTH,
+        Math.max(caseColumnMinWidth(id), Math.round(width))
+      );
+    }
+  }
+  return widths;
+}
 
 export const CASE_VIEW_COLUMNS: CaseViewColumn[] = [
   { id: 'type', label: 'Tipo de expediente', visible: true },
@@ -49,6 +89,8 @@ export const CASE_VIEW_FILTERS: CaseViewColumn[] = [
   { id: 'access', label: 'Acceso', visible: true },
   { id: 'dates', label: 'Fecha de creación', visible: true },
   { id: 'scheduled', label: 'Envío', visible: true },
+  { id: 'template', label: 'Nombre del tipo de expediente', visible: true },
+  { id: 'scope', label: 'Seguimiento y favoritos', visible: true },
 ];
 export const CASE_VIEW_GRID: CaseViewGridRow[] = CASE_VIEW_COLUMNS.map((column, index) => ({
   id: column.id,
@@ -56,29 +98,6 @@ export const CASE_VIEW_GRID: CaseViewGridRow[] = CASE_VIEW_COLUMNS.map((column, 
   selected: ['type', 'participant', 'status', 'progress', 'folio'].includes(column.id),
   order: index,
 }));
-const object = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-function orderedCatalog<T extends { id: string }>(raw: unknown, catalog: T[]): T[] {
-  const entries = Array.isArray(raw) ? raw : [];
-  const seen = new Set<string>();
-  const result: T[] = [];
-  for (const entry of entries) {
-    const row = object(entry),
-      known = catalog.find((item) => item.id === row.id);
-    if (!known || seen.has(known.id)) continue;
-    seen.add(known.id);
-    result.push({
-      ...known,
-      ...('visible' in known && typeof row.visible === 'boolean' ? { visible: row.visible } : {}),
-      ...('selected' in known && typeof row.selected === 'boolean'
-        ? { selected: row.selected }
-        : {}),
-    });
-  }
-  return [...result, ...catalog.filter((item) => !seen.has(item.id)).map((item) => ({ ...item }))];
-}
 export function normalizeCaseView(value: unknown): CaseViewPreferences {
   const raw = object(value);
   const oldColumns = Array.isArray(raw.columns) ? raw.columns : [];
@@ -97,9 +116,9 @@ export function normalizeCaseView(value: unknown): CaseViewPreferences {
       : rows;
   let selected = 0;
   return {
-    columns: orderedCatalog(legacy ? undefined : migrateOwner(raw.columns), CASE_VIEW_COLUMNS),
-    filters: orderedCatalog(raw.filters, CASE_VIEW_FILTERS),
-    gridColumns: orderedCatalog(migrateOwner(raw.gridColumns), CASE_VIEW_GRID).map(
+    columns: restoreViewOrder(legacy ? undefined : migrateOwner(raw.columns), CASE_VIEW_COLUMNS),
+    filters: restoreViewOrder(raw.filters, CASE_VIEW_FILTERS),
+    gridColumns: restoreViewOrder(migrateOwner(raw.gridColumns), CASE_VIEW_GRID).map(
       (item, index) => ({
         ...item,
         order: index,
@@ -120,14 +139,34 @@ export async function loadCaseView(
 ) {
   const { data, error } = await client
     .from('user_view_preferences')
-    .select('custom_filters')
+    .select('custom_filters,column_widths_config')
     .eq('user_id', userId)
     .eq('view_key', caseViewKey(workspaceId))
     .maybeSingle();
   if (error) throw new Error('No se pudo cargar la personalización de la vista.');
-  return normalizeCaseView(
-    Array.isArray(data?.custom_filters) ? data.custom_filters[0] : undefined
+  return {
+    view: normalizeCaseView(
+      Array.isArray(data?.custom_filters) ? data.custom_filters[0] : undefined
+    ),
+    widths: normalizeCaseColumnWidths(data?.column_widths_config),
+  };
+}
+
+export async function saveCaseColumnWidths(
+  client: Pick<SupabaseClient, 'from'>,
+  userId: string,
+  workspaceId: string,
+  widths: CaseColumnWidths
+) {
+  const { error } = await client.from('user_view_preferences').upsert(
+    {
+      user_id: userId,
+      view_key: caseViewKey(workspaceId),
+      column_widths_config: normalizeCaseColumnWidths(widths),
+    },
+    { onConflict: 'user_id,view_key', defaultToNull: false }
   );
+  if (error) throw new Error('No se pudo guardar el ancho de las columnas.');
 }
 export async function saveCaseView(
   client: Pick<SupabaseClient, 'from'>,
@@ -144,7 +183,7 @@ export async function saveCaseView(
         view_key: caseViewKey(workspaceId),
         custom_filters: [{ version: 1, ...normalized }],
       },
-      { onConflict: 'user_id,view_key' }
+      { onConflict: 'user_id,view_key', defaultToNull: false }
     )
     .select('custom_filters')
     .single();

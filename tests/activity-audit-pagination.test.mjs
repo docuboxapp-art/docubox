@@ -7,8 +7,8 @@ const component = await readFile(
   'utf8'
 );
 
-test('activity audit log defaults to ten rows and supports configurable pagination', () => {
-  assert.match(component, /useState<10 \| 30 \| 50 \| 100>\(10\)/);
+test('activity audit log uses the shared default and supports configurable pagination', () => {
+  assert.match(component, /useState<10 \| 30 \| 50 \| 100>\(DEFAULT_TABLE_PAGE_SIZE\)/);
   assert.match(component, /const visibleAuditLog = filteredAuditLog\.slice/);
   assert.match(component, /\[10, 30, 50, 100\]/);
   assert.match(component, /Registros por página/);

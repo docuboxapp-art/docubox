@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
 import { build } from 'esbuild';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFBool, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import { SIGNERS_SHEET_PDF_PAGE_KEY } from '../src/lib/signatures/signing-options.ts';
 
 const buildDirectory = await mkdtemp(path.join(tmpdir(), 'docubox-certification-test-'));
 await build({
@@ -191,6 +192,17 @@ test('uses the blank foot area when the final page content remains above it', as
     placementData
   );
   assert.equal((await PDFDocument.load(result)).getPageCount(), 1);
+});
+
+test('keeps the sheet of signers at the end when the document seal needs its own page', async () => {
+  const source = await PDFDocument.load(await createSourcePdf(true));
+  const sheetKey = PDFName.of(SIGNERS_SHEET_PDF_PAGE_KEY);
+  source.addPage([612, 792]).node.set(sheetKey, PDFBool.True);
+  const result = await pdfModule.applyCryptographicPlacementAtFoot(await source.save(), placementData);
+  const stamped = await PDFDocument.load(result);
+
+  assert.equal(stamped.getPageCount(), 3);
+  assert.deepEqual(stamped.getPages().map((page) => page.node.has(sheetKey)), [false, false, true]);
 });
 
 test('anchors the block at the foot or at the top of a new page as needed', async () => {

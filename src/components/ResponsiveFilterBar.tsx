@@ -19,13 +19,13 @@ export default function ResponsiveFilterBar({
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className="flex min-h-12 w-full items-center justify-between border-t border-border px-3 text-sm text-muted-foreground lg:hidden"
+        className="workspace-filter-pill workspace-filter-trigger flex min-h-12 w-full items-center justify-between border-t border-border px-3 lg:hidden"
       >
         <span className="flex items-center gap-2">
           <Filter size={16} />
           Filtros
           {count > 0 && (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+            <span className="filter-selected-value rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
               {count} activos
             </span>
           )}

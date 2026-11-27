@@ -1,5 +1,6 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
@@ -27,6 +28,8 @@ import type { WorkflowBuilderCapabilities } from '@/components/organization/Orga
 import { OrganizationCustodyInbox } from '@/components/organization/OrganizationCustodyInbox';
 import OrganizationRecordActions from './OrganizationRecordActions';
 import { organizationValueLabels } from '@/lib/organization/catalog';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 
 export type GovernanceSection =
   'directorio' | 'facultades' | 'flujos' | 'politicas-firma' | 'recursos';
@@ -398,6 +401,12 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
       .toLowerCase()
       .includes(query.toLowerCase())
   );
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, {
+    person: (row) => row.full_name,
+    relationship: (row) => organizationValueLabels[row.relationship_type],
+    role: (row) => row.job_title,
+    expiry: (row) => tableDate(row.valid_until),
+  });
   const memberLabel = (member: Row) => {
     const profile = Array.isArray(member.user_profiles)
       ? member.user_profiles[0]
@@ -405,7 +414,7 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
     return profile?.full_name || profile?.email || 'Miembro';
   };
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header
         section="directorio"
         action={
@@ -553,61 +562,65 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
           </div>
         ) : filtered.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/60">
-                <tr>
-                  <th className="text-left font-medium px-5 py-3">Persona</th>
-                  <th className="text-left font-medium px-4 py-3">Relación</th>
-                  <th className="text-left font-medium px-4 py-3">Cargo y área</th>
-                  <th className="text-left font-medium px-4 py-3">Identidad</th>
-                  <th className="text-left font-medium px-4 py-3">Vigencia</th>
-                  <th className="w-12" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium">{item.full_name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {item.email || 'Sin correo'}
-                        {item.member_id ? ' · Miembro vinculado' : ''}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3.5 capitalize">
-                      {organizationValueLabels[item.relationship_type] || 'Sin relación'}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <p>{item.job_title || '—'}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.area_name || 'Sin área'}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <Status value={item.identity_status} />
-                    </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">{dateLabel(item.valid_until)}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <OrganizationRecordActions
-                          resource="directory"
-                          id={item.id}
-                          onSaved={load}
-                          label={`Editar ${item.full_name}`}
-                        />
-                        <Link
-                          href={`/organizacion/directorio/${item.id}`}
-                          aria-label={`Ver ${item.full_name}`}
-                          className="w-8 h-8 grid place-items-center rounded-md border border-border text-primary hover:bg-primary/5"
-                        >
-                          <ArrowRight size={15} />
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <PaginatedTableScrollArea items={orderedRows} label="Registros de gobierno de la organización">
+              {(pageRows) => (
+                <table className="w-full text-sm">
+                  <thead className="workspace-table-heading">
+                    <tr>
+                      <th className="text-left px-5 py-3" {...sortHeading('person', 'Persona')} />
+                      <th className="text-left px-4 py-3" {...sortHeading('relationship', 'Relación')} />
+                      <th className="text-left px-4 py-3" {...sortHeading('role', 'Cargo y área')} />
+                      <th scope="col" className="text-left px-4 py-3">Identidad</th>
+                      <th className="text-left px-4 py-3" {...sortHeading('expiry', 'Vigencia')} />
+                      <th className="w-12" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {pageRows.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-5 py-3.5">
+                          <p className="font-medium">{item.full_name}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {item.email || 'Sin correo'}
+                            {item.member_id ? ' · Miembro vinculado' : ''}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3.5 capitalize">
+                          {organizationValueLabels[item.relationship_type] || 'Sin relación'}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <p>{item.job_title || '—'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.area_name || 'Sin área'}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <Status value={item.identity_status} />
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">{dateLabel(item.valid_until)}</td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <OrganizationRecordActions
+                              resource="directory"
+                              id={item.id}
+                              onSaved={load}
+                              label={`Editar ${item.full_name}`}
+                            />
+                            <Link
+                              href={`/organizacion/directorio/${item.id}`}
+                              aria-label={`Ver ${item.full_name}`}
+                              className="w-8 h-8 grid place-items-center rounded-md border border-border text-primary hover:bg-primary/5"
+                            >
+                              <ArrowRight size={15} />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTableScrollArea>
           </div>
         ) : (
           <Empty
@@ -623,6 +636,13 @@ function DirectoryView({ workspaceId, userId, canManage, audit }: ViewProps) {
 function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
+  const personOf = (row: Row) => Array.isArray(row.organization_directory_people)
+    ? row.organization_directory_people[0]
+    : row.organization_directory_people;
+  const { orderedRows, sortHeading } = useTableOrdering(rows, {
+    person: (row) => personOf(row)?.full_name,
+    expiry: (row) => tableDate(row.valid_until),
+  });
   const [people, setPeople] = useState<Row[]>([]);
   const [evidence, setEvidence] = useState<Row[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -719,7 +739,7 @@ function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     await load();
   };
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header
         section="facultades"
         action={
@@ -909,87 +929,89 @@ function AuthoritiesView({ workspaceId, userId, canManage, audit }: ViewProps) {
           </div>
         ) : rows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/60">
-                <tr>
-                  <th className="px-5 py-3 text-left font-medium">Persona y facultad</th>
-                  <th className="px-4 py-3 text-left font-medium">Modalidad</th>
-                  <th className="px-4 py-3 text-left font-medium">Alcance</th>
-                  <th className="px-4 py-3 text-left font-medium">Vigencia</th>
-                  <th className="px-4 py-3 text-left font-medium">Estado</th>
-                  <th className="px-5 py-3 text-right font-medium">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {rows.map((item) => {
-                  const person = Array.isArray(item.organization_directory_people)
-                    ? item.organization_directory_people[0]
-                    : item.organization_directory_people;
-                  return (
-                    <tr key={item.id}>
-                      <td className="px-5 py-3.5">
-                        <p className="font-medium">
-                          {person?.full_name || 'Persona no disponible'}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {item.authority_type}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3.5 capitalize">
-                        {item.modality === 'joint'
-                          ? 'Conjunta'
-                          : item.modality === 'several'
-                            ? 'Mancomunada'
-                            : 'Individual'}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <p>
-                          {item.monetary_limit
-                            ? `${Number(item.monetary_limit).toLocaleString('es-MX')} ${item.currency}`
-                            : 'Sin límite monetario'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {(item.document_types || []).join(', ') || 'Todos los tipos'}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {dateLabel(item.valid_until)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <Status value={item.status} />
-                      </td>
-                      <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-3">
-                          <OrganizationRecordActions
-                            resource="authorities"
-                            id={item.id}
-                            onSaved={load}
-                          />
-                          {canManage && item.status === 'pending_validation' && (
-                            <OrganizationRecordActions
-                              resource="authorities"
-                              id={item.id}
-                              onSaved={load}
-                              actionLabel="Activar"
-                              initialStatus="active"
-                            />
-                          )}
-                          {canManage && item.status === 'active' && (
-                            <OrganizationRecordActions
-                              resource="authorities"
-                              id={item.id}
-                              onSaved={load}
-                              actionLabel="Revocar"
-                              initialStatus="revoked"
-                            />
-                          )}
-                        </div>
-                      </td>
+            <PaginatedTableScrollArea items={orderedRows} label="Registros de gobierno de la organización">
+              {(pageRows) => (
+                <table className="w-full text-sm">
+                  <thead className="workspace-table-heading bg-muted/60">
+                    <tr>
+                      <th className="px-5 py-3 text-left" {...sortHeading('person', 'Persona y facultad')} />
+                      <th className="px-4 py-3 text-left font-medium">Modalidad</th>
+                      <th className="px-4 py-3 text-left font-medium">Alcance</th>
+                      <th className="px-4 py-3 text-left" {...sortHeading('expiry', 'Vigencia')} />
+                      <th className="px-4 py-3 text-left font-medium">Estado</th>
+                      <th className="px-5 py-3 text-right font-medium">Acciones</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {pageRows.map((item) => {
+                      const person = personOf(item);
+                      return (
+                        <tr key={item.id}>
+                          <td className="px-5 py-3.5">
+                            <p className="font-medium">
+                              {person?.full_name || 'Persona no disponible'}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {item.authority_type}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3.5 capitalize">
+                            {item.modality === 'joint'
+                              ? 'Conjunta'
+                              : item.modality === 'several'
+                                ? 'Mancomunada'
+                                : 'Individual'}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p>
+                              {item.monetary_limit
+                                ? `${Number(item.monetary_limit).toLocaleString('es-MX')} ${item.currency}`
+                                : 'Sin límite monetario'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {(item.document_types || []).join(', ') || 'Todos los tipos'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {dateLabel(item.valid_until)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <Status value={item.status} />
+                          </td>
+                          <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-3">
+                              <OrganizationRecordActions
+                                resource="authorities"
+                                id={item.id}
+                                onSaved={load}
+                              />
+                              {canManage && item.status === 'pending_validation' && (
+                                <OrganizationRecordActions
+                                  resource="authorities"
+                                  id={item.id}
+                                  onSaved={load}
+                                  actionLabel="Activar"
+                                  initialStatus="active"
+                                />
+                              )}
+                              {canManage && item.status === 'active' && (
+                                <OrganizationRecordActions
+                                  resource="authorities"
+                                  id={item.id}
+                                  onSaved={load}
+                                  actionLabel="Revocar"
+                                  initialStatus="revoked"
+                                />
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTableScrollArea>
           </div>
         ) : (
           <Empty
@@ -1174,7 +1196,7 @@ function WorkflowsView({ workspaceId, userId, canManage, audit }: ViewProps) {
     await load();
   };
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header
         section="flujos"
         action={
@@ -1547,7 +1569,7 @@ function PoliciesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     }
   };
   return (
-    <div className="max-w-[1400px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header
         section="politicas-firma"
         action={
@@ -1877,8 +1899,14 @@ function ResourcesView({ workspaceId, userId, canManage, audit }: ViewProps) {
     ['taxonomy', 'Clasificaciones'],
   ];
   const filtered = tab === 'all' ? rows : rows.filter((item) => item.resource_type === tab);
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, {
+    name: (row) => row.name,
+    visibility: (row) => row.visibility,
+    workflow: (row) => row.workflow_name,
+    version: (row) => row.version,
+  });
   return (
-    <div className="max-w-[1500px] mx-auto space-y-5">
+    <div className="app-page-width space-y-5">
       <Header
         section="recursos"
         action={
@@ -2010,90 +2038,94 @@ function ResourcesView({ workspaceId, userId, canManage, audit }: ViewProps) {
           </div>
         ) : filtered.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/60">
-                <tr>
-                  <th className="px-5 py-3 text-left font-medium">Recurso</th>
-                  <th className="px-4 py-3 text-left font-medium">Visibilidad</th>
-                  <th className="px-4 py-3 text-left font-medium">Gobierno</th>
-                  <th className="px-4 py-3 text-left font-medium">Versión</th>
-                  <th className="px-4 py-3 text-left font-medium">Estado</th>
-                  <th className="px-5 py-3 text-right font-medium">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <span className="w-9 h-9 rounded-md bg-primary/10 text-primary grid place-items-center">
-                          {item.locked ? <LockKeyhole size={16} /> : <FileText size={16} />}
-                        </span>
-                        <div>
-                          <p className="font-medium">{item.name}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                            {item.resource_type.replaceAll('_', ' ')}
+            <PaginatedTableScrollArea items={orderedRows} label="Registros de gobierno de la organización">
+              {(pageRows) => (
+                <table className="w-full text-sm">
+                  <thead className="workspace-table-heading">
+                    <tr>
+                      <th className="px-5 py-3 text-left" {...sortHeading('name', 'Recurso')} />
+                      <th className="px-4 py-3 text-left" {...sortHeading('visibility', 'Visibilidad')} />
+                      <th className="px-4 py-3 text-left" {...sortHeading('workflow', 'Gobierno')} />
+                      <th className="px-4 py-3 text-left" {...sortHeading('version', 'Versión', 'desc')} />
+                      <th className="px-4 py-3 text-left font-medium">Estado</th>
+                      <th className="px-5 py-3 text-right font-medium">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {pageRows.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <span className="w-9 h-9 rounded-md bg-primary/10 text-primary grid place-items-center">
+                              {item.locked ? <LockKeyhole size={16} /> : <FileText size={16} />}
+                            </span>
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                                {item.resource_type.replaceAll('_', ' ')}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 capitalize">{item.visibility}</td>
+                        <td className="px-4 py-3.5">
+                          <p>{item.workflow_name || 'Sin flujo'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.policy_name || 'Sin política de firma'}
                           </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 capitalize">{item.visibility}</td>
-                    <td className="px-4 py-3.5">
-                      <p>{item.workflow_name || 'Sin flujo'}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.policy_name || 'Sin política de firma'}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3.5">v{item.version}</td>
-                    <td className="px-4 py-3.5">
-                      <Status value={item.status} />
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="inline-flex items-center gap-3">
-                        <OrganizationRecordActions
-                          resource="resources"
-                          id={item.id}
-                          onSaved={load}
-                        />
-                        {canManage && !['published', 'archived'].includes(item.status) && (
-                          <button
-                            onClick={() => lifecycle('publish_organization_shared_resource', item)}
-                            className="text-primary"
-                          >
-                            Publicar
-                          </button>
-                        )}
-                        {canManage && item.status === 'published' && (
-                          <button
-                            onClick={() =>
-                              lifecycle('create_organization_shared_resource_version', item)
-                            }
-                            className="text-primary inline-flex items-center gap-1"
-                          >
-                            <Copy size={14} /> Nueva versión
-                          </button>
-                        )}
-                        {canManage && item.status !== 'archived' && (
-                          <button
-                            onClick={() =>
-                              update(
-                                item,
-                                { status: 'archived' },
-                                `Recurso archivado: ${item.name}`
-                              )
-                            }
-                            aria-label={`Archivar ${item.name}`}
-                            className="text-muted-foreground"
-                          >
-                            <Archive size={15} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-4 py-3.5">v{item.version}</td>
+                        <td className="px-4 py-3.5">
+                          <Status value={item.status} />
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <div className="inline-flex items-center gap-3">
+                            <OrganizationRecordActions
+                              resource="resources"
+                              id={item.id}
+                              onSaved={load}
+                            />
+                            {canManage && !['published', 'archived'].includes(item.status) && (
+                              <button
+                                onClick={() => lifecycle('publish_organization_shared_resource', item)}
+                                className="text-primary"
+                              >
+                                Publicar
+                              </button>
+                            )}
+                            {canManage && item.status === 'published' && (
+                              <button
+                                onClick={() =>
+                                  lifecycle('create_organization_shared_resource_version', item)
+                                }
+                                className="text-primary inline-flex items-center gap-1"
+                              >
+                                <Copy size={14} /> Nueva versión
+                              </button>
+                            )}
+                            {canManage && item.status !== 'archived' && (
+                              <button
+                                onClick={() =>
+                                  update(
+                                    item,
+                                    { status: 'archived' },
+                                    `Recurso archivado: ${item.name}`
+                                  )
+                                }
+                                aria-label={`Archivar ${item.name}`}
+                                className="text-muted-foreground"
+                              >
+                                <Archive size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTableScrollArea>
           </div>
         ) : (
           <Empty

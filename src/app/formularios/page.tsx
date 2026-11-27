@@ -4,18 +4,35 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
-  Archive, ArrowUpDown, BarChart3, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CirclePause, ClipboardCheck, ClipboardClock, ClipboardList, ClipboardMinus, ClipboardPenLine, Copy, Edit3, Eye,
+  Archive, BarChart3, CheckCircle2, ChevronDown, ChevronRight, CirclePause, ClipboardCheck, ClipboardClock, ClipboardList, ClipboardMinus, ClipboardPenLine, Copy, Edit3, Eye,
   FilePlus2, FileText, Link2, Loader2, MoreHorizontal, Play, Plus,
-  ListFilter, RotateCcw, Search, Send, Star, Trash2, Users, X,
+  RotateCcw, Search, Send, Star, Trash2, Users, X,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
-import ResponsiveFilterBar from '@/components/ResponsiveFilterBar';
+import WorkspaceTableToolbar, { tableFilter } from '@/components/WorkspaceTableToolbar';
+import { catalogDateOptions, catalogFavoriteOptions, catalogOptions, matchesCatalogDate, matchesCatalogFavorite, toggleCatalogFilter } from '@/lib/workspaces/catalog-filters';
+import WorkspaceTableToolbarSelect from '@/components/WorkspaceTableToolbarSelect';
 import { BottomNotice } from '@/components/ui/BottomNotice';
+import ResizableTableHeader from '@/components/workspaces/ResizableTableHeader';
+import TableScrollArea from '@/components/workspaces/TableScrollArea';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import { orderedTableCells } from '@/components/workspaces/useColumnReorder';
+import { useTableColumnLayout } from '@/components/workspaces/useTableColumnLayout';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSummaryExpansion } from '@/hooks/useSummaryExpansion';
 import { createClient } from '@/lib/supabase/client';
+import {
+  compareCatalogRows,
+  DEFAULT_CATALOG_SORT,
+  getTableSortDirection,
+  tableAriaSort,
+  type CatalogSort,
+  type ListDirection,
+} from '@/lib/workspaces/list-order';
 import { formSaveError } from '@/lib/forms/lifecycle';
+import { canViewFormResponses } from '@/lib/forms/publication-policy';
 import { summarizeFormLaunches, type FormLaunchSummary, type FormResponseSummary, type PublicFormInviteSummary } from '@/lib/forms/pending-launches';
 import { normalizeFormTemplate } from '@/lib/forms/schema';
 
@@ -27,6 +44,7 @@ interface FormRow {
   schema: unknown[];
   settings: Record<string, any>;
   updated_at: string;
+  created_at?: string;
   created_by: string;
   responseCount: number;
   typeName?: string;
@@ -51,16 +69,11 @@ interface ScheduledFormLaunch {
   last_error: string | null;
 }
 
-type FormSort = '' | 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc';
-type FormFilter = 'auto' | 'all' | 'published' | 'draft' | 'archived' | 'favorites' | 'in_review' | 'paused';
+type FormFilter = 'auto' | 'all' | 'published' | 'draft' | 'archived' | 'in_review' | 'paused';
 type CreatorFilter = 'all' | 'mine' | 'others';
 type ResponseFilter = 'all' | 'with_responses' | 'without_responses';
-type ModifiedFilter = 'all' | 'today' | '7d' | '30d';
 type RemovalMode = 'checking' | 'delete' | 'archive';
-const TABLE_PAGE_SIZE = 10;
 const FORM_FAVORITES_KEY = 'formularios';
-
-const canViewFormResponses = (status: FormRow['status']) => status === 'published' || status === 'paused';
 
 const statusStyles: Record<FormRow['status'], { label: string; className: string; dot: string; icon: React.ElementType; iconClass: string }> = {
   draft: { label: 'Borrador', className: 'border-slate-200 bg-slate-50 text-slate-600', dot: 'bg-slate-400', icon: ClipboardPenLine, iconClass: 'border-slate-200 bg-slate-50 text-slate-600' },
@@ -69,11 +82,27 @@ const statusStyles: Record<FormRow['status'], { label: string; className: string
   paused: { label: 'Pausado', className: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-500', icon: ClipboardMinus, iconClass: 'border-amber-200 bg-amber-50 text-amber-700' },
   archived: { label: 'Archivado', className: 'border-slate-200 bg-slate-100 text-slate-500', dot: 'bg-slate-400', icon: ClipboardList, iconClass: 'border-slate-200 bg-slate-100 text-slate-500' },
 };
+const formSortValues = {
+  type: (form: FormRow) => form.typeName,
+  status: (form: FormRow) => statusStyles[form.status]?.label,
+  responses: (form: FormRow) => canViewFormResponses(form.status) ? form.responseCount : null,
+};
+type FormSort = CatalogSort | `${keyof typeof formSortValues}_${ListDirection}`;
+const formColumns = [
+  { id: 'name', label: 'Formulario', width: 'w-[36%]', defaultDirection: 'asc' },
+  { id: 'type', label: 'Tipo de formulario', width: 'w-[18%]', defaultDirection: 'asc' },
+  { id: 'status', label: 'Estado', width: 'w-28', defaultDirection: 'asc' },
+  { id: 'responses', label: 'Respuestas', width: 'w-36', defaultDirection: 'desc' },
+  { id: 'updated', label: 'Última modificación', width: 'w-40', defaultDirection: 'desc' },
+] as const;
 
 export default function FormulariosPage() {
   const router = useRouter();
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
+  const tableLayout = useTableColumnLayout(formColumns, {
+    table: 'formularios', userId: user?.id, workspaceId: activeWorkspace?.id, primaryId: 'name',
+  });
   const supabase = createClient();
   const [forms, setForms] = useState<FormRow[]>([]);
   const [launches, setLaunches] = useState<FormLaunch[]>([]);
@@ -93,12 +122,14 @@ export default function FormulariosPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<FormFilter>('auto');
-  const [sortMode, setSortMode] = useState<FormSort>('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortMode, setSortMode] = useState<FormSort>(DEFAULT_CATALOG_SORT);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>('all');
   const [responseFilter, setResponseFilter] = useState<ResponseFilter>('all');
-  const [modifiedFilter, setModifiedFilter] = useState<ModifiedFilter>('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [modifiedFilter, setModifiedFilter] = useState('all');
+  const [createdFilter, setCreatedFilter] = useState('all');
+  const [publishedFilter, setPublishedFilter] = useState('all');
+  const [favoriteFilter, setFavoriteFilter] = useState('all');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -128,7 +159,12 @@ export default function FormulariosPage() {
     setLaunchesError(false);
     setPublicInviteesError(false);
     const [{ data: templateData, error }, { data: responseData, error: responseError }, { data: typeData, error: typeError }] = await Promise.all([
-      supabase.from('form_templates').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
+      supabase
+        .from('form_templates')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .order('id'),
       supabase.from('form_responses').select('template_id,token_id,respondent_email,submitted_at').eq('workspace_id', workspaceId),
       supabase.from('tipo_documento').select('id, nombre'),
     ]);
@@ -279,65 +315,69 @@ export default function FormulariosPage() {
     published: forms.filter((form) => form.status === 'published').length,
     draft: forms.filter((form) => form.status === 'draft').length,
     archived: forms.filter((form) => form.status === 'archived').length,
-    favorites: forms.filter((form) => favoriteSet.has(form.id)).length,
     in_review: forms.filter((form) => form.status === 'in_review').length,
     paused: forms.filter((form) => form.status === 'paused').length,
-  }), [forms, favoriteSet]);
+  }), [forms]);
   const selectedFilter = status === 'auto' ? (filterCounts.published ? 'published' : 'all') : status;
   const formTypes = useMemo(
-    () => [...new Set(forms.map((form) => form.typeName || 'Sin clasificar'))]
-      .sort((left, right) => left.localeCompare(right, 'es-MX')),
+    () => catalogOptions(forms.map((form) => form.typeName || 'Sin clasificar')),
     [forms]
   );
-  const activeFilterCount = [
-    selectedFilter !== 'all',
-    typeFilter !== 'all',
-    creatorFilter !== 'all',
-    responseFilter !== 'all',
-    modifiedFilter !== 'all',
-  ].filter(Boolean).length;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('es-MX');
-    const todayStart = new Date(clockTime).setHours(0, 0, 0, 0);
     return forms.filter((form) => {
       const matchesQuery = `${form.name} ${form.description || ''} ${form.typeName || ''}`.toLocaleLowerCase('es-MX').includes(normalizedQuery);
-      const matchesStatus = selectedFilter === 'all' || (selectedFilter === 'favorites' ? favoriteSet.has(form.id) : form.status === selectedFilter);
-      const matchesType = typeFilter === 'all' || (form.typeName || 'Sin clasificar') === typeFilter;
+      const matchesStatus = selectedFilter === 'all' || form.status === selectedFilter;
+      const matchesType = typeFilter.length === 0 || typeFilter.includes(form.typeName || 'Sin clasificar');
       const matchesCreator = creatorFilter === 'all' || (Boolean(user?.id) && (creatorFilter === 'mine' ? form.created_by === user?.id : form.created_by !== user?.id));
       const matchesResponses = responseFilter === 'all' || (responseFilter === 'with_responses' ? form.responseCount > 0 : form.responseCount === 0);
-      const modifiedAt = new Date(form.updated_at).getTime();
-      const modifiedSince = modifiedFilter === 'today'
-        ? todayStart
-        : clockTime - (modifiedFilter === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
-      const matchesModified = modifiedFilter === 'all' || (
-        Number.isFinite(modifiedAt) && modifiedAt >= modifiedSince && modifiedAt <= clockTime
-      );
-      return matchesQuery && matchesStatus && matchesType && matchesCreator && matchesResponses && matchesModified;
-    }).sort((left, right) => {
-      if (sortMode === 'name_asc') return left.name.localeCompare(right.name, 'es-MX');
-      if (sortMode === 'name_desc') return right.name.localeCompare(left.name, 'es-MX');
-      if (sortMode === 'updated_asc' || sortMode === 'updated_desc') {
-        const difference = new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
-        return sortMode === 'updated_asc' ? difference : -difference;
-      }
-      return 0;
-    });
-  }, [forms, query, selectedFilter, typeFilter, creatorFilter, responseFilter, modifiedFilter, sortMode, favoriteSet, user?.id, clockTime]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const paginatedForms = filtered.slice((safeCurrentPage - 1) * TABLE_PAGE_SIZE, safeCurrentPage * TABLE_PAGE_SIZE);
+      return matchesQuery && matchesStatus && matchesType && matchesCreator && matchesResponses &&
+        matchesCatalogFavorite(favoriteSet.has(form.id), favoriteFilter) &&
+        matchesCatalogDate(form.updated_at, modifiedFilter, clockTime) &&
+        matchesCatalogDate(form.created_at, createdFilter, clockTime) &&
+        matchesCatalogDate(form.published_at, publishedFilter, clockTime);
+    }).sort((left, right) => compareCatalogRows(left, right, sortMode, (form) => form.name, formSortValues));
+  }, [forms, query, selectedFilter, typeFilter, creatorFilter, responseFilter, modifiedFilter, createdFilter, publishedFilter, favoriteFilter, sortMode, favoriteSet, user?.id, clockTime]);
+  const pagination = useTablePagination(filtered.length, JSON.stringify([selectedFilter, typeFilter, creatorFilter, responseFilter, modifiedFilter, createdFilter, publishedFilter, favoriteFilter]));
+  const setCurrentPage = pagination.onPageChange;
+  const paginatedForms = filtered.slice(pagination.start, pagination.end);
+  function changeSort(value: FormSort) {
+    setSortMode(value);
+    setCurrentPage(1);
+  }
   const menuForm = paginatedForms.find((form) => form.id === activeMenu);
 
-  const clearFilters = () => {
-    setQuery('');
-    setStatus('all');
-    setTypeFilter('all');
-    setCreatorFilter('all');
-    setResponseFilter('all');
-    setModifiedFilter('all');
-    setSortMode('');
-    setCurrentPage(1);
-  };
+  const formFilters = [
+    tableFilter('Estado', selectedFilter, [
+      { id: 'all', name: `Todos (${forms.length})` },
+      { id: 'published', name: `Publicados (${filterCounts.published})` },
+      { id: 'draft', name: `Borradores (${filterCounts.draft})` },
+      { id: 'archived', name: `Archivados (${filterCounts.archived})` },
+      { id: 'in_review', name: `En revisión (${filterCounts.in_review})` },
+      { id: 'paused', name: `Pausados (${filterCounts.paused})` },
+    ], setStatus, 'all'),
+    {
+      label: 'Tipo de formulario',
+      value: typeFilter,
+      options: formTypes,
+      change: (id: string) => setTypeFilter((values) => toggleCatalogFilter(values, id)),
+      clear: () => setTypeFilter([]),
+    },
+    tableFilter('Creado por', creatorFilter, [
+      { id: 'all', name: 'Todos los creadores' },
+      { id: 'mine', name: 'Creados por mí' },
+      { id: 'others', name: 'Creados por otros' },
+    ], setCreatorFilter, 'all'),
+    tableFilter('Respuestas', responseFilter, [
+      { id: 'all', name: 'Todas las opciones' },
+      { id: 'with_responses', name: 'Con respuestas' },
+      { id: 'without_responses', name: 'Sin respuestas' },
+    ], setResponseFilter, 'all'),
+    tableFilter('Favoritos', favoriteFilter, catalogFavoriteOptions, setFavoriteFilter, 'all'),
+    tableFilter('Fecha de creación', createdFilter, catalogDateOptions, setCreatedFilter, 'all'),
+    tableFilter('Última modificación', modifiedFilter, catalogDateOptions, setModifiedFilter, 'all'),
+    tableFilter('Fecha de publicación', publishedFilter, catalogDateOptions, setPublishedFilter, 'all'),
+  ];
 
   const toggleFavorite = async (form: FormRow) => {
     if (!user || !favoritesReady || favoriteRequestPending.current) return;
@@ -486,7 +526,7 @@ export default function FormulariosPage() {
   };
 
   const changeStatus = async (form: FormRow, nextStatus: 'published' | 'paused') => {
-    if (!activeWorkspace || !['published', 'paused'].includes(form.status)) return;
+    if (!activeWorkspace || !canViewFormResponses(form.status)) return;
     const { error } = await supabase.from('form_templates').update({ status: nextStatus })
       .eq('id', form.id).eq('workspace_id', activeWorkspace.id).eq('status', form.status).select('id').single();
     setActiveMenu(null);
@@ -641,92 +681,35 @@ export default function FormulariosPage() {
             <h2 className="text-sm font-600 text-slate-950 dark:text-foreground">Mis formularios</h2>
             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-600 text-primary dark:bg-primary/10">{filtered.length}</span>
           </div>
-          <section className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-border dark:bg-card">
-            <div className="flex flex-wrap items-center gap-2 p-3">
-              <div className="relative min-w-[160px] flex-1">
-                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => { setQuery(event.target.value); setCurrentPage(1); }}
-                  placeholder="Buscar formularios..."
-                  aria-label="Buscar formularios"
-                  className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-                />
-              </div>
-              <div className="relative w-full sm:w-56">
-                <ListFilter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <select
-                  value={selectedFilter}
-                  onChange={(event) => { setStatus(event.target.value as FormFilter); setCurrentPage(1); }}
-                  aria-label="Filtrar formularios por estado"
-                  className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-                >
-                  <option value="all">Todos ({forms.length})</option>
-                  <option value="published">Publicadas ({filterCounts.published})</option>
-                  <option value="draft">Borradores ({filterCounts.draft})</option>
-                  <option value="archived">Archivadas ({filterCounts.archived})</option>
-                  <option value="favorites">Favoritas ({filterCounts.favorites})</option>
-                  {filterCounts.in_review > 0 && <option value="in_review">En revisión ({filterCounts.in_review})</option>}
-                  {filterCounts.paused > 0 && <option value="paused">Pausadas ({filterCounts.paused})</option>}
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              </div>
-              <div className="relative min-w-[150px]">
-                <ArrowUpDown size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <select
-                  value={sortMode}
-                  onChange={(event) => { setSortMode(event.target.value as FormSort); setCurrentPage(1); }}
-                  aria-label="Ordenar formularios"
-                  className="h-9 w-full appearance-none rounded-md border border-slate-200 bg-white pl-9 pr-8 text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 dark:border-border dark:bg-background dark:text-foreground"
-                >
-                  <option value="" disabled>Ordenar</option>
-                  <option value="updated_desc">Más recientes</option>
-                  <option value="updated_asc">Más antiguas</option>
-                  <option value="name_asc">Nombre A-Z</option>
-                  <option value="name_desc">Nombre Z-A</option>
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              </div>
-            </div>
-            <ResponsiveFilterBar count={activeFilterCount}>
-            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3 dark:border-border">
-              <FormQuickFilter
-                label="Tipo de formulario"
-                value={typeFilter}
-                active={typeFilter !== 'all'}
-                options={[{ value: 'all', label: 'Tipo de formulario' }, ...formTypes.map((typeName) => ({ value: typeName, label: typeName }))]}
-                onChange={(value) => { setTypeFilter(value); setCurrentPage(1); }}
+
+          <WorkspaceTableToolbar
+            label="Barra de formularios"
+            searchLabel="Buscar formularios"
+            query={query}
+            onQueryChange={(value) => { setQuery(value); setCurrentPage(1); }}
+            controls={
+              <WorkspaceTableToolbarSelect
+                label="Ordenar formularios"
+                value={sortMode}
+                sortControl
+                options={[
+                  { id: 'updated_desc', name: 'Más recientes' },
+                  { id: 'updated_asc', name: 'Más antiguos' },
+                  { id: 'name_asc', name: 'Nombre A-Z' },
+                  { id: 'name_desc', name: 'Nombre Z-A' },
+                  { id: 'type_asc', name: 'Tipo A-Z' },
+                  { id: 'type_desc', name: 'Tipo Z-A' },
+                  { id: 'status_asc', name: 'Estado A-Z' },
+                  { id: 'status_desc', name: 'Estado Z-A' },
+                  { id: 'responses_desc', name: 'Más respuestas' },
+                  { id: 'responses_asc', name: 'Menos respuestas' },
+                ]}
+                onChange={(value) => changeSort(value as FormSort)}
               />
-              <FormQuickFilter
-                label="Creado por"
-                value={creatorFilter}
-                active={creatorFilter !== 'all'}
-                options={[{ value: 'all', label: 'Creado por' }, { value: 'mine', label: 'Creados por mí' }, { value: 'others', label: 'Creados por otros' }]}
-                onChange={(value) => { setCreatorFilter(value as CreatorFilter); setCurrentPage(1); }}
-              />
-              <FormQuickFilter
-                label="Respuestas"
-                value={responseFilter}
-                active={responseFilter !== 'all'}
-                options={[{ value: 'all', label: 'Respuestas' }, { value: 'with_responses', label: 'Con respuestas' }, { value: 'without_responses', label: 'Sin respuestas' }]}
-                onChange={(value) => { setResponseFilter(value as ResponseFilter); setCurrentPage(1); }}
-              />
-              <FormQuickFilter
-                label="Última modificación"
-                value={modifiedFilter}
-                active={modifiedFilter !== 'all'}
-                options={[{ value: 'all', label: 'Última modificación' }, { value: 'today', label: 'Hoy' }, { value: '7d', label: 'Últimos 7 días' }, { value: '30d', label: 'Últimos 30 días' }]}
-                onChange={(value) => { setModifiedFilter(value as ModifiedFilter); setCurrentPage(1); }}
-              />
-              {(activeFilterCount > 0 || query) && (
-                <button type="button" onClick={clearFilters} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary hover:bg-blue-50">
-                  <X size={13} /> Limpiar filtros
-                </button>
-              )}
-            </div>
-          </ResponsiveFilterBar>
-          </section>
+            }
+            filterDefinitions={formFilters}
+            onClearFilters={() => formFilters.forEach((filter) => filter.clear())}
+          />
 
           <section className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
           {loading ? (
@@ -734,29 +717,61 @@ export default function FormulariosPage() {
           ) : filtered.length === 0 ? (
             <EmptyState onCreate={() => router.push('/formularios/nuevo')} filtered={Boolean(query || forms.length)} />
           ) : (
-            <div className="overflow-x-auto rounded-lg">
-              <table className="responsive-data-table w-full min-w-[980px] table-fixed text-sm">
-                <thead><tr className="border-b border-slate-200 bg-slate-50/80 text-left dark:border-border dark:bg-muted/40">
-                  <TableHeading className="w-[36%]">Formulario</TableHeading>
-                  <TableHeading className="w-[18%]">Tipo de formulario</TableHeading>
-                  <TableHeading className="w-28">Estado</TableHeading>
-                  <TableHeading className="w-36">Respuestas</TableHeading>
-                  <TableHeading className="w-36">Última modificación</TableHeading>
-                  <TableHeading className="w-52" align="right">Acciones</TableHeading>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-border">
+            <TableScrollArea
+              label="Tabla de formularios"
+              className="overflow-hidden rounded-lg"
+              footer={<TablePagination {...pagination} />}
+            >
+              <table className="responsive-data-table workspace-actions-table w-full min-w-[980px] text-sm">
+                <thead className="workspace-table-heading">
+                  <tr>
+                    {tableLayout.columns.map((column) => {
+                      const { id, label, width, defaultDirection } = column;
+                      const direction = getTableSortDirection(sortMode, `${id}_asc`, `${id}_desc`);
+                      return (
+                        <ResizableTableHeader
+                          key={id}
+                          {...tableLayout.headerProps(column)}
+                          className={`${width} px-3 py-3 text-left`}
+                          ariaSort={tableAriaSort(direction)}
+                        >
+                          <TableSortButton
+                            label={label}
+                            direction={direction}
+                            onSort={(next) => changeSort(`${id}_${next}`)}
+                            defaultDirection={defaultDirection}
+                          />
+                        </ResizableTableHeader>
+                      );
+                    })}
+                    <th scope="col" className="workspace-table-actions py-3">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {paginatedForms.map((form) => {
                     const formStyle = statusStyles[form.status] || statusStyles.draft;
                     const FormIcon = formStyle.icon;
                     const isFavorite = favoriteSet.has(form.id);
                     return (
                       <tr key={form.id} className="transition-colors hover:bg-slate-50/70 dark:hover:bg-muted/30">
-                        <td data-label="Formulario" className="px-3 py-3"><button type="button" onClick={() => router.push(`/formularios/nuevo?id=${form.id}`)} className="group flex w-full min-w-0 items-center gap-3 text-left"><span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border ${formStyle.iconClass}`}><FormIcon size={17} /></span><span className="min-w-0"><span className="block truncate text-sm font-500 text-slate-950 group-hover:text-primary dark:text-foreground">{form.name} <span className="text-xs font-normal text-slate-400">v{form.version_number || 1}.0{(form.revision_number || 1) > 1 ? ` · rev. ${form.revision_number}` : ''}</span></span>{form.description?.trim() && <span className="mt-0.5 block truncate !text-xs !font-normal text-slate-500 dark:text-muted-foreground">{form.description}</span>}</span></button></td>
-                        <td data-label="Tipo de formulario" className="px-3 py-3"><span className="block truncate text-xs text-slate-600 dark:text-muted-foreground" title={form.typeName}>{form.typeName}</span></td>
-                        <td data-label="Estado" className="px-3 py-3"><StatusBadge status={form.status} /></td>
-                        <td data-label="Respuestas" className="px-3 py-3">{canViewFormResponses(form.status) ? <button type="button" onClick={() => router.push(`/formularios/respuestas?id=${form.id}`)} className="inline-flex items-center gap-2 text-xs font-500 text-slate-700 hover:text-primary dark:text-foreground"><Users size={14} className="text-slate-400" /><span className="tabular-nums">{form.responseCount}</span><span className="text-slate-400">{form.responseCount === 1 ? 'respuesta' : 'respuestas'}</span></button> : <span className="text-xs text-slate-400" aria-label="Respuestas no disponibles">—</span>}</td>
-                        <td data-label="Última modificación" className="whitespace-nowrap px-3 py-3"><span className="block text-xs font-500 text-slate-700 dark:text-foreground">{new Date(form.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="mt-0.5 block text-[11px] text-slate-400">{new Date(form.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span></td>
-                        <td data-label="Acciones" className="relative px-3 py-3 text-right">
+                        {orderedTableCells(tableLayout.columns, {
+                          name: (
+                            <td data-label="Formulario" className="px-3 py-3"><button type="button" onClick={() => router.push(`/formularios/nuevo?id=${form.id}`)} className="group flex w-full min-w-0 items-center gap-3 text-left"><span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border ${formStyle.iconClass}`}><FormIcon size={17} /></span><span className="min-w-0"><span className="block truncate text-sm font-500 text-slate-950 group-hover:text-primary dark:text-foreground">{form.name} <span className="text-xs font-normal text-slate-400">v{form.version_number || 1}.0{(form.revision_number || 1) > 1 ? ` · rev. ${form.revision_number}` : ''}</span></span>{form.description?.trim() && <span className="mt-0.5 block truncate !text-xs !font-normal text-slate-500 dark:text-muted-foreground">{form.description}</span>}</span></button></td>
+                          ),
+                          type: (
+                            <td data-label="Tipo de formulario" className="px-3 py-3"><span className="block truncate text-xs text-slate-600 dark:text-muted-foreground" title={form.typeName}>{form.typeName}</span></td>
+                          ),
+                          status: (
+                            <td data-label="Estado" className="px-3 py-3"><StatusBadge status={form.status} /></td>
+                          ),
+                          responses: (
+                            <td data-label="Respuestas" className="px-3 py-3">{canViewFormResponses(form.status) ? <button type="button" onClick={() => router.push(`/formularios/respuestas?id=${form.id}`)} className="inline-flex items-center gap-2 text-xs font-500 text-slate-700 hover:text-primary dark:text-foreground"><Users size={14} className="text-slate-400" /><span className="tabular-nums">{form.responseCount}</span><span className="text-slate-400">{form.responseCount === 1 ? 'respuesta' : 'respuestas'}</span></button> : <span className="text-xs text-slate-400" aria-label="Respuestas no disponibles">—</span>}</td>
+                          ),
+                          updated: (
+                            <td data-label="Última modificación" className="whitespace-nowrap px-3 py-3"><span className="block text-xs font-500 text-slate-700 dark:text-foreground">{new Date(form.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="mt-0.5 block text-[11px] text-slate-400">{new Date(form.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span></td>
+                          ),
+                        })}
+                        <td data-label="Acciones" className="workspace-table-actions py-3">
                           <div className="inline-flex items-center gap-1">
                             <button type="button" onClick={() => router.push(`/formularios/preview?id=${form.id}`)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Vista previa" aria-label={`Vista previa de ${form.name}`}><Eye size={13} /></button>
                             {form.status === 'published' && <button type="button" onClick={() => { router.push(`/formularios/lanzar?id=${encodeURIComponent(form.id)}`); setActiveMenu(null); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-blue-50 hover:text-primary" title="Lanzar formulario" aria-label={`Lanzar formulario ${form.name}`}><Send size={13} /></button>}
@@ -797,19 +812,9 @@ export default function FormulariosPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScrollArea>
           )}
           </section>
-          {!loading && totalPages > 1 && (
-            <div className="mt-4 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-500 dark:border-border dark:bg-card sm:flex-row sm:items-center sm:justify-between">
-              <span>Mostrando {(safeCurrentPage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(safeCurrentPage * TABLE_PAGE_SIZE, filtered.length)} de {filtered.length}</span>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={safeCurrentPage === 1} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-border" title="Página anterior" aria-label="Página anterior"><ChevronLeft size={15} /></button>
-                <span className="min-w-20 text-center text-slate-600 dark:text-muted-foreground">{safeCurrentPage} de {totalPages}</span>
-                <button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={safeCurrentPage === totalPages} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-border" title="Página siguiente" aria-label="Página siguiente"><ChevronRight size={15} /></button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -846,15 +851,6 @@ export default function FormulariosPage() {
       {notice && <BottomNotice message={notice} onClose={() => setNotice('')} />}
     </AppLayout>
   );
-}
-
-function FormQuickFilter({ label, value, active, options, onChange }: { label: string; value: string; active: boolean; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
-  return <div className="relative min-w-[180px] max-w-[240px] flex-1 sm:flex-none">
-    <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={`Filtrar por ${label.toLocaleLowerCase('es-MX')}`} className={`h-9 w-full appearance-none rounded-md border pl-3 pr-8 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15 ${active ? 'border-blue-200 bg-blue-50 text-primary dark:bg-primary/10' : 'border-slate-200 bg-white text-slate-700 dark:border-border dark:bg-background dark:text-foreground'}`}>
-      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-    </select>
-    <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-  </div>;
 }
 
 const ActionMenu = React.forwardRef<HTMLDivElement, { form: FormRow; position: { top: number; left: number }; onClose: () => void; onPreview: () => void; onResponses: () => void; onLaunch: () => void; onCopyPublic: () => void; onDuplicate: () => void; onPause: () => void; onResume: () => void; onDelete: () => void; onRestore: () => void }>(function ActionMenu({ form, position, onClose, onPreview, onResponses, onLaunch, onCopyPublic, onDuplicate, onPause, onResume, onDelete, onRestore }, ref) {
@@ -931,7 +927,7 @@ function PendingResponsesDialog({ launches, publicInvitees, formNames, busyId, e
         const rowId = `${invitee.form_id}:${invitee.recipient_email}`;
         return <div key={rowId} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-border"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900 dark:text-foreground">{invitee.recipient_name || invitee.recipient_email}</p><p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-foreground">Formulario: {formNames.get(invitee.form_id) || 'Formulario'} · Código de acceso</p>{invitee.recipient_name && invitee.recipient_name !== invitee.recipient_email && <p className="truncate text-xs text-slate-500">{invitee.recipient_email}</p>}<p className="mt-1 text-[11px] text-slate-500">Invitado: {new Date(invitee.invited_at).toLocaleDateString('es-MX')}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => onResendInvite(invitee)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary px-2.5 text-xs font-semibold text-primary hover:bg-blue-50 disabled:opacity-50">{busyId === rowId ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Reenviar</button><button type="button" onClick={() => onCancelInvite(invitee)} disabled={Boolean(busyId)} className="h-8 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-border">Cancelar invitación</button></div></div>;
       })}</div>}
-      {error && <p role="alert" className="mt-4 text-xs text-red-600">{error}</p>}{message && <p role="status" className="mt-4 text-xs text-emerald-700">{message}</p>}</div>
+      {error && <BottomNotice message={error} tone="critical" />}{message && <BottomNotice message={message} tone="success" />}</div>
     </div>
   </div>;
 }
@@ -947,7 +943,7 @@ function ScheduledLaunchesDialog({ launches, formNames, busyId, error, onClose, 
   return <div role="dialog" aria-modal="true" aria-labelledby="scheduled-launches-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="flex max-h-[min(85vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
       <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4"><div><h2 id="scheduled-launches-title" className="text-base font-semibold">Envíos programados</h2><p className="mt-1 text-xs text-slate-500">Invitaciones que se enviarán en la fecha indicada.</p></div><button type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Cerrar envíos programados" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
-      <div className="space-y-3 overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay envíos programados.</p> : launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate text-sm font-semibold">{launch.recipient_name}</p><p className="mt-1 truncate text-xs text-slate-700">Formulario: {formNames.get(launch.template_id) || 'Formulario'}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className={`mt-1 text-[11px] ${launch.status === 'failed' ? 'text-red-600' : 'text-slate-500'}`}>Programado: {new Date(launch.scheduled_at).toLocaleString('es-MX', { timeZone: launch.timezone })} · {launch.timezone}{launch.status === 'retrying' ? ' · Reintentando' : launch.status === 'processing' ? ' · En proceso' : launch.status === 'failed' ? ' · No se pudo enviar' : ''}</p></div><button type="button" onClick={() => onCancel(launch)} disabled={Boolean(busyId) || launch.status === 'processing'} className="h-8 shrink-0 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{busyId === launch.id ? 'Cancelando...' : 'Cancelar envío'}</button></div>)}{error && <p role="alert" className="text-xs text-red-600">{error}</p>}</div>
+      <div className="space-y-3 overflow-y-auto p-5">{launches.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No hay envíos programados.</p> : launches.map((launch) => <div key={launch.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate text-sm font-semibold">{launch.recipient_name}</p><p className="mt-1 truncate text-xs text-slate-700">Formulario: {formNames.get(launch.template_id) || 'Formulario'}</p><p className="truncate text-xs text-slate-500">{launch.recipient_email}</p><p className={`mt-1 text-[11px] ${launch.status === 'failed' ? 'text-red-600' : 'text-slate-500'}`}>Programado: {new Date(launch.scheduled_at).toLocaleString('es-MX', { timeZone: launch.timezone })} · {launch.timezone}{launch.status === 'retrying' ? ' · Reintentando' : launch.status === 'processing' ? ' · En proceso' : launch.status === 'failed' ? ' · No se pudo enviar' : ''}</p></div><button type="button" onClick={() => onCancel(launch)} disabled={Boolean(busyId) || launch.status === 'processing'} className="h-8 shrink-0 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{busyId === launch.id ? 'Cancelando...' : 'Cancelar envío'}</button></div>)}{error && <BottomNotice message={error} tone="critical" />}</div>
     </div>
   </div>;
 }
@@ -959,13 +955,6 @@ function MetricCard({ icon: Icon, label, value, tone = 'zinc' }: { icon: React.E
 function StatusBadge({ status }: { status: FormRow['status'] }) {
   const style = statusStyles[status] || statusStyles.draft;
   return <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-500 ${style.className}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{style.label}</span>;
-}
-function TableHeading({ children, align = 'left', className = '' }: { children: React.ReactNode; align?: 'left' | 'right'; className?: string }) {
-  return (
-    <th className={`whitespace-nowrap px-3 py-3 text-xs font-medium text-slate-500 dark:text-muted-foreground ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}>
-      {children}
-    </th>
-  );
 }
 function MenuAction({ icon: Icon, label, onClick, destructive }: { icon: React.ElementType; label: string; onClick: () => void; destructive?: boolean }) {
   return <button type="button" onClick={onClick} className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${destructive ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30' : 'text-slate-700 hover:bg-slate-100 dark:text-foreground dark:hover:bg-muted'}`}><Icon size={14} className="shrink-0" />{label}</button>;

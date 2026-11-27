@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import React, { useState } from 'react';
 import { CheckCircle, Save, Loader2, ChevronDown, ChevronUp, X, Edit2, Info } from 'lucide-react';
 import { DEFAULT_SIGNATURE_STAMP_STYLES } from '@/lib/signatures/stamp-sizing';
@@ -775,7 +776,6 @@ export default function AutografaStampSelector({
 }: AutografaStampSelectorProps) {
   const [selected, setSelected] = useState(currentStampStyle || DEFAULT_STAMP_STYLE);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(initiallyOpen);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(
     STAMP_VARIANTS.find((variant) => variant.id === (currentStampStyle || DEFAULT_STAMP_STYLE))
@@ -787,12 +787,10 @@ export default function AutografaStampSelector({
 
   const handleSave = async () => {
     setSaving(true);
-    setSaved(false);
     try {
       await onSave(selected);
-      setSaved(true);
+      toast.success('Estampa guardada.');
       setSelectorOpen(false);
-      setTimeout(() => setSaved(false), 3000);
     } finally {
       setSaving(false);
     }
@@ -855,12 +853,6 @@ export default function AutografaStampSelector({
               )}
             </div>
 
-            {saved && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-600 w-fit">
-                <CheckCircle size={12} />
-                Estampa guardada
-              </div>
-            )}
           </>
         )}
 

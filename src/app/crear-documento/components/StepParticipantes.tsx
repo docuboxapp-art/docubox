@@ -1665,8 +1665,6 @@ export function StepParticipantes({
   supplementalResources,
   inPersonSigningEnabled = false,
   documentRequirements = [],
-  templateSignatureCapacity = null,
-  onSignatureCapacityExceeded,
 }: {
   participants: Participant[];
   onChange: React.Dispatch<React.SetStateAction<Participant[]>>;
@@ -1679,8 +1677,6 @@ export function StepParticipantes({
   supplementalResources: SupplementalDocumentDraft[];
   inPersonSigningEnabled?: boolean;
   documentRequirements?: ParticipantRequirementDraft[];
-  templateSignatureCapacity?: number | null;
-  onSignatureCapacityExceeded?: (capacity: number) => void;
 }) {
   const [participationOrder, setParticipationOrder] = useState(participationOrderProp);
   const [savingContact, setSavingContact] = useState<string | null>(null);
@@ -1795,18 +1791,6 @@ export function StepParticipantes({
     const updatedParticipants = participants.map((participant) =>
       participant.id === updated.id ? updated : participant
     );
-    const configuredSignerCount = updatedParticipants.filter(
-      (participant) =>
-        participant.configured === true &&
-        ((participant.acto || '').toLocaleLowerCase('es-MX') === 'firmante' ||
-          (!participant.acto && participant.role === 'firmante'))
-    ).length;
-
-    if (templateSignatureCapacity !== null && configuredSignerCount > templateSignatureCapacity) {
-      onSignatureCapacityExceeded?.(templateSignatureCapacity);
-      return false;
-    }
-
     onChange(updatedParticipants);
     return true;
   };
@@ -1989,7 +1973,7 @@ export function StepParticipantes({
 
             <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="workspace-table-heading">
                   <tr className="border-b border-gray-200">
                     {isSecuencial && (
                       <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 w-16">

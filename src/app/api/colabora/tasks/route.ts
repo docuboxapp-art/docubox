@@ -2,6 +2,7 @@ import { assertCollaborationCreationReferences } from '@/lib/collaboration/refer
 import { z } from 'zod';
 import { createNotificationServer } from '@/lib/notificationsInApp.server';
 import { organizationApiFailure } from '@/lib/organization/server';
+import { DEFAULT_TABLE_PAGE_SIZE } from '@/lib/workspaces/table-pagination';
 import {
   authorizeCollaborationRequest,
   assertCollaborationCreationScope,
@@ -30,8 +31,10 @@ const listSchema = z.object({
   due: z.enum(['overdue', 'soon']).optional(),
   mine: z.enum(['1']).optional(),
   search: z.string().trim().max(120).optional(),
+  sort: z.enum(['title', 'responsible_name', 'estado', 'due_date']).optional(),
+  direction: z.enum(['asc', 'desc']).default('asc'),
   page: z.coerce.number().int().min(1).max(10000).default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(50),
+  page_size: z.coerce.number().int().min(1).max(100).default(DEFAULT_TABLE_PAGE_SIZE),
 });
 
 const taskSchema = z.object({
@@ -82,11 +85,11 @@ export async function GET(request: Request) {
         'id,title,description,tipo,prioridad,estado,riesgo,due_date,sla,sla_due_at,is_overdue,is_blocked,blocked_reason,assigned_to,assigned_team_id,responsible_name,creator_name,document_name,document_id,expediente_id,expediente_name,tags,collaboration_space_id,confidentiality,optimistic_version,created_at,updated_at',
         { count: 'exact' }
       )
-      .eq('workspace_id', workspaceId)
-      .order('is_overdue', { ascending: false })
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('id')
-      .range((filters.page - 1) * filters.page_size, filters.page * filters.page_size - 1);
+      .eq('workspace_id', workspaceId);
+    query = filters.sort
+      ? query.order(filters.sort, { ascending: filters.direction === 'asc', nullsFirst: false })
+      : query.order('is_overdue', { ascending: false }).order('due_date', { ascending: true, nullsFirst: false });
+    query = query.order('id').range((filters.page - 1) * filters.page_size, filters.page * filters.page_size - 1);
     if (status) query = query.eq('estado', status);
     if (assignee) query = query.eq('assigned_to', assignee);
     if (filters.mine === '1') query = query.eq('assigned_to', user.id);

@@ -2,11 +2,6 @@
 :root {
   --app-page-gutter: 1rem;
   --app-page-top: 1rem;
-  --app-page-max-width: 1600px;
-}
-
-:root:has(.app-page-frame, .app-page-gutters) {
-  scrollbar-gutter: stable;
 }
 
 .app-page-frame,
@@ -26,12 +21,6 @@
 .app-page-width {
   width: 100%;
   min-width: 0;
-  max-width: var(--app-page-max-width);
-  margin-inline: auto;
-}
-
-.app-page-frame.app-page-width {
-  max-width: calc(var(--app-page-max-width) + 2 * var(--app-page-gutter));
 }
 
 .app-page-bleed {
@@ -76,7 +65,15 @@
   overscroll-behavior-x: contain;
 }
 .docubox-wizard {
+  --wizard-content-width: 1600px;
   height: 100dvh;
+}
+.docubox-wizard .app-page-width {
+  max-width: var(--wizard-content-width);
+  margin-inline: auto;
+}
+.docubox-wizard .app-page-frame.app-page-width {
+  max-width: calc(var(--wizard-content-width) + 2 * var(--app-page-gutter));
 }
 .docubox-wizard > main {
   overscroll-behavior: contain;
@@ -115,7 +112,7 @@
   .personalize-view-panel [aria-label^='Reordenar'] {
     display: none;
   }
-  .case-toolbar .custom-filter-value-options {
+  .workspace-table-toolbar .custom-filter-value-options {
     max-width: min(320px, calc(100vw - 32px));
   }
   .docubox-app {
@@ -189,21 +186,6 @@
   }
   .workspace-layout {
     flex-direction: column;
-  }
-  .case-toolbar > div:first-child {
-    gap: 8px;
-  }
-  .case-toolbar-search {
-    flex-basis: 100%;
-  }
-  .case-toolbar .mis-documentos-filters {
-    gap: 8px;
-  }
-  .case-toolbar .mis-documentos-filters > * {
-    max-width: 100%;
-  }
-  .case-toolbar button {
-    min-height: 40px;
   }
   .case-card {
     border-radius: 16px;
@@ -388,8 +370,8 @@
   .module-page-actions > * svg {
     flex-shrink: 0;
   }
-  .case-toolbar .custom-filter-value-options,
-  .case-toolbar details > div {
+  .workspace-table-toolbar .custom-filter-value-options,
+  .workspace-table-toolbar details > div {
     position: fixed;
     inset: auto 12px max(12px, env(safe-area-inset-bottom));
     z-index: 120;
@@ -400,7 +382,7 @@
     padding: 8px;
     box-shadow: 0 16px 40px rgb(15 23 42 / 15%);
   }
-  .case-toolbar .custom-filter-value-options [role='option'] {
+  .workspace-table-toolbar .custom-filter-value-options [role='option'] {
     min-height: 44px;
   }
   .app-content h1 {
@@ -410,8 +392,7 @@
   }
   .app-content :where(input:not([type='checkbox']):not([type='radio']), textarea, select),
   .docubox-wizard :where(input:not([type='checkbox']):not([type='radio']), textarea, select),
-  .public-token-layout :where(input:not([type='checkbox']):not([type='radio']), textarea, select),
-  .mobile-navigation select {
+  .public-token-layout :where(input:not([type='checkbox']):not([type='radio']), textarea, select) {
     font-size: 16px;
   }
   .app-topnav [role='dialog'],

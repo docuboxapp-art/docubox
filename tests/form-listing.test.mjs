@@ -7,6 +7,25 @@ import ts from 'typescript';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/formularios/page.tsx', 'utf8');
+const compilerOptions = {
+  module: ts.ModuleKind.CommonJS,
+  target: ts.ScriptTarget.ES2022,
+  jsx: ts.JsxEmit.ReactJSX,
+  esModuleInterop: true,
+};
+
+function loadPureModule(path, resolve = require) {
+  const exports = {};
+  const compiled = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions }).outputText;
+  new Function('exports', 'require', compiled)(exports, resolve);
+  return exports;
+}
+
+const listOrder = loadPureModule('src/lib/workspaces/list-order.ts');
+const pendingLaunches = loadPureModule('src/lib/forms/pending-launches.ts');
+const publicationPolicy = loadPureModule('src/lib/forms/publication-policy.ts');
+const paginationDefaults = loadPureModule('src/lib/workspaces/table-pagination.ts');
+const catalogFilters = loadPureModule('src/lib/workspaces/catalog-filters.ts');
 
 function createListing(initialFavorites = [], description = '', formStatus = 'published', launches = [], transientLaunchFailures = 0, responses = []) {
   const slots = [];
@@ -17,6 +36,8 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
   const form = {
     id: 'form-1', name: 'Solicitud', description, status: formStatus, schema: [],
     settings: { documentTypeId: 'type-1' }, updated_at: '2026-10-06T12:00:00Z',
+    created_at: '2026-10-01T12:00:00Z',
+    published_at: formStatus === 'published' ? '2026-10-02T12:00:00Z' : null,
   };
   let cursor = 0;
   let failWrite = false;
@@ -76,16 +97,43 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
     react: hooks,
     'next/navigation': { useRouter: () => ({ push(route) { routes.push(route); } }) },
     '@/components/AppLayout': { default: () => null, __esModule: true },
+    '@/components/WorkspaceTableToolbar': loadPureModule('src/components/WorkspaceTableToolbar.tsx', (name) => {
+      if (name === './ResponsiveFilterBar' || name === './WorkspaceTableToolbarSelect') return () => null;
+      return require(name);
+    }),
+    '@/lib/workspaces/catalog-filters': catalogFilters,
+    '@/components/WorkspaceTableToolbarSelect': { default: () => null, __esModule: true },
     '@/components/ui/BottomNotice': { BottomNotice: () => null },
+    '@/components/workspaces/TableScrollArea': { default: ({ children }) => children, __esModule: true },
+    '@/components/workspaces/TableSortButton': { TableSortButton: () => null },
+    '@/components/workspaces/TablePagination': loadPureModule('src/components/workspaces/TablePagination.tsx', (name) =>
+      name === 'react' ? hooks : name === '@/lib/workspaces/table-pagination' ? paginationDefaults : require(name)
+    ),
+    '@/components/workspaces/ResizableTableHeader': { default: () => null, __esModule: true },
+    '@/components/workspaces/useColumnReorder': {
+      orderedTableCells: (columns, cells) => columns.map(({ id }) =>
+        React.createElement(React.Fragment, { key: id }, cells[id])
+      ),
+    },
+    '@/components/workspaces/useTableColumnLayout': {
+      useTableColumnLayout: (columns) => ({ columns, headerProps: () => ({}) }),
+    },
     '@/contexts/WorkspaceContext': { useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1' } }) },
     '@/contexts/AuthContext': { useAuth: () => ({ user: { id: 'user-1' } }) },
+    '@/hooks/useSummaryExpansion': {
+      useSummaryExpansion(_key, initial = false) {
+        const [expanded, setExpanded] = hooks.useState(initial);
+        return [expanded, () => setExpanded((value) => !value)];
+      },
+    },
     '@/lib/supabase/client': { createClient: () => client },
     '@/lib/forms/lifecycle': { formSaveError: (error) => error.message },
+    '@/lib/forms/pending-launches': pendingLaunches,
+    '@/lib/forms/publication-policy': publicationPolicy,
     '@/lib/forms/schema': { normalizeFormTemplate: (value) => value },
+    '@/lib/workspaces/list-order': listOrder,
   };
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
-  }).outputText;
+  const compiled = ts.transpileModule(source, { compilerOptions }).outputText;
   const exports = {};
   new Function('require', 'exports', 'document', 'window', 'sessionStorage', compiled)(
     (name) => modules[name] || require(name), exports,
@@ -106,13 +154,16 @@ function createListing(initialFavorites = [], description = '', formStatus = 'pu
 function elements(node, predicate) {
   if (Array.isArray(node)) return node.flatMap((child) => elements(child, predicate));
   if (!React.isValidElement(node)) return [];
-  return [...(predicate(node) ? [node] : []), ...elements(node.props.children, predicate)];
+  return [...(predicate(node) ? [node] : []), ...elements(node.props.children, predicate), ...elements(node.props.filters, predicate)];
 }
 
 const favoriteButton = (tree) => elements(tree, (node) => node.type === 'button' && 'aria-pressed' in node.props)[0];
+const getFilter = (tree, label) =>
+  elements(tree, (node) => Array.isArray(node.props.filterDefinitions))[0].props.filterDefinitions
+    .find((option) => option.label === label);
+const statusFilter = (tree) => getFilter(tree, 'Estado');
 const selectFilter = (listing, tree, value) => {
-  elements(tree, (node) => node.type === 'select' && node.props['aria-label'] === 'Filtrar formularios por estado')[0]
-    .props.onChange({ target: { value } });
+  statusFilter(tree).change(value);
   return listing.render();
 };
 const clickFavorite = async (tree) => {
@@ -120,11 +171,18 @@ const clickFavorite = async (tree) => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
+const summary = (tree, id) => elements(tree, (node) => node.type === 'button' && node.props['aria-controls'] === id)[0];
+function expandResponses(listing, tree) {
+  const button = summary(tree, 'response-summary-metrics');
+  if (!button.props['aria-expanded']) button.props.onClick();
+  return listing.render();
+}
+
 test('listings have no selection checkboxes and forms show the catalog type name instead of signature', async () => {
   const listing = createListing();
   const tree = await listing.settle();
   assert.equal(elements(tree, (node) => node.type === 'input' && node.props.type === 'checkbox').length, 0);
-  assert.ok(elements(tree, (node) => node.props.children === 'Tipo de formulario').length);
+  assert.ok(getFilter(tree, 'Tipo de formulario'));
   assert.ok(elements(tree, (node) => node.props.children === 'Solicitud de credito').length);
   assert.equal(elements(tree, (node) => node.props.children === 'Firma').length, 0);
   assert.doesNotMatch(readFileSync('src/app/plantillas/page.tsx', 'utf8'), /type="checkbox"|selectedTemplateIds/);
@@ -135,7 +193,7 @@ test('a temporary launch service error is retried without leaving a false error 
   const listing = createListing([], '', 'published', [], 1);
   await listing.settle();
   await new Promise((resolve) => setTimeout(resolve, 350));
-  const tree = listing.render();
+  const tree = expandResponses(listing, listing.render());
   assert.equal(listing.requests.filter((request) => request.table === 'form_tokens').length, 2);
   assert.equal(elements(tree, (node) => node.props.message?.includes('No se pudieron cargar los lanzamientos')).length, 0);
 });
@@ -210,28 +268,45 @@ test('responses and launch actions respect the form lifecycle', async () => {
 test('status filter shows counts and favorites from the current workspace', async () => {
   const listing = createListing(['form-1']);
   const tree = await listing.settle();
-  const filter = elements(tree, (node) => node.type === 'select' && node.props['aria-label'] === 'Filtrar formularios por estado')[0];
-  assert.equal(filter.props.value, 'published');
-  assert.deepEqual(filter.props.children.filter(React.isValidElement).map((option) => option.props.children.join('')), [
-    'Publicadas (1)', 'Borradores (0)', 'Archivadas (0)', 'Favoritas (1)',
+  const filter = statusFilter(tree);
+  assert.equal(filter.value, 'published');
+  assert.deepEqual(filter.options.map(({ name }) => name), [
+    'Todos (1)', 'Publicados (1)', 'Borradores (0)', 'Archivados (0)', 'En revisión (0)', 'Pausados (0)',
   ]);
-  const favoritesTree = selectFilter(listing, tree, 'favorites');
+  getFilter(tree, 'Favoritos').change('yes');
+  const favoritesTree = listing.render();
   assert.equal(elements(favoritesTree, (node) => node.type === 'button' && node.props['aria-label'] === 'Vista previa de Solicitud').length, 1);
   await clickFavorite(favoritesTree);
   const emptyFavorites = listing.render();
   assert.equal(elements(emptyFavorites, (node) => node.type === 'button' && node.props['aria-label'] === 'Vista previa de Solicitud').length, 0);
-  const updatedFilter = elements(emptyFavorites, (node) => node.type === 'select' && node.props['aria-label'] === 'Filtrar formularios por estado')[0];
-  const updatedOptions = updatedFilter.props.children.filter(React.isValidElement).map((option) => option.props.children.join(''));
-  assert.ok(updatedOptions.includes('Favoritas (0)'));
+  assert.equal(getFilter(emptyFavorites, 'Favoritos').value, 'yes');
+  assert.equal(statusFilter(emptyFavorites).value, 'published');
+  getFilter(emptyFavorites, 'Favoritos').clear();
+  assert.equal(elements(listing.render(), (node) => node.type === 'button' && node.props['aria-label'] === 'Vista previa de Solicitud').length, 1);
 });
 
 test('without published forms the initial filter shows every form', async () => {
   const listing = createListing([], '', 'draft');
   const tree = await listing.settle();
-  const filter = elements(tree, (node) => node.type === 'select' && node.props['aria-label'] === 'Filtrar formularios por estado')[0];
-  assert.equal(filter.props.value, 'all');
+  const filter = statusFilter(tree);
+  assert.equal(filter.value, 'all');
   assert.ok(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Vista previa de Solicitud').length);
-  assert.equal(elements(tree, (node) => node.type === 'button' && node.props.disabled && node.props.onClick?.toString().includes('/formularios/lanzar')).length, 1);
+  assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label']?.startsWith('Lanzar formulario')).length, 0);
+});
+
+test('publication date and form types combine and can be cleared separately', async () => {
+  const listing = createListing([], '', 'draft');
+  const tree = await listing.settle();
+  const rows = (view) => elements(view, (node) => node.props['aria-label'] === 'Vista previa de Solicitud');
+  getFilter(tree, 'Tipo de formulario').change('Solicitud de credito');
+  getFilter(listing.render(), 'Fecha de publicación').change('none');
+  assert.equal(rows(listing.render()).length, 1);
+  getFilter(listing.render(), 'Fecha de creación').change('none');
+  assert.equal(rows(listing.render()).length, 0);
+  getFilter(listing.render(), 'Fecha de creación').clear();
+  assert.equal(rows(listing.render()).length, 1);
+  assert.deepEqual(getFilter(listing.render(), 'Tipo de formulario').value, ['Solicitud de credito']);
+  assert.equal(getFilter(listing.render(), 'Fecha de publicación').value, 'none');
 });
 
 test('form and response summaries start in the requested states and count only active pending launches', async () => {
@@ -243,13 +318,13 @@ test('form and response summaries start in the requested states and count only a
   const listing = createListing([], '', 'published', launches);
   let tree = await listing.settle();
   tree = await listing.settle();
-  const summary = (id) => elements(tree, (node) => node.type === 'button' && node.props['aria-controls'] === id)[0];
-  assert.equal(summary('form-summary-metrics').props['aria-expanded'], false);
-  assert.equal(summary('response-summary-metrics').props['aria-expanded'], true);
+  assert.equal(summary(tree, 'form-summary-metrics').props['aria-expanded'], false);
+  assert.equal(summary(tree, 'response-summary-metrics').props['aria-expanded'], false);
+  tree = expandResponses(listing, tree);
   assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Ver 1 respuesta pendiente').length, 1);
-  summary('form-summary-metrics').props.onClick();
+  summary(tree, 'form-summary-metrics').props.onClick();
   tree = listing.render();
-  assert.equal(summary('form-summary-metrics').props['aria-expanded'], true);
+  assert.equal(summary(tree, 'form-summary-metrics').props['aria-expanded'], true);
   assert.deepEqual(elements(tree, (node) => node.props.label && ['Total', 'Publicados', 'Borrador', 'Archivados'].includes(node.props.label)).map((node) => [node.props.label, node.props.value]), [
     ['Total', 1], ['Publicados', 1], ['Borrador', 0], ['Archivados', 0],
   ]);
@@ -263,7 +338,7 @@ test('a response after duplicate invitations clears the pending counter for that
   const responses = [{ template_id: 'form-1', token_id: 'older', respondent_email: 'ana@example.com', submitted_at: '2026-10-09T12:00:00Z' }];
   const listing = createListing([], '', 'published', launches, 0, responses);
   await listing.settle();
-  const tree = await listing.settle();
+  const tree = expandResponses(listing, await listing.settle());
   assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Sin respuestas pendientes').length, 1);
 });
 
@@ -274,14 +349,14 @@ test('a new invitation after a response remains pending', async () => {
   const responses = [{ template_id: 'form-1', token_id: 'older', respondent_email: 'ana@example.com', submitted_at: '2026-10-09T12:00:00Z' }];
   const listing = createListing([], '', 'published', launches, 0, responses);
   await listing.settle();
-  const tree = await listing.settle();
+  const tree = expandResponses(listing, await listing.settle());
   assert.equal(elements(tree, (node) => node.type === 'button' && node.props['aria-label'] === 'Ver 1 respuesta pendiente').length, 1);
 });
 
 test('closed is not an available filter or lifecycle action', async () => {
   const listing = createListing();
   const tree = await listing.settle();
-  assert.equal(elements(tree, (node) => node.type === 'option' && node.props.value === 'closed').length, 0);
+  assert.equal(statusFilter(tree).options.some(({ id }) => id === 'closed'), false);
   assert.doesNotMatch(source, /label="Cerrar formulario"|changeStatus\(form, 'closed'\)/);
 });
 

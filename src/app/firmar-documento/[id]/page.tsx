@@ -54,6 +54,14 @@ import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { FittedSignatureStamp, SignatureStampDisplay, type StampDisplayProps } from '@/components/signatures/SignatureStampDisplay';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
+import {
+  SIGNING_METHOD_LABELS,
+  getAvailableSigningMethods,
+  getConfiguredSigningMethods,
+  isSignaturePosition,
+  isSigningMethod,
+  type SigningMethod,
+} from '@/lib/signatures/signing-options';
 import { isDocumentGeneratedCryptographicField } from '@/lib/documentFields';
 import AutographSignatureFlow from './AutographSignatureFlow';
 import {
@@ -3554,45 +3562,40 @@ function NoFirmaAlertModal({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sign-without-field-title"
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-            <AlertTriangle size={20} className="text-amber-500" />
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <PenLine size={20} className="text-primary" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-gray-900">
-              Firma no insertada en el documento
+            <h3 id="sign-without-field-title" className="text-base font-semibold text-gray-900">
+              Firmar sin colocar un campo
             </h3>
           </div>
         </div>
-        <p className="text-sm text-gray-600 mb-3">
-          No has insertado un campo de firma en el documento. Si continúas, tu firma será registrada
-          en una <span className="font-semibold text-gray-800">hoja de certificación aparte</span>{' '}
-          que indicará que firmaste el documento.
+        <p className="text-sm text-gray-600 mb-5">
+          Puedes elegir un método de firma y continuar. Al completarse el documento, tu firma
+          quedará registrada en la hoja «Firmantes del documento» al final del PDF.
         </p>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-5 flex items-start gap-2">
-          <Shield size={15} className="text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">
-            La hoja de certificación tiene la misma validez legal que una firma insertada
-            directamente en el documento.
-          </p>
-        </div>
         <div className="flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}
             className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            Volver e insertar firma
+            Volver a los campos
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-semibold transition-colors"
           >
-            Continuar con certificación
+            Elegir método de firma
           </button>
         </div>
       </div>
@@ -3927,6 +3930,8 @@ export default function FirmarDocumentoPage() {
 
   // No firma alert modal
   const [showNoFirmaAlert, setShowNoFirmaAlert] = useState(false);
+  const [chosenSigningMethod, setChosenSigningMethod] = useState<SigningMethod | null>(null);
+  const [signingMethodLocked, setSigningMethodLocked] = useState(false);
 
   // Participant info
   const [myRole, setMyRole] = useState<'firmante' | 'aprobador' | 'observador' | 'testigo'>(
@@ -5523,7 +5528,7 @@ export default function FirmarDocumentoPage() {
       // ── Convert prefixed campos to PlacedFieldFirmar overlays ──────────────
       if (myCampos.length > 0) {
         const prefijadosAsPlaced: PlacedFieldFirmar[] = myCampos
-          .filter((c) => c.x !== undefined && c.y !== undefined)
+          .filter((c) => Number.isFinite(c.x) && Number.isFinite(c.y))
           .map((c) => {
             const resolvedTipo: CampoPersonalizado['tipo'] = resolveFieldTipo(c);
             return {
@@ -5578,6 +5583,13 @@ export default function FirmarDocumentoPage() {
         }
         if (!data.source_form_response_id && restorableSession.camposPersonalizados?.length > 0) {
           setCamposPersonalizados(restorableSession.camposPersonalizados);
+        }
+        if (!data.source_form_response_id && Array.isArray(restorableSession.placedFields)) {
+          setPlacedFields(restorableSession.placedFields);
+        }
+        if (isSigningMethod(restorableSession.chosenSigningMethod)) {
+          setChosenSigningMethod(restorableSession.chosenSigningMethod);
+          setSigningMethodLocked(Boolean(retrySubmission));
         }
       }
       if (retrySubmission?.firmaData) {
@@ -5697,11 +5709,9 @@ export default function FirmarDocumentoPage() {
         return c.value.trim().length > 0;
       });
 
-  // Check if firma field is inserted in document
-  const hasFirmaInserted =
-    camposPersonalizados.some((c) => c.tipo === 'firma') ||
-    camposPrefijados.some((c) => resolveFieldTipo(c) === 'firma') ||
-    placedFields.some((f) => f.tipo === 'firma');
+  const hasFirmaInserted = placedFields.some(
+    (field) => field.tipo === 'firma' && isSignaturePosition(field)
+  );
 
   // ── Auto-fill helper ───────────────────────────────────────────────────────
   function getAutoFillValue(tipo: CampoPersonalizado['tipo'], profile: UserProfileData): string {
@@ -5932,61 +5942,28 @@ export default function FirmarDocumentoPage() {
     handleUpdateCampoValue(id, value);
   };
 
-  // ── Signature type label helper ────────────────────────────────────────────
-  // The document assignment is authoritative; the profile only supplies a legacy fallback.
-  const configuredSignatureMethods = (() => {
-    const configured = myParticipantData?.tipoFirma ?? myParticipantData?.tipo_firma;
-    const methods = Array.isArray(configured)
-      ? configured
-      : configured
-        ? [configured]
-        : [
-            myParticipantData?.metodo_firma,
-            myParticipantData?.metodoFirma,
-            myParticipantData?.signatureMethod,
-          ].filter(Boolean);
-
-    return methods.map((method) => normalizeParticipantFieldToken(method));
-  })();
-
-  const isEfirmaSAT = configuredSignatureMethods.some((method) =>
-    ['efirma', 'e.firma', 'e firma', 'efirma sat', 'e.firma sat', 'e firma sat'].includes(method)
+  const configuredSignatureMethods = getConfiguredSigningMethods(myParticipantData);
+  const availableSigningMethods = getAvailableSigningMethods(myParticipantData);
+  const chooseSigningMethod = myRole === 'firmante' && !isFormResponseDocument && !hasFirmaInserted;
+  const fixedSigningMethod = (['efirma', 'autografa', 'clicksign'] as const).find((method) =>
+    configuredSignatureMethods.includes(method)
   );
-
-  // Detect if participant's firma type is autógrafa digital
-  // NOTE: Only use participation config (tipoFirma), NOT the user's profile savedSignatureType
-  const isAutografaDigital =
-    !isEfirmaSAT &&
-    configuredSignatureMethods.some(
-      (method) => method === 'autografa' || method === 'autografa digital'
-    );
+  const activeSigningMethod =
+    chosenSigningMethod && !isFormResponseDocument && availableSigningMethods.includes(chosenSigningMethod)
+      ? chosenSigningMethod
+      : chooseSigningMethod
+        ? availableSigningMethods.length === 1 ? availableSigningMethods[0] : null
+        : fixedSigningMethod ?? (!isFormResponseDocument && availableSigningMethods.includes('clicksign') ? 'clicksign' : null);
+  const isEfirmaSAT = activeSigningMethod === 'efirma';
+  const isAutografaDigital = activeSigningMethod === 'autografa';
+  const isClickSign = activeSigningMethod === 'clicksign';
   const formRequiresLiveness = myParticipantData?.require_liveness === true;
+  const useClickSignConfirmation = isClickSign && (isFormResponseDocument || chooseSigningMethod);
+  const signatureTypeLabel = activeSigningMethod
+    ? SIGNING_METHOD_LABELS[activeSigningMethod]
+    : 'Método de firma no configurado';
 
-  const isClickSign = configuredSignatureMethods.some(
-    (method) => method === 'click sign' || method === 'click & sign'
-  );
-
-  const signatureTypeLabel = isEfirmaSAT
-    ? 'e.firma SAT'
-    : isAutografaDigital
-      ? 'Firma Autógrafa Digital'
-      : isClickSign
-        ? 'Click & Sign'
-        : isFormResponseDocument
-          ? 'Método de firma no configurado'
-          : savedSignatureType === 'efirma'
-          ? 'e.firma SAT'
-          : savedSignatureType === 'firma_electronica'
-            ? 'Firma Electrónica Digital'
-            : savedSignatureType === 'autografa'
-              ? 'Firma Autógrafa Digital'
-              : 'Firma Electrónica';
-
-  const activeStampMethod: 'efirma' | 'autografa' | 'clicksign' = isEfirmaSAT
-    ? 'efirma'
-    : isAutografaDigital
-      ? 'autografa'
-      : 'clicksign';
+  const activeStampMethod = activeSigningMethod ?? 'clicksign';
   const activeStampStyle =
     activeStampMethod === 'efirma'
       ? efirmaStampStyle
@@ -6186,6 +6163,8 @@ export default function FirmarDocumentoPage() {
         terminosAceptados,
         camposValues,
         camposPersonalizados,
+        placedFields,
+        chosenSigningMethod,
         firmaData: null,
         autographEvidenceId: null,
       });
@@ -6201,6 +6180,10 @@ export default function FirmarDocumentoPage() {
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!document || !user) return;
+    if (myRole === 'firmante' && !activeSigningMethod && !isFormResponseDocument) {
+      setSubmitError('Elige un método de firma para continuar.');
+      return;
+    }
     if (
       isFormResponseDocument &&
       (!camposPrefijados.some((campo) => resolveFieldTipo(campo) === 'firma') ||
@@ -6221,6 +6204,7 @@ export default function FirmarDocumentoPage() {
       return;
     }
     setSubmitting(true);
+    if (chooseSigningMethod) setSigningMethodLocked(true);
     setSubmissionPhase('registrando');
     setSubmitError(null);
     setFinalPdfPending(false);
@@ -6249,7 +6233,7 @@ export default function FirmarDocumentoPage() {
 
       // Determine final firma data
       let finalFirmaData = firmaData;
-      if (myRole === 'firmante' && usePreloadedSignature && savedSignature) {
+      if (myRole === 'firmante' && !useClickSignConfirmation && usePreloadedSignature && savedSignature) {
         finalFirmaData = savedSignature;
       } else if (myRole === 'firmante' && signatureMode === 'tipear' && typedSignature.trim()) {
         finalFirmaData = generateTypedSignatureDataUrl(typedSignature, typedSignatureStyle);
@@ -6261,6 +6245,8 @@ export default function FirmarDocumentoPage() {
         terminosAceptados,
         camposValues,
         camposPersonalizados,
+        placedFields,
+        chosenSigningMethod,
         firmaData: finalFirmaData,
         ...(autographEvidenceId ? { autographEvidenceId } : {}),
       });
@@ -6269,8 +6255,8 @@ export default function FirmarDocumentoPage() {
       const activeAutographEvidenceId =
         autographEvidenceId ||
         (UUID_PATTERN.test(persistedAutographEvidenceId) ? persistedAutographEvidenceId : null);
-      if (isFormResponseDocument && isAutografaDigital && !activeAutographEvidenceId) {
-        throw new Error('Completa la captura de la firma autógrafa antes de firmar el formulario.');
+      if (myRole === 'firmante' && isAutografaDigital && !activeAutographEvidenceId) {
+        throw new Error('Completa la captura de la firma autógrafa antes de continuar.');
       }
       const persistedSignedAt = String(persistedCompletion?.completionSignedAt || '');
       const now = Number.isFinite(Date.parse(persistedSignedAt))
@@ -6321,23 +6307,8 @@ export default function FirmarDocumentoPage() {
         /* ignore */
       }
 
-      const sigTypeLabel = isEfirmaSAT
-        ? 'e.firma (SAT)'
-        : isFormResponseDocument && isAutografaDigital
-          ? 'Firma Autógrafa Digital'
-          : isFormResponseDocument && isClickSign
-            ? 'Click & Sign'
-        : savedSignatureType === 'efirma'
-          ? 'e.firma (SAT)'
-          : savedSignatureType === 'firma_electronica'
-            ? 'Firma Electrónica Digital'
-            : 'Firma Autógrafa Digital';
-      const selectedSignatureMethod =
-        isEfirmaSAT || (!isFormResponseDocument && savedSignatureType === 'efirma')
-          ? 'efirma'
-          : (isFormResponseDocument ? isAutografaDigital && activeAutographEvidenceId : activeAutographEvidenceId)
-            ? 'autografa'
-            : 'clicksign';
+      const selectedSignatureMethod = activeStampMethod;
+      const sigTypeLabel = SIGNING_METHOD_LABELS[selectedSignatureMethod];
       const selectedStampStyle =
         selectedSignatureMethod === 'efirma'
           ? efirmaStampStyle
@@ -6563,11 +6534,10 @@ export default function FirmarDocumentoPage() {
                   myParticipantData?.role ||
                   myParticipantData?.acto ||
                   myRole,
-                signature_method_label: isEfirmaSAT
-                  ? 'e.firma SAT'
-                  : isAutografaDigital
-                    ? 'Firma autógrafa'
-                    : 'Click & Sign',
+                signature_method_label: sigTypeLabel,
+                signature_positions: isFormResponseDocument ? [] : placedFields
+                  .filter((field) => field.tipo === 'firma' && isSignaturePosition(field))
+                  .map(({ page, x, y, width, height }) => ({ page, x, y, width, height })),
                 otp_verified: isEfirmaSAT ? null : (autographStampContext?.otpVerified ?? null),
                 authentication_status: isEfirmaSAT
                   ? 'Validación SAT'
@@ -9508,12 +9478,12 @@ export default function FirmarDocumentoPage() {
                                     if (!file) return;
                                     const allowed = ['image/jpeg', 'image/png'];
                                     if (!allowed.includes(file.type)) {
-                                      alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                      toast.warning('Solo se permiten archivos JPG, JPEG o PNG.');
                                       e.target.value = '';
                                       return;
                                     }
                                     if (file.size > 2 * 1024 * 1024) {
-                                      alert('El archivo no debe superar los 2 MB.');
+                                      toast.warning('El archivo no debe superar los 2 MB.');
                                       e.target.value = '';
                                       return;
                                     }
@@ -9840,12 +9810,12 @@ export default function FirmarDocumentoPage() {
                                           const file = e.target.files?.[0];
                                           if (!file) return;
                                           if (!['image/jpeg', 'image/png'].includes(file.type)) {
-                                            alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                            toast.warning('Solo se permiten archivos JPG, JPEG o PNG.');
                                             e.target.value = '';
                                             return;
                                           }
                                           if (file.size > 2 * 1024 * 1024) {
-                                            alert('El archivo no debe superar los 2 MB.');
+                                            toast.warning('El archivo no debe superar los 2 MB.');
                                             e.target.value = '';
                                             return;
                                           }
@@ -10528,12 +10498,12 @@ export default function FirmarDocumentoPage() {
                                               if (!file) return;
                                               const allowed = ['image/jpeg', 'image/png'];
                                               if (!allowed.includes(file.type)) {
-                                                alert('Solo se permiten archivos JPG, JPEG o PNG.');
+                                                toast.warning('Solo se permiten archivos JPG, JPEG o PNG.');
                                                 e.target.value = '';
                                                 return;
                                               }
                                               if (file.size > 2 * 1024 * 1024) {
-                                                alert('El archivo no debe superar los 2 MB.');
+                                                toast.warning('El archivo no debe superar los 2 MB.');
                                                 e.target.value = '';
                                                 return;
                                               }
@@ -11011,9 +10981,38 @@ export default function FirmarDocumentoPage() {
                     >
                       {isFormResponseDocument
                         ? 'La firma se estampará en el campo ya definido del PDF. No necesitas completar ni colocar más campos.'
-                        : 'Captura tu firma para registrarla en el documento.'}
+                        : chooseSigningMethod
+                          ? 'Tu firma se registrará en la hoja de firmantes del PDF final.'
+                          : 'Captura tu firma para registrarla en el documento.'}
                     </p>
                   </div>
+
+                  {chooseSigningMethod && availableSigningMethods.length > 0 && (
+                    <fieldset
+                      className="space-y-2"
+                      disabled={submitting || signingMethodLocked}
+                    >
+                      <legend className="mb-2 text-sm font-semibold">Método de firma</legend>
+                      {availableSigningMethods.map((method) => (
+                        <label
+                          key={method}
+                          className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-sm has-checked:border-primary has-checked:bg-primary/5"
+                        >
+                          <input
+                            type="radio"
+                            name="signature-method"
+                            className="accent-primary"
+                            checked={activeSigningMethod === method}
+                            onChange={() => {
+                              handleRegenerateSignature();
+                              setChosenSigningMethod(method);
+                            }}
+                          />
+                          {SIGNING_METHOD_LABELS[method]}
+                        </label>
+                      ))}
+                    </fieldset>
+                  )}
 
                   {/* ── E.FIRMA SAT FLOW ───────────────────────────────────── */}
                   {isEfirmaSAT && (
@@ -11416,12 +11415,14 @@ export default function FirmarDocumentoPage() {
                     </>
                   )}
 
-                  {isFormResponseDocument && isClickSign && !isAutografaDigital && !isEfirmaSAT && (
+                  {useClickSignConfirmation && (
                     <div className={`space-y-4 rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white'}`}>
                       <div>
                         <p className="text-sm font-semibold">Click & Sign</p>
                         <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-                          Confirma tu nombre y la firma configurada para este formulario. La estampa se colocará en el campo señalado del PDF.
+                          {isFormResponseDocument
+                            ? 'Confirma tu nombre. La firma se colocará en el campo señalado del PDF.'
+                            : 'Confirma tu nombre para preparar la firma que se registrará en la hoja de firmantes.'}
                         </p>
                       </div>
                       <p className={`rounded-lg px-3 py-2 text-sm ${isDark ? 'bg-gray-700 text-gray-200' : 'bg-slate-50 text-slate-800'}`}>
@@ -11445,14 +11446,14 @@ export default function FirmarDocumentoPage() {
                     </div>
                   )}
 
-                  {isFormResponseDocument && !isClickSign && !isAutografaDigital && !isEfirmaSAT && (
+                  {(!activeSigningMethod && (isFormResponseDocument || availableSigningMethods.length === 0)) && (
                     <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                       El método de firma de esta invitación no está disponible. Solicita al remitente que revise la configuración.
                     </p>
                   )}
 
                   {/* ── NON-AUTÓGRAFA FLOW (existing) ─────────────────────── */}
-                  {!isFormResponseDocument && !isAutografaDigital && !isEfirmaSAT && (
+                  {!isFormResponseDocument && isClickSign && !useClickSignConfirmation && (
                     <>
                       <div
                         className={`flex items-center gap-3 rounded-xl p-3 border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-muted/40 border-border'}`}
@@ -11780,7 +11781,7 @@ export default function FirmarDocumentoPage() {
                                       const file = e.target.files?.[0];
                                       if (!file) return;
                                       if (file.size > 2 * 1024 * 1024) {
-                                        alert('El archivo no debe superar los 2 MB.');
+                                        toast.warning('El archivo no debe superar los 2 MB.');
                                         e.target.value = '';
                                         return;
                                       }
@@ -11859,7 +11860,7 @@ export default function FirmarDocumentoPage() {
                           className={`mt-0.5 text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}
                         >
                           {activeStampStyle} · {activeStampSize.label}. Puedes cambiar cómo se verá
-                          tu firma en el documento.
+                          {chooseSigningMethod ? ' tu firma en la hoja de firmantes.' : ' tu firma en el documento.'}
                         </p>
                       </div>
                       <button
@@ -12125,6 +12126,7 @@ export default function FirmarDocumentoPage() {
                   onClick={handleSubmit}
                   disabled={
                     !firmaConfirmada ||
+                    !activeSigningMethod ||
                     submitting ||
                     geoBlocked ||
                     geoLoading ||

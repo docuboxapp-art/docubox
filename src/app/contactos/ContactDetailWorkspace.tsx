@@ -1,14 +1,19 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Activity,
+  Bell,
   CheckCircle2,
-  ChevronLeft,
+  ClipboardList,
   Clock3,
   ExternalLink,
   FileText,
+  FolderClosed,
+  Link2,
   Mail,
   MapPin,
   MessageSquare,
@@ -19,15 +24,63 @@ import {
   Star,
   Tag,
   Trash2,
-  Users,
+  UserRound,
   X,
   XCircle,
+  type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { ProfileCommunicationButton } from '@/components/profiles/ProfileCommunication';
+import { CatalogColorPicker } from '@/components/catalog/CatalogColorPicker';
+import {
+  builtInCatalog,
+  catalogKey,
+  catalogVisibilityKey,
+  contactTagColor,
+  contactTagGroups,
+  splitContactTag,
+} from '@/lib/catalog/classification';
+import { savePersonalCatalogEntry, usePersonalCatalog } from '@/lib/catalog/client';
+import { ProfileCommunicationDialog } from '@/components/profiles/ProfileCommunication';
+import { TableSortHeading } from '@/components/workspaces/TableSortButton';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { compareListDates, compareTableValues, tableDate } from '@/lib/workspaces/list-order';
 import { profilePrivacy } from '@/lib/profile-privacy/client';
 import type { SharedProfile } from '@/lib/profile-privacy/model';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppModules } from '@/contexts/AppModulesContext';
+import { getDocumentStatusConfig, getParticipationStatusConfig } from '@/lib/documentStatusConfig';
+import {
+  CONTACT_FIELD_COLUMNS,
+  type ContactFieldRow,
+  type ContactResourceKind,
+} from '@/lib/contacts/detail';
+import {
+  getContactParticipationStatus,
+  isPendingContactParticipation,
+  type ContactParticipationStatus,
+} from '@/lib/contacts/document-participation';
+import {
+  canRemindDocumentParticipant,
+  reminderAction,
+  type ReminderParticipant,
+} from '@/lib/contacts/document-reminders';
+import type { ContactGroupChange, ContactGroups } from '@/lib/contacts/groups';
+import {
+  ContactCustomInformation,
+  ContactRelationships,
+  type RelatedContactOption,
+} from './ContactExtraDetails';
+import { ContactProfileHeader } from './ContactProfileHeader';
+import { ContactResourcesPanel } from './ContactResourcesPanel';
+import { ContactGroupsPanel } from './ContactGroupsPanel';
+import { ContactReminderDialog, type ContactReminder } from './ContactReminderDialog';
+import {
+  ContactPanelHeading,
+  ContactEditorDialog,
+  contactButton,
+  contactCard,
+  contactControl,
+} from './contact-detail-ui';
 
 export interface DetailContact {
   id: string;
@@ -39,38 +92,90 @@ export interface DetailContact {
   rfc: string | null;
   curp: string | null;
   tipo_persona?: string | null;
-  empresa?: string | null;
-  cargo?: string | null;
   direccion?: string | null;
   etiqueta_rol?: string | null;
   tags?: string[] | null;
   created_at: string;
 }
 
-type Tab = 'resumen' | 'informacion' | 'documentos' | 'actividad' | 'notas' | 'historial';
-type AgendaField = {
-  id: string;
-  contact_id: string;
-  field_name: string;
-  field_value: string | null;
-  created_at: string;
+type Tab =
+  | 'resumen'
+  | 'informacion'
+  | 'documentos'
+  | 'formularios'
+  | 'expedientes'
+  | 'identidad-documentacion'
+  | 'actividad'
+  | 'notas'
+  | 'historial';
+const tabs: { id: Tab; label: string; resourceKinds?: ContactResourceKind[] }[] = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'informacion', label: 'Información' },
+  { id: 'documentos', label: 'Documentos' },
+  { id: 'formularios', label: 'Formularios', resourceKinds: ['formularios'] },
+  { id: 'expedientes', label: 'Expedientes', resourceKinds: ['expedientes'] },
+  {
+    id: 'identidad-documentacion',
+    label: 'Identidad y documentación',
+    resourceKinds: ['identidad', 'aportada'],
+  },
+  { id: 'actividad', label: 'Actividad' },
+  { id: 'notas', label: 'Notas' },
+  { id: 'historial', label: 'Historial' },
+];
+const documentStatuses = {
+  todos: 'Todos',
+  pendiente: 'Pendientes',
+  sin_revisar: 'Sin revisar',
+  en_revision: 'En revisión',
+  en_espera: 'En espera',
+  firmo: 'Firmados',
+  aprobo: 'Aprobados',
+  completado: 'Completados',
+  rechazo: 'Rechazados',
+  cancelo: 'Cancelados',
+  revocado: 'Revocados',
+  urgente_atencion: 'Urgente atención',
+  participacion_vencida: 'Participación vencida',
+  sin_accion: 'Sin acción',
+} satisfies Record<ContactParticipationStatus | 'todos', string>;
+const extraParticipationBadges: Partial<
+  Record<ContactParticipationStatus, { label: string; badgeClass: string }>
+> = {
+  pendiente: {
+    label: 'Pendiente',
+    badgeClass: 'bg-amber-50 text-amber-700 border border-amber-200',
+  },
+  en_espera: getDocumentStatusConfig('en_espera'),
+  completado: getDocumentStatusConfig('completado'),
+  revocado: {
+    label: 'Acceso revocado',
+    badgeClass: 'bg-slate-100 text-slate-600 border border-slate-200',
+  },
+  sin_accion: {
+    label: 'Sin acción pendiente',
+    badgeClass: 'bg-slate-100 text-slate-600 border border-slate-200',
+  },
 };
+const profilePersonTypeLabels = new Map([
+  ['fisica', 'Persona física'],
+  ['física', 'Persona física'],
+  ['moral', 'Persona moral'],
+]);
 type Note = { id: string; content: string; created_at: string; user_id: string };
-type Participant = {
+type Participant = ReminderParticipant & {
   email?: string;
   rol?: string;
   role?: string;
   accion?: string;
-  sub_estado?: string;
-  status?: string;
-  estado?: string;
 };
 type Document = {
   id: string;
   nombre: string;
-  estado: string | null;
+  status: ContactParticipationStatus;
   created_at: string;
   participant: Participant;
+  reminder?: ContactReminder;
 };
 type DocumentEvent = {
   id: string;
@@ -97,12 +202,6 @@ type ActivityEvent = {
   detail: string;
 };
 
-const categories = ['Tipo', 'Relación', 'Área'] as const;
-const tagOptions: Record<(typeof categories)[number], string[]> = {
-  Tipo: ['Cliente', 'Proveedor', 'Colaborador', 'Notaría', 'Otro'],
-  Relación: ['Recurrente', 'Prospecto', 'Estratégico'],
-  Área: ['Comercial', 'Legal', 'Fiscal', 'Operaciones'],
-};
 const normalize = (value: unknown) =>
   String(value ?? '')
     .trim()
@@ -129,43 +228,13 @@ const fullName = (contact: DetailContact) =>
 const initials = (contact: DetailContact) =>
   [contact.nombre?.[0], contact.apellido_paterno?.[0]].filter(Boolean).join('').toUpperCase() ||
   'C';
-const card = 'rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]';
-
-function classifyTag(value: string): { category: string; label: string; raw: string } {
-  const match = value.match(/^(Tipo|Relación|Área):\s*(.+)$/i);
-  if (match)
-    return {
-      category: categories.find((item) => normalize(item) === normalize(match[1])) || 'Tipo',
-      label: match[2].trim(),
-      raw: value,
-    };
-  const category = categories.find((item) =>
-    tagOptions[item].some((option) => normalize(option) === normalize(value))
-  );
-  return { category: category || 'Otros', label: value, raw: value };
-}
+const card = contactCard;
 
 function noteParts(content: string) {
   const lineBreak = content.indexOf('\n');
   return lineBreak > 0
     ? { title: content.slice(0, lineBreak), body: content.slice(lineBreak + 1) }
     : { title: 'Nota interna', body: content };
-}
-
-function participantStatus(document: Document) {
-  const state = normalize(
-    document.participant.sub_estado || document.participant.status || document.participant.estado
-  );
-  if (['firmo', 'firmado', 'aprobo', 'aprobado', 'completado'].includes(state)) return 'firmado';
-  if (['rechazo', 'rechazado'].includes(state)) return 'rechazado';
-  if (['cancelo', 'cancelado'].includes(state) || normalize(document.estado) === 'cancelado')
-    return 'cancelado';
-  if (
-    ['en_progreso', 'en_espera', 'pendiente', 'en_revision', 'sin_revisar'].includes(state) ||
-    ['en_progreso', 'en_espera'].includes(normalize(document.estado))
-  )
-    return 'pendiente';
-  return 'otro';
 }
 
 function ReadOnlyRow({ label, value }: { label: string; value?: string | null }) {
@@ -177,39 +246,91 @@ function ReadOnlyRow({ label, value }: { label: string; value?: string | null })
   );
 }
 
+function ProfileField({
+  label,
+  value,
+  icon: Icon,
+  className,
+}: {
+  label: string;
+  value?: string | null;
+  icon?: LucideIcon;
+  className?: string;
+}) {
+  const content = value?.trim();
+  return (
+    <div className={className}>
+      <dt className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd
+        className={`flex min-h-10 min-w-0 items-center gap-2 rounded-md border border-border bg-muted/60 px-3 py-2 text-sm ${content ? 'text-foreground' : 'text-muted-foreground'}`}
+      >
+        {Icon && <Icon size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
+        <span className="min-w-0 [overflow-wrap:anywhere]">{content || 'Sin información'}</span>
+      </dd>
+    </div>
+  );
+}
+
 export default function ContactDetailWorkspace({
   contact,
   onClose,
   onUpdated,
   catalogTags = [],
+  relatedContacts,
+  onOpenContact,
+  favorite,
+  canFavorite,
+  favoriteError,
+  onFavorite,
+  contactGroups,
+  groupsLoadError,
+  onReloadGroups,
+  onGroupChange,
 }: {
   contact: DetailContact;
   onClose: () => void;
   onUpdated: () => void;
   catalogTags?: string[];
+  relatedContacts: RelatedContactOption[];
+  onOpenContact: (id: string) => void;
+  favorite: boolean;
+  canFavorite: boolean;
+  favoriteError: string;
+  onFavorite: () => void;
+  contactGroups: ContactGroups | null;
+  groupsLoadError: boolean;
+  onReloadGroups: () => void;
+  onGroupChange: (change: ContactGroupChange) => void;
 }) {
   const router = useRouter();
   const { user } = useAuth();
+  const { isModuleActive } = useAppModules();
   const userId = user?.id;
   const [tab, setTab] = useState<Tab>('resumen');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [documentEvents, setDocumentEvents] = useState<DocumentEvent[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [profile, setProfile] = useState<SharedProfile | null>(null);
-  const [fields, setFields] = useState<AgendaField[]>([]);
-  const [allGroupNames, setAllGroupNames] = useState<string[]>([]);
+  const [fields, setFields] = useState<ContactFieldRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [agendaUnavailable, setAgendaUnavailable] = useState(false);
   const [notice, setNotice] = useState('');
+  const [headerNotice, setHeaderNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [relationshipDialog, setRelationshipDialog] = useState(false);
+  const [reminderDialog, setReminderDialog] = useState(false);
+  const [communicationOpen, setCommunicationOpen] = useState(false);
+  const [documentsUnavailable, setDocumentsUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tagDialog, setTagDialog] = useState(false);
-  const [groupDialog, setGroupDialog] = useState<'assign' | 'create' | null>(null);
-  const [tagCategory, setTagCategory] = useState<(typeof categories)[number]>('Tipo');
+  const [tagCategory, setTagCategory] = useState('Tipo');
   const [tagValue, setTagValue] = useState('');
-  const [groupValue, setGroupValue] = useState('');
+  const [customTagCategory, setCustomTagCategory] = useState('Personalizada');
+  const [customTagColor, setCustomTagColor] = useState('#2563eb');
+  const [tagError, setTagError] = useState('');
+  const personalCatalog = usePersonalCatalog(userId, true);
   const [documentSearch, setDocumentSearch] = useState('');
-  const [documentFilter, setDocumentFilter] = useState<
-    'todos' | 'pendiente' | 'firmado' | 'rechazado'
-  >('todos');
+  const [documentFilter, setDocumentFilter] = useState<keyof typeof documentStatuses>('todos');
+  const [documentOrder, setDocumentOrder] = useState('recent');
   const [activityFilter, setActivityFilter] = useState<
     'todos' | 'solicitud' | 'firma' | 'recordatorio' | 'rechazo'
   >('todos');
@@ -224,7 +345,7 @@ export default function ContactDetailWorkspace({
   const loadAgenda = useCallback(async () => {
     if (!userId) return;
     const client = createClient();
-    const [noteResult, fieldResult, groupResult] = await Promise.all([
+    const [noteResult, fieldResult] = await Promise.all([
       client
         .from('contact_notes')
         .select('id,content,created_at,user_id')
@@ -233,28 +354,15 @@ export default function ContactDetailWorkspace({
         .order('created_at', { ascending: false }),
       client
         .from('contact_custom_fields')
-        .select('id,contact_id,field_name,field_value,created_at')
+        .select(CONTACT_FIELD_COLUMNS)
         .eq('contact_id', contact.id)
         .eq('user_id', userId)
         .order('created_at', { ascending: false }),
-      client
-        .from('contact_custom_fields')
-        .select('field_value')
-        .eq('user_id', userId)
-        .eq('field_name', 'contact_group'),
     ]);
-    if (noteResult.error || fieldResult.error || groupResult.error) throw new Error('agenda');
+    if (noteResult.error || fieldResult.error) throw new Error('agenda');
+    setAgendaUnavailable(false);
     setNotes(noteResult.data || []);
     setFields(fieldResult.data || []);
-    setAllGroupNames(
-      Array.from(
-        new Set(
-          (groupResult.data || [])
-            .map((row) => row.field_value)
-            .filter((value): value is string => Boolean(value))
-        )
-      ).sort((a, b) => a.localeCompare(b, 'es'))
-    );
   }, [contact.id, userId]);
 
   useEffect(() => {
@@ -262,6 +370,7 @@ export default function ContactDetailWorkspace({
     let active = true;
     const load = async () => {
       setLoading(true);
+      setDocumentsUnavailable(false);
       try {
         const client = createClient();
         const [agenda, docsResult, profileResult] = await Promise.allSettled([
@@ -269,7 +378,9 @@ export default function ContactDetailWorkspace({
           contact.email
             ? client
                 .from('documentos')
-                .select('id,nombre,estado,created_at,participantes')
+                .select(
+                  'id,nombre,estado,created_at,participantes,fecha_vencimiento,tiene_vencimiento,deleted_at'
+                )
                 .eq('owner_id', user.id)
                 .not('participantes', 'is', null)
             : Promise.resolve({ data: [], error: null }),
@@ -277,22 +388,47 @@ export default function ContactDetailWorkspace({
         ]);
         if (!active) return;
         setProfile(profileResult.status === 'fulfilled' ? profileResult.value.fields : null);
-        if (agenda.status === 'rejected')
+        if (agenda.status === 'rejected') {
+          setAgendaUnavailable(true);
           setNotice('No se pudieron cargar las notas y la organización de este contacto.');
+        }
         if (docsResult.status === 'fulfilled' && !docsResult.value.error) {
           const email = normalize(contact.email);
+          const now = Date.now();
           const matched: Document[] = (docsResult.value.data || []).flatMap((row) => {
-            const participant = Array.isArray(row.participantes)
-              ? row.participantes.find((item: Participant) => normalize(item.email) === email)
-              : null;
+            const participants: Participant[] = Array.isArray(row.participantes)
+              ? row.participantes.filter(
+                  (item: Participant) => item && normalize(item.email) === email
+                )
+              : [];
+            const participant = participants[0];
+            const recipient = participants.find((item) =>
+              canRemindDocumentParticipant(item, row, now)
+            );
+            const action = recipient && reminderAction(recipient);
+            const reminder =
+              recipient?.email && action
+                ? {
+                    id: row.id,
+                    name: row.nombre || 'Sin título',
+                    email: recipient.email,
+                    action,
+                    sentAt: participants
+                      .map((item) => item.fecha_recordatorio)
+                      .filter((date): date is string => Boolean(date))
+                      .sort()
+                      .at(-1),
+                  }
+                : undefined;
             return participant && normalize(row.estado) !== 'borrador'
               ? [
                   {
                     id: row.id,
                     nombre: row.nombre || 'Sin título',
-                    estado: row.estado,
+                    status: getContactParticipationStatus(participant, row, now),
                     created_at: row.created_at,
                     participant,
+                    reminder,
                   },
                 ]
               : [];
@@ -311,7 +447,10 @@ export default function ContactDetailWorkspace({
             if (active && !eventsResult.error)
               setDocumentEvents((eventsResult.data || []) as DocumentEvent[]);
           }
-        } else setNotice('No se pudo cargar la actividad documental de este contacto.');
+        } else {
+          setDocumentsUnavailable(true);
+          setNotice('No se pudo cargar la actividad documental de este contacto.');
+        }
       } catch {
         if (active) setNotice('No se pudo cargar la ficha completa.');
       } finally {
@@ -331,28 +470,55 @@ export default function ContactDetailWorkspace({
           ...(contact.etiqueta_rol ? [`Tipo: ${contact.etiqueta_rol}`] : []),
           ...(contact.tags || []),
         ])
-      ).map(classifyTag),
+      ).map(splitContactTag),
     [contact.etiqueta_rol, contact.tags]
-  );
-  const groups = fields.filter(
-    (field) => field.field_name === 'contact_group' && field.field_value
   );
   const importantIds = new Set(
     fields
       .filter((field) => field.field_name === 'note_important')
       .map((field) => field.field_value)
   );
-  const firmados = documents.filter((document) => participantStatus(document) === 'firmado').length;
-  const pendientes = documents.filter(
-    (document) => participantStatus(document) === 'pendiente'
-  ).length;
-  const filteredDocuments = documents
+  const documentRows = useMemo(() => {
+    const latestActivity = new Map<string, string>();
+    for (const event of documentEvents) {
+      if (!latestActivity.has(event.documento_id))
+        latestActivity.set(event.documento_id, event.created_at);
+    }
+    return documents.map((document) => ({
+      ...document,
+      role: document.participant.rol || document.participant.role || 'Participante',
+      action: isPendingContactParticipation(document.status)
+        ? document.participant.accion || 'Participación pendiente'
+        : '',
+      lastActivity: latestActivity.get(document.id) || document.created_at,
+    }));
+  }, [documents, documentEvents]);
+  const firmados = documentRows.filter((row) => row.status === 'firmo').length;
+  const pendientes = documentRows.filter((row) => isPendingContactParticipation(row.status)).length;
+  const documentQuery = normalize(documentSearch);
+  const filteredDocuments = documentRows
     .filter(
-      (document) =>
-        (documentFilter === 'todos' || participantStatus(document) === documentFilter) &&
-        (!documentSearch.trim() || normalize(document.nombre).includes(normalize(documentSearch)))
+      (row) =>
+        normalize(row.nombre).includes(documentQuery) &&
+        (documentFilter === 'todos' ||
+          (documentFilter === 'pendiente'
+            ? isPendingContactParticipation(row.status)
+            : row.status === documentFilter))
     )
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    .sort((a, b) => {
+      if (documentOrder === 'name' || documentOrder === 'name_desc') {
+        return compareTableValues(a.nombre, b.nombre, documentOrder === 'name' ? 'asc' : 'desc');
+      }
+      if (documentOrder === 'status_asc' || documentOrder === 'status_desc') {
+        return compareTableValues(
+          (extraParticipationBadges[a.status] ?? getParticipationStatusConfig(a.status)).label,
+          (extraParticipationBadges[b.status] ?? getParticipationStatusConfig(b.status)).label,
+          documentOrder === 'status_asc' ? 'asc' : 'desc'
+        );
+      }
+      return compareListDates(a.lastActivity, b.lastActivity, documentOrder === 'oldest' ? 'asc' : 'desc');
+    });
+  const documentHasFilters = documentQuery || documentFilter !== 'todos';
   const activity = useMemo(() => {
     const email = normalize(contact.email);
     const items: ActivityEvent[] = documents.map((document) => ({
@@ -408,15 +574,20 @@ export default function ContactDetailWorkspace({
         detail: 'Se agregó a la agenda.',
         kind: 'contact',
       },
-      ...fields
-        .filter((field) => field.field_name === 'contact_group' && field.field_value)
-        .map((field) => ({
-          id: field.id,
-          date: field.created_at,
-          label: 'Grupo asignado',
-          detail: field.field_value || '',
-          kind: 'group' as const,
-        })),
+      ...(contactGroups?.groups ?? []).flatMap((group) => {
+        const membership = group.members.find((member) => member.contactId === contact.id);
+        return membership
+          ? [
+              {
+                id: `group-${group.id}`,
+                date: membership.assignedAt,
+                label: 'Grupo asignado',
+                detail: group.name,
+                kind: 'group' as const,
+              },
+            ]
+          : [];
+      }),
       ...fields
         .filter((field) => field.field_name === 'agenda_history' && field.field_value)
         .map((field) => ({
@@ -451,6 +622,10 @@ export default function ContactDetailWorkspace({
           ? event.kind === 'request'
           : event.kind === 'note')
   );
+  const historyOrder = useTableOrdering(filteredHistory, {
+    date: (event) => tableDate(event.date),
+    label: (event) => event.label,
+  });
   const visibleNotes = notes
     .filter((note) => noteFilter !== 'importantes' || importantIds.has(note.id))
     .slice(0, noteFilter === 'recientes' ? 5 : undefined);
@@ -467,97 +642,103 @@ export default function ContactDetailWorkspace({
       });
     if (error) setNotice('El cambio se guardó, pero no se pudo registrar en el historial.');
   };
+  const writeTag = async (value: string, remove: boolean) => {
+    if (!userId) throw new Error('contact-tag');
+    const db = createClient();
+    if (!personalCatalog.unavailable) {
+      const { data, error } = await db.rpc('set_contact_catalog_tag', {
+        p_contact: contact.id, p_tag: value, p_remove: remove,
+      });
+      if (error || data !== true) throw new Error('contact-tag');
+      return;
+    }
+    const existing = contact.tags || [];
+    const values = remove ? existing.filter((tag) => tag !== value) : [...new Set([...existing, value])];
+    const legacyRole = remove && value === `Tipo: ${contact.etiqueta_rol}`;
+    const { error } = await db.from('contacts').update({ tags: values, ...(legacyRole && { etiqueta_rol: null }) })
+      .eq('id', contact.id).eq('user_id', userId).select('id').single();
+    if (error) throw error;
+  };
   const saveTag = async () => {
-    if (!user?.id || !tagValue.trim() || busy) return;
-    const value = `${tagCategory}: ${tagValue.trim()}`;
+    if (!user?.id || !tagValue.trim() || busy || personalCatalog.loading || personalCatalog.error) return;
+    const name = tagValue.trim();
+    const custom = activeTagCategory === '__custom__';
+    const enteredGroup = custom ? customTagCategory.trim() : activeTagCategory;
+    const group = categoriesByName.get(catalogKey(enteredGroup)) ?? enteredGroup;
+    if (!group || group.includes(':')) {
+      setTagError('Escribe una categoría sin dos puntos.');
+      return;
+    }
     if (
       tags.some(
-        (tag) => tag.category === tagCategory && normalize(tag.label) === normalize(tagValue)
+        (tag) => catalogKey(tag.category) === catalogKey(group) && catalogKey(tag.label) === catalogKey(name)
       )
     ) {
       setTagDialog(false);
       return;
     }
     setBusy(true);
-    setNotice('');
-    const { error } = await createClient()
-      .from('contacts')
-      .update({ tags: [...(contact.tags || []), value] })
-      .eq('id', contact.id)
-      .eq('user_id', user.id);
-    if (error) setNotice('No se pudo asignar la etiqueta.');
-    else {
-      await addHistory('Etiqueta asignada', value);
-      await loadAgenda();
+    setTagError('');
+    try {
+      const existing = contactCatalog.find((entry) => !entry.archived && catalogKey(entry.group) === catalogKey(group) && catalogKey(entry.name) === catalogKey(name));
+      const value = existing ? `${existing.group}: ${existing.name}` : `${group}: ${name}`;
+      if (custom) {
+        if (personalCatalog.unavailable) return;
+        if (existing && personalCatalog.hidden.has(catalogVisibilityKey(existing.kind, existing.id))) {
+          setTagError('Esta etiqueta está oculta. Puedes volver a mostrarla en Configuración.');
+          return;
+        }
+        if (!existing) {
+          await savePersonalCatalogEntry(user.id, { kind: 'contact-tag', name, group, color: customTagColor });
+          personalCatalog.refresh();
+        }
+      } else if (!tagCatalog.includes(name)) {
+        setTagError('Selecciona una etiqueta del catálogo.');
+        return;
+      }
+      await writeTag(value, false);
       onUpdated();
       setTagValue('');
       setTagDialog(false);
+      try {
+        await addHistory('Etiqueta asignada', value);
+        await loadAgenda();
+      } catch {
+        setNotice('La etiqueta se asignó. No se pudo actualizar el historial.');
+      }
+    } catch {
+      setTagError('No se pudo guardar la etiqueta. Intenta nuevamente.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
   const removeTag = async (value: string) => {
     if (!user?.id || busy) return;
     setBusy(true);
-    setNotice('');
-    const isLegacyRole =
-      value === `Tipo: ${contact.etiqueta_rol}` && !(contact.tags || []).includes(value);
-    const changes = isLegacyRole
-      ? { etiqueta_rol: null }
-      : { tags: (contact.tags || []).filter((tag) => tag !== value) };
-    const { error } = await createClient()
-      .from('contacts')
-      .update(changes)
-      .eq('id', contact.id)
-      .eq('user_id', user.id);
-    if (error) setNotice('No se pudo quitar la etiqueta.');
-    else {
-      await addHistory('Etiqueta retirada', value);
-      await loadAgenda();
+    setTagError('');
+    try {
+      await writeTag(value, true);
       onUpdated();
+      try {
+        await addHistory('Etiqueta retirada', value);
+        await loadAgenda();
+      } catch {
+        setNotice('La etiqueta se retiró. No se pudo actualizar el historial.');
+      }
+    } catch {
+      setTagError('No se pudo quitar la etiqueta. Intenta nuevamente.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
-  const saveGroup = async () => {
-    if (!user?.id || !groupValue.trim() || busy) return;
-    const value = groupValue.trim();
-    if (groups.some((field) => normalize(field.field_value) === normalize(value))) {
-      setGroupDialog(null);
-      return;
-    }
-    setBusy(true);
+  const recordGroupRemoval = async (name: string) => {
     setNotice('');
-    const { error } = await createClient().from('contact_custom_fields').insert({
-      contact_id: contact.id,
-      user_id: user.id,
-      field_name: 'contact_group',
-      field_value: value,
-    });
-    if (error) setNotice('No se pudo asignar el grupo.');
-    else {
+    try {
+      await addHistory('Grupo retirado', name);
       await loadAgenda();
-      onUpdated();
-      setGroupDialog(null);
-      setGroupValue('');
+    } catch {
+      setNotice('El contacto se retiró del grupo. No se pudo actualizar el historial.');
     }
-    setBusy(false);
-  };
-  const removeGroup = async (field: AgendaField) => {
-    if (!user?.id || busy) return;
-    setBusy(true);
-    setNotice('');
-    const { error } = await createClient()
-      .from('contact_custom_fields')
-      .delete()
-      .eq('id', field.id)
-      .eq('user_id', user.id)
-      .eq('contact_id', contact.id);
-    if (error) setNotice('No se pudo quitar el grupo.');
-    else {
-      await addHistory('Grupo retirado', field.field_value || '');
-      await loadAgenda();
-      onUpdated();
-    }
-    setBusy(false);
   };
   const saveNote = async () => {
     if (!user?.id || !noteBody.trim() || busy) return;
@@ -613,18 +794,52 @@ export default function ContactDetailWorkspace({
     setBusy(false);
   };
 
+  function updateCustomField(updated: ContactFieldRow) {
+    setFields((current) => [updated, ...current.filter((field) => field.id !== updated.id)]);
+  }
+
+  async function copyEmail() {
+    if (!contact.email) return;
+    try {
+      await navigator.clipboard.writeText(contact.email);
+      setHeaderNotice({ text: 'Correo copiado.' });
+    } catch {
+      setHeaderNotice({ text: 'No se pudo copiar el correo.', error: true });
+    }
+  }
+
+  const contactQuery = `contact=${encodeURIComponent(contact.id)}`;
+  const registeredPersonType = profile?.personalidad_juridica?.trim() || contact.tipo_persona;
+  const personType =
+    profilePersonTypeLabels.get(normalize(registeredPersonType)) || registeredPersonType;
+  const registeredName =
+    profile?.full_name?.trim() ||
+    [profile?.nombre, profile?.apellido_paterno, profile?.apellido_materno]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  const resourceKinds = tabs.find(({ id }) => id === tab)?.resourceKinds;
+  const panelProps = {
+    role: 'tabpanel',
+    id: 'contact-detail-panel',
+    'aria-labelledby': `contact-detail-tab-${tab}`,
+    tabIndex: 0,
+  };
   const tabButton = (key: Tab, label: string) => (
     <button
       key={key}
+      id={`contact-detail-tab-${key}`}
       type="button"
       role="tab"
       aria-selected={tab === key}
+      aria-controls="contact-detail-panel"
+      tabIndex={tab === key ? 0 : -1}
       onClick={() => setTab(key)}
       className={
-        'whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ' +
+        'whitespace-nowrap border-b-2 px-3 py-3 text-sm transition-colors focus-visible:bg-primary/10 focus-visible:outline-none ' +
         (tab === key
           ? 'border-primary font-medium text-primary'
-          : 'border-transparent text-slate-600 hover:text-primary')
+          : 'border-transparent text-muted-foreground hover:text-primary')
       }
     >
       {label}
@@ -635,232 +850,139 @@ export default function ContactDetailWorkspace({
     title: string,
     action?: () => void,
     actionLabel?: string
-  ) => {
-    const Icon = icon;
-    return (
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <Icon size={17} className="text-primary" />
-          {title}
-        </h3>
-        {action && (
-          <button type="button" onClick={action} className="text-xs text-primary hover:underline">
-            {actionLabel}
-          </button>
-        )}
-      </div>
-    );
-  };
-  const documentBadge = (document: Document) => {
-    const status = participantStatus(document);
-    const colors: Record<string, string> = {
-      firmado: 'bg-emerald-50 text-emerald-700',
-      pendiente: 'bg-amber-50 text-amber-700',
-      rechazado: 'bg-red-50 text-red-700',
-      cancelado: 'bg-slate-100 text-slate-600',
-      otro: 'bg-blue-50 text-blue-700',
-    };
-    return (
-      <span className={'rounded-full px-2.5 py-1 text-xs ' + colors[status]}>
-        {status === 'otro'
-          ? document.estado || 'En seguimiento'
-          : status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
-  };
-  const tagCatalog = Array.from(
-    new Set([
-      ...tagOptions[tagCategory],
-      ...catalogTags
-        .map(classifyTag)
-        .filter((tag) => tag.category === tagCategory)
-        .map((tag) => tag.label),
-    ])
+  ) => (
+    <ContactPanelHeading icon={icon} title={title}>
+      {action && (
+        <button type="button" onClick={action} className="text-xs text-primary hover:underline">
+          {actionLabel}
+        </button>
+      )}
+    </ContactPanelHeading>
   );
+  const documentBadge = (status: ContactParticipationStatus) => {
+    const { label, badgeClass } =
+      extraParticipationBadges[status] ?? getParticipationStatusConfig(status);
+    return (
+      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ${badgeClass}`}>{label}</span>
+    );
+  };
+  const contactCatalog = [...builtInCatalog, ...personalCatalog.entries].filter((entry) => entry.kind === 'contact-tag');
+  const visibleTags = contactCatalog.filter((entry) => !entry.archived &&
+    !personalCatalog.hidden.has(catalogVisibilityKey(entry.kind, entry.id))
+  );
+  const knownTags = new Set(contactCatalog.map((entry) => catalogKey(`${entry.group}: ${entry.name}`)));
+  const legacyTags = catalogTags.map(splitContactTag).filter((tag) => !knownTags.has(catalogKey(`${tag.category}: ${tag.label}`)));
+  const categoriesByName = new Map<string, string>();
+  for (const category of [
+    ...contactTagGroups.map((group) => group.name),
+    ...visibleTags.map((tag) => tag.group),
+    ...legacyTags.map((tag) => tag.category),
+  ]) {
+    const key = catalogKey(category);
+    if (key && !categoriesByName.has(key)) {
+      categoriesByName.set(key, category);
+    }
+  }
+  const selectableCategories = [...categoriesByName.values()];
+  const activeTagCategory = tagCategory === '__custom__'
+    ? tagCategory
+    : (categoriesByName.get(catalogKey(tagCategory)) ?? selectableCategories[0] ?? '__custom__');
+  const tagCatalog = [...new Set([
+    ...visibleTags.filter((tag) => catalogKey(tag.group) === catalogKey(activeTagCategory)).map((tag) => tag.name),
+    ...legacyTags.filter((tag) => catalogKey(tag.category) === catalogKey(activeTagCategory)).map((tag) => tag.label),
+  ])].sort((a, b) => a.localeCompare(b, 'es'));
 
   return (
     <div className="app-page-bleed app-page-frame bg-[#f6f8fb] dark:bg-background">
+      {communicationOpen && <ProfileCommunicationDialog initialContext={{ contactId: contact.id }} onClose={() => setCommunicationOpen(false)} />}
       <div className="app-page-width">
-        <button
-          type="button"
-          onClick={onClose}
-          className="mb-5 flex items-center gap-1 text-sm text-slate-500 hover:text-primary"
-        >
-          <ChevronLeft size={16} /> Mis contactos <span className="mx-2">/</span>{' '}
-          <span className="text-slate-700">{fullName(contact)}</span>
-        </button>
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-white">
-              {initials(contact)}
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold text-slate-950">
-                {fullName(contact)}
-              </h1>
-              <p className="text-sm text-slate-600">
-                {contact.empresa || contact.tipo_persona || 'Contacto'}
-              </p>
-              <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-                {contact.email && (
-                  <span className="flex items-center gap-1">
-                    <Mail size={13} />
-                    {contact.email}
-                  </span>
-                )}
-                {contact.telefono && (
-                  <span className="flex items-center gap-1">
-                    <Phone size={13} />
-                    {contact.telefono}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={!contact.email && !contact.telefono}
-            onClick={() =>
-              router.push(`/crear-documento?contact=${encodeURIComponent(contact.id)}`)
-            }
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Send size={16} /> Usar en nueva solicitud
-          </button>
-          <ProfileCommunicationButton label="Mensajes y notas" context={{ contactId: contact.id }} />
-        </header>
-        {notice && (
-          <p
-            role="alert"
-            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
-          >
-            {notice}
-          </p>
-        )}
+        <ContactProfileHeader
+          name={fullName(contact)}
+          initials={initials(contact)}
+          personType={contact.tipo_persona}
+          email={contact.email}
+          phone={contact.telefono}
+          onClose={onClose}
+          favorite={favorite}
+          canFavorite={canFavorite}
+          onFavorite={onFavorite}
+          favoriteError={favoriteError}
+          notice={headerNotice}
+          actions={[
+            { label: 'Comunicación directa', icon: MessageSquare, run: () => setCommunicationOpen(true) },
+            {
+              label: 'Enviar recordatorio',
+              icon: Bell,
+              run: () => setReminderDialog(true),
+            },
+            ...(isModuleActive('formularios')
+              ? [
+                  {
+                    label: 'Lanzar formulario',
+                    icon: ClipboardList,
+                    disabled: !contact.email,
+                    run: () => router.push(`/formularios/lanzar?${contactQuery}`),
+                  },
+                ]
+              : []),
+            ...(isModuleActive('expedientes')
+              ? [
+                  {
+                    label: 'Lanzar expediente',
+                    icon: FolderClosed,
+                    disabled: !contact.email,
+                    run: () => router.push(`/expedientes/lanzar?${contactQuery}`),
+                  },
+                ]
+              : []),
+            {
+              label: 'Copiar correo',
+              icon: Mail,
+              disabled: !contact.email,
+              run: () => void copyEmail(),
+            },
+            { label: 'Agregar nota', icon: MessageSquare, run: () => setTab('notas') },
+            { label: 'Gestionar etiquetas', icon: Tag, run: () => setTagDialog(true) },
+            {
+              label: 'Vincular contacto',
+              icon: Link2,
+              disabled: !userId || agendaUnavailable || relatedContacts.length < 2,
+              run: () => setRelationshipDialog(true),
+            },
+          ]}
+        />
+        {notice && <BottomNotice message={notice} tone="critical" onClose={() => setNotice('')} />}
         <div className="grid gap-4 lg:grid-cols-[290px_minmax(0,1fr)]">
-          <aside className="space-y-4">
-            <section className={card}>
-              {sectionTitle(Tag, 'Etiquetas', () => setTagDialog(true), 'Gestionar etiquetas')}
-              <div className="space-y-2 p-4">
-                {tags.length ? (
-                  categories.map((category) => {
-                    const values = tags.filter((tag) => tag.category === category);
-                    return values.length ? (
-                      <div
-                        key={category}
-                        className="grid grid-cols-[82px_1fr] items-start gap-2 text-xs"
-                      >
-                        <span className="pt-1 text-slate-500">{category}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {values.map((tag) => (
-                            <span
-                              key={tag.label}
-                              className="rounded-full bg-blue-50 px-2 py-1 text-primary"
-                            >
-                              {tag.label}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null;
-                  })
-                ) : (
-                  <p className="text-sm text-slate-500">Sin etiquetas.</p>
-                )}
-                {tags
-                  .filter((tag) => tag.category === 'Otros')
-                  .map((tag) => (
-                    <span
-                      key={tag.label}
-                      className="mr-1 inline-block rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600"
-                    >
-                      {tag.label}
-                    </span>
-                  ))}
-              </div>
-            </section>
-            <section className={card}>
-              {sectionTitle(Users, 'Grupos de contactos')}
-              <div className="space-y-2 p-4">
-                {groups.length ? (
-                  groups.map((group) => (
-                    <div
-                      key={group.id}
-                      className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                    >
-                      <span className="truncate">{group.field_value}</span>
-                      <button
-                        type="button"
-                        onClick={() => void removeGroup(group)}
-                        disabled={busy}
-                        aria-label={`Quitar del grupo ${group.field_value}`}
-                        className="ml-2 text-slate-400 hover:text-red-600"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    Este contacto no pertenece a ningún grupo.
-                  </p>
-                )}
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGroupValue('');
-                      setGroupDialog('assign');
-                    }}
-                    className="rounded-md border border-slate-200 px-2 py-2 text-xs text-primary hover:bg-blue-50"
-                  >
-                    <Plus size={13} className="mr-1 inline" />
-                    Asignar a grupo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGroupValue('');
-                      setGroupDialog('create');
-                    }}
-                    className="rounded-md border border-slate-200 px-2 py-2 text-xs text-primary hover:bg-blue-50"
-                  >
-                    <Users size={13} className="mr-1 inline" />
-                    Crear grupo
-                  </button>
-                </div>
-              </div>
-            </section>
-            <section className={card}>
-              {sectionTitle(FileText, 'Resumen rápido')}
-              <dl className="px-4">
-                <ReadOnlyRow label="Tipo de persona" value={contact.tipo_persona} />
-                <ReadOnlyRow label="Empresa" value={contact.empresa} />
-                <ReadOnlyRow label="Cargo" value={contact.cargo} />
-                <ReadOnlyRow label="Agregado" value={dateOnly(contact.created_at)} />
-              </dl>
-            </section>
-          </aside>
-          <main className="min-w-0">
+          <main className="min-w-0 lg:col-start-2 lg:row-start-1">
             <div
               role="tablist"
               aria-label="Ficha del contacto"
-              className={card + ' mb-4 flex overflow-x-auto border-b-0 px-2'}
+              className={card + ' mb-4 flex overflow-x-auto px-2 [scrollbar-width:thin]'}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const index = tabs.findIndex(({ id }) => id === tab);
+                const target =
+                  tabs[
+                    event.key === 'Home'
+                      ? 0
+                      : event.key === 'End'
+                        ? tabs.length - 1
+                        : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length
+                  ].id;
+                setTab(target);
+                document.getElementById(`contact-detail-tab-${target}`)?.focus();
+              }}
             >
-              {tabButton('resumen', 'Resumen')}
-              {tabButton('informacion', 'Información')}
-              {tabButton('documentos', 'Documentos')}
-              {tabButton('actividad', 'Actividad')}
-              {tabButton('notas', 'Notas')}
-              {tabButton('historial', 'Historial')}
+              {tabs.map(({ id, label }) => tabButton(id, label))}
             </div>
-            {loading && (
-              <div className={card + ' p-8 text-center text-sm text-slate-500'}>
+            {loading && !resourceKinds && (
+              <div {...panelProps} className={card + ' p-8 text-center text-sm text-slate-500'}>
                 Cargando ficha del contacto…
               </div>
             )}
             {!loading && tab === 'resumen' && (
-              <div className="space-y-4">
+              <div {...panelProps} className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {[
                     [
@@ -901,7 +1023,7 @@ export default function ContactDetailWorkspace({
                       'Ver todos'
                     )}
                     <div className="divide-y divide-slate-100 px-4">
-                      {documents
+                      {documentRows
                         .slice()
                         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
                         .slice(0, 4)
@@ -911,7 +1033,7 @@ export default function ContactDetailWorkspace({
                             <span className="min-w-0 flex-1 truncate text-slate-800">
                               {document.nombre}
                             </span>
-                            {documentBadge(document)}
+                            {documentBadge(document.status)}
                             <span className="hidden text-xs text-slate-500 sm:block">
                               {dateOnly(document.created_at)}
                             </span>
@@ -975,144 +1097,201 @@ export default function ContactDetailWorkspace({
               </div>
             )}
             {!loading && tab === 'informacion' && (
-              <div className="space-y-4">
+              <div {...panelProps} className="grid grid-cols-1 gap-4">
                 <section className={card}>
-                  {sectionTitle(Users, 'Información de contacto')}
-                  <dl className="grid gap-x-8 px-5 pb-2 md:grid-cols-2">
-                    <ReadOnlyRow label="Tipo de persona" value={contact.tipo_persona} />
-                    <ReadOnlyRow label="Nombre completo" value={fullName(contact)} />
-                    <ReadOnlyRow label="Correo electrónico" value={contact.email} />
-                    <ReadOnlyRow label="Teléfono" value={contact.telefono} />
-                    <ReadOnlyRow label="Empresa" value={contact.empresa} />
-                    <ReadOnlyRow label="Cargo" value={contact.cargo} />
+                  <ContactPanelHeading icon={UserRound} title="Datos de identidad" />
+                  <dl className="grid gap-4 p-4 sm:p-5 md:grid-cols-2">
+                    <ProfileField label="Tipo de persona" value={personType} />
+                    <ProfileField label="CURP" value={profile?.curp || contact.curp} />
+                    <ProfileField label="Nombre" value={profile?.nombre || contact.nombre} />
+                    <ProfileField
+                      label="Apellido paterno"
+                      value={profile?.apellido_paterno || contact.apellido_paterno}
+                    />
+                    <ProfileField
+                      label="Apellido materno"
+                      value={profile?.apellido_materno || contact.apellido_materno}
+                    />
+                    <ProfileField
+                      label="Nombre completo / Razón social"
+                      value={registeredName || fullName(contact)}
+                    />
+                    <ProfileField label="Correo electrónico" value={contact.email} icon={Mail} />
+                    <ProfileField
+                      label="Número de teléfono"
+                      value={profile?.phone || contact.telefono}
+                      icon={Phone}
+                    />
                   </dl>
                 </section>
                 <section className={card}>
                   {sectionTitle(FileText, 'Datos fiscales')}
-                  <dl className="grid gap-x-8 px-5 pb-2 md:grid-cols-2">
-                    <ReadOnlyRow label="RFC" value={profile?.rfc || contact.rfc} />
-                    <ReadOnlyRow label="CURP" value={profile?.curp || contact.curp} />
-                    <ReadOnlyRow label="Régimen fiscal" value={profile?.regimen_fiscal} />
+                  <dl className="grid gap-4 p-4 sm:p-5 md:grid-cols-2">
+                    <ProfileField label="RFC" value={profile?.rfc || contact.rfc} />
+                    <ProfileField label="Régimen fiscal" value={profile?.regimen_fiscal} />
                   </dl>
                 </section>
                 <section className={card}>
-                  {sectionTitle(MapPin, 'Dirección')}
-                  <dl className="px-5 pb-2">
-                    <ReadOnlyRow label="Dirección" value={contact.direccion} />
-                    {profile && (
-                      <div className="grid gap-x-8 md:grid-cols-2">
-                        <ReadOnlyRow label="Código postal" value={profile.codigo_postal} />
-                        <ReadOnlyRow label="Estado" value={profile.estado} />
-                        <ReadOnlyRow label="Municipio o alcaldía" value={profile.municipio} />
-                        <ReadOnlyRow label="Colonia" value={profile.colonia} />
-                        <ReadOnlyRow label="Calle" value={profile.calle} />
-                        <ReadOnlyRow label="Número exterior" value={profile.num_exterior} />
-                        <ReadOnlyRow label="Número interior" value={profile.num_interior} />
-                      </div>
+                  {sectionTitle(MapPin, 'Domicilio fiscal')}
+                  <dl className="grid gap-4 p-4 sm:p-5 md:grid-cols-2">
+                    <ProfileField
+                      label="Código postal"
+                      value={profile?.codigo_postal}
+                      className="md:col-start-1"
+                    />
+                    <ProfileField
+                      label="Estado"
+                      value={profile?.estado}
+                      className="md:col-start-1"
+                    />
+                    <ProfileField label="Municipio o alcaldía" value={profile?.municipio} />
+                    <ProfileField label="Colonia" value={profile?.colonia} />
+                    <ProfileField label="Localidad" value={profile?.localidad} />
+                    <ProfileField label="Calle" value={profile?.calle} className="md:col-span-2" />
+                    <ProfileField label="Número exterior" value={profile?.num_exterior} />
+                    <ProfileField label="Número interior" value={profile?.num_interior} />
+                    {contact.direccion?.trim() && (
+                      <ProfileField
+                        label="Dirección de la agenda"
+                        value={contact.direccion}
+                        className="md:col-span-2"
+                      />
                     )}
                   </dl>
                 </section>
+                {userId && (
+                  <ContactCustomInformation
+                    contactId={contact.id}
+                    userId={userId}
+                    rows={fields}
+                    onSaved={updateCustomField}
+                    unavailable={agendaUnavailable}
+                    contacts={relatedContacts}
+                  />
+                )}
               </div>
             )}
             {!loading && tab === 'documentos' && (
-              <section className={card}>
+              <section {...panelProps} className={card}>
                 {sectionTitle(FileText, 'Documentos del contacto')}
-                <div className="flex flex-wrap gap-2 p-4">
-                  <div className="relative min-w-[220px] flex-1">
-                    <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="search"
-                      value={documentSearch}
-                      onChange={(event) => setDocumentSearch(event.target.value)}
-                      placeholder="Buscar documentos..."
-                      className="h-9 w-full rounded-md border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  {(['todos', 'pendiente', 'firmado', 'rechazado'] as const).map((filter) => (
-                    <button
-                      key={filter}
-                      type="button"
-                      onClick={() => setDocumentFilter(filter)}
-                      className={
-                        'rounded-md border px-3 text-xs ' +
-                        (documentFilter === filter
-                          ? 'border-primary/30 bg-blue-50 text-primary'
-                          : 'border-slate-200 text-slate-600')
-                      }
+                <div className="space-y-3 border-b border-border px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <label className="relative min-w-0 flex-1 basis-48">
+                      <span className="sr-only">Buscar documentos</span>
+                      <Search
+                        size={15}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <input
+                        type="search"
+                        value={documentSearch}
+                        onChange={(event) => setDocumentSearch(event.target.value)}
+                        placeholder="Buscar documentos…"
+                        className={`${contactControl} w-full pl-9`}
+                      />
+                    </label>
+                    <select
+                      aria-label="Ordenar documentos"
+                      className={contactControl}
+                      value={documentOrder}
+                      onChange={(event) => setDocumentOrder(event.target.value)}
                     >
-                      {filter === 'todos'
-                        ? 'Todos'
-                        : filter === 'pendiente'
-                          ? 'Pendientes'
-                          : filter === 'firmado'
-                            ? 'Firmados'
-                            : 'Rechazados'}
-                    </button>
-                  ))}
+                      <option value="recent">Actividad más reciente</option>
+                      <option value="oldest">Actividad más antigua</option>
+                      <option value="name">Nombre de A a Z</option>
+                      <option value="name_desc">Nombre de Z a A</option>
+                      <option value="status_asc">Estado ascendente</option>
+                      <option value="status_desc">Estado descendente</option>
+                    </select>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label="Estado de la participación"
+                    className="flex gap-2 overflow-x-auto px-0.5 py-0.5 [scrollbar-width:thin]"
+                  >
+                    {(Object.keys(documentStatuses) as (keyof typeof documentStatuses)[]).map(
+                      (filter) => (
+                        <button
+                          key={filter}
+                          type="button"
+                          onClick={() => setDocumentFilter(filter)}
+                          aria-pressed={documentFilter === filter}
+                          className={`${contactButton} workspace-filter-pill workspace-filter-trigger shrink-0 whitespace-nowrap ${documentFilter === filter ? 'border-primary/30 bg-primary/10' : ''}`}
+                        >
+                          {documentStatuses[filter]}
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[680px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Documento</th>
-                        <th className="px-4 py-3 font-medium">Rol</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Acción pendiente</th>
-                        <th className="px-4 py-3 font-medium">Última actividad</th>
-                        <th className="px-4 py-3 font-medium">Abrir</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredDocuments.map((document) => (
-                        <tr key={document.id}>
-                          <td className="px-4 py-3 font-medium text-slate-800">
-                            {document.nombre}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {document.participant.rol ||
-                              document.participant.role ||
-                              'Participante'}
-                          </td>
-                          <td className="px-4 py-3">{documentBadge(document)}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {participantStatus(document) === 'pendiente'
-                              ? document.participant.accion || 'Participación pendiente'
-                              : '—'}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-500">
-                            {dateOnly(
-                              documentEvents.find((event) => event.documento_id === document.id)
-                                ?.created_at || document.created_at
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => router.push(`/visor-documento/${document.id}`)}
-                              aria-label={`Abrir ${document.nombre}`}
-                              title="Abrir documento"
-                              className="text-primary hover:text-blue-700"
-                            >
-                              <ExternalLink size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <PaginatedTableScrollArea items={filteredDocuments} label="Documentos del contacto">
+                    {(pageRows) => (
+                      <table className="w-full min-w-[680px] text-left text-sm">
+                        <thead className="workspace-table-heading">
+                          <tr>
+                            <TableSortHeading label="Documento" sort={documentOrder} ascending="name" descending="name_desc" onSort={setDocumentOrder} />
+                            <th className="px-4 py-3 font-medium">Rol</th>
+                            <TableSortHeading label="Estado de participación" sort={documentOrder} ascending="status_asc" descending="status_desc" onSort={setDocumentOrder} />
+                            <th className="px-4 py-3 font-medium">Acción pendiente</th>
+                            <TableSortHeading label="Última actividad" sort={documentOrder} ascending="oldest" descending="recent" onSort={setDocumentOrder} defaultDirection="desc" />
+                            <th className="px-4 py-3 font-medium">Abrir</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {pageRows.map((document) => (
+                            <tr key={document.id}>
+                              <td className="px-4 py-3 font-medium text-slate-800">
+                                {document.nombre}
+                              </td>
+                              <td className="px-4 py-3 text-slate-600">{document.role}</td>
+                              <td className="px-4 py-3">{documentBadge(document.status)}</td>
+                              <td className="px-4 py-3 text-slate-600">{document.action || '—'}</td>
+                              <td className="px-4 py-3 text-xs text-slate-500">
+                                {dateOnly(document.lastActivity)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => router.push(`/visor-documento/${document.id}`)}
+                                  aria-label={`Abrir ${document.nombre}`}
+                                  title="Abrir documento"
+                                  className="text-primary hover:text-blue-700"
+                                >
+                                  <ExternalLink size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </PaginatedTableScrollArea>
                   {!filteredDocuments.length && (
                     <p className="p-8 text-center text-sm text-slate-500">
-                      No hay documentos que coincidan con los filtros.
+                      {documentHasFilters
+                        ? 'No hay documentos que coincidan con los filtros.'
+                        : 'Aún no hay documentos compartidos con este contacto.'}
                     </p>
                   )}
                 </div>
-                <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
-                  Mostrando {filteredDocuments.length} de {documents.length} documentos
-                </p>
               </section>
             )}
+            {resourceKinds && (
+              <div {...panelProps} className="space-y-4">
+                {resourceKinds.map((kind) => (
+                  <ContactResourcesPanel
+                    key={kind}
+                    kind={kind}
+                    contactId={contact.id}
+                    hasEmail={Boolean(contact.email?.trim())}
+                  />
+                ))}
+              </div>
+            )}
             {!loading && tab === 'actividad' && (
-              <section className={card}>
+              <section {...panelProps} className={card}>
                 <div className="flex flex-wrap gap-2 p-4">
                   {(['todos', 'solicitud', 'firma', 'recordatorio', 'rechazo'] as const).map(
                     (filter) => (
@@ -1188,7 +1367,7 @@ export default function ContactDetailWorkspace({
               </section>
             )}
             {!loading && tab === 'notas' && (
-              <section className={card}>
+              <section {...panelProps} className={card}>
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-4">
                   <h2 className="mr-auto text-sm font-semibold text-slate-900">Notas internas</h2>
                   {(['todas', 'recientes', 'importantes'] as const).map((filter) => (
@@ -1284,7 +1463,7 @@ export default function ContactDetailWorkspace({
               </section>
             )}
             {!loading && tab === 'historial' && (
-              <section className={card}>
+              <section {...panelProps} className={card}>
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-4">
                   <h2 className="mr-auto text-sm font-semibold text-slate-900">
                     Historial de la agenda
@@ -1312,26 +1491,30 @@ export default function ContactDetailWorkspace({
                   ))}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[580px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">Evento</th>
-                        <th className="px-4 py-3 font-medium">Detalle</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredHistory.map((event) => (
-                        <tr key={event.id}>
-                          <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                            {dateTime(event.date)}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-slate-800">{event.label}</td>
-                          <td className="px-4 py-3 text-slate-600">{event.detail}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <PaginatedTableScrollArea items={historyOrder.orderedRows} label="Historial del contacto">
+                    {(pageRows) => (
+                      <table className="w-full min-w-[580px] text-left text-sm">
+                        <thead className="workspace-table-heading">
+                          <tr>
+                            <th className="px-4 py-3" {...historyOrder.sortHeading('date', 'Fecha')} />
+                            <th className="px-4 py-3" {...historyOrder.sortHeading('label', 'Evento')} />
+                            <th scope="col" className="px-4 py-3">Detalle</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {pageRows.map((event) => (
+                            <tr key={event.id}>
+                              <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
+                                {dateTime(event.date)}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-slate-800">{event.label}</td>
+                              <td className="px-4 py-3 text-slate-600">{event.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </PaginatedTableScrollArea>
                   {!filteredHistory.length && (
                     <p className="p-8 text-center text-sm text-slate-500">
                       No hay registros en esta categoría.
@@ -1341,173 +1524,165 @@ export default function ContactDetailWorkspace({
               </section>
             )}
           </main>
+          <aside
+            aria-label="Clasificación y relaciones del contacto"
+            className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1"
+          >
+            <section className={card}>
+              {sectionTitle(Tag, 'Etiquetas', () => setTagDialog(true), 'Gestionar etiquetas')}
+              <div className="space-y-2 p-4">
+                {tags.length ? (
+                  [...new Set(tags.map((tag) => tag.category))].map((category) => {
+                    const values = tags.filter((tag) => tag.category === category);
+                    return values.length ? (
+                      <div
+                        key={category}
+                        className="grid grid-cols-[82px_1fr] items-start gap-2 text-xs"
+                      >
+                        <span className="pt-1 text-slate-500">{category}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {values.map((tag) => (
+                            <span
+                              key={tag.raw}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-foreground"
+                            >
+                              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: contactTagColor(contactCatalog, tag.category, tag.label) }} />
+                              {tag.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null;
+                  })
+                ) : (
+                  <p className="text-sm text-slate-500">Sin etiquetas.</p>
+                )}
+              </div>
+            </section>
+            <ContactGroupsPanel
+              contactId={contact.id}
+              userId={userId}
+              collection={contactGroups}
+              loadError={groupsLoadError}
+              onRetry={onReloadGroups}
+              onChange={onGroupChange}
+              onRemoved={(name) => void recordGroupRemoval(name)}
+            />
+            {userId && (
+              <ContactRelationships
+                contactId={contact.id}
+                userId={userId}
+                contacts={relatedContacts}
+                rows={fields}
+                onSaved={updateCustomField}
+                loading={loading}
+                unavailable={agendaUnavailable}
+                dialogOpen={relationshipDialog}
+                setDialogOpen={setRelationshipDialog}
+                onOpenContact={onOpenContact}
+              />
+            )}
+            <section className={card}>
+              {sectionTitle(FileText, 'Resumen rápido')}
+              <dl className="px-4">
+                <ReadOnlyRow label="Tipo de persona" value={contact.tipo_persona} />
+                <ReadOnlyRow label="Agregado" value={dateOnly(contact.created_at)} />
+              </dl>
+            </section>
+          </aside>
         </div>
       </div>
-      {(tagDialog || groupDialog) && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setTagDialog(false);
-              setGroupDialog(null);
-            }
-          }}
+      {reminderDialog && (
+        <ContactReminderDialog
+          contactName={fullName(contact)}
+          email={contact.email}
+          reminders={documents.flatMap((document) =>
+            document.reminder ? [document.reminder] : []
+          )}
+          loading={loading}
+          unavailable={documentsUnavailable}
+          onClose={() => setReminderDialog(false)}
+          onSent={(id, sentAt) =>
+            setDocuments((current) =>
+              current.map((document) =>
+                document.id === id && document.reminder
+                  ? { ...document, reminder: { ...document.reminder, sentAt } }
+                  : document
+              )
+            )
+          }
+        />
+      )}
+      {tagDialog && (
+        <ContactEditorDialog
+          title="Gestionar etiquetas"
+          onClose={() => { setTagDialog(false); setTagError(''); setTagValue(''); }}
+          onSubmit={(event) => { event.preventDefault(); void saveTag(); }}
+          busy={busy}
+          error={tagError}
+          submitLabel="Asignar etiqueta"
+          submitDisabled={!tagValue.trim() || personalCatalog.loading || personalCatalog.error}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={
-              tagDialog
-                ? 'Gestionar etiquetas'
-                : groupDialog === 'create'
-                  ? 'Crear grupo'
-                  : 'Asignar a grupo'
-            }
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-slate-900">
-                {tagDialog
-                  ? 'Gestionar etiquetas'
-                  : groupDialog === 'create'
-                    ? 'Crear grupo'
-                    : 'Asignar a grupo'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setTagDialog(false);
-                  setGroupDialog(null);
-                }}
-                aria-label="Cerrar"
-                className="text-slate-500"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            {tagDialog ? (
-              <>
-                <div className="mb-4 space-y-2">
-                  {tags.map((tag) => {
-                    const value = tag.raw;
-                    return (
-                      <div
-                        key={value}
-                        className="flex items-center justify-between rounded-md border border-slate-100 px-3 py-2 text-sm"
-                      >
-                        <span>
-                          {tag.category}: {tag.label}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void removeTag(value)}
-                          aria-label={`Quitar ${value}`}
-                          className="text-slate-400 hover:text-red-600"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                <label className="block text-xs text-slate-600">
-                  Categoría
-                  <select
-                    value={tagCategory}
-                    onChange={(event) => {
-                      setTagCategory(event.target.value as typeof tagCategory);
-                      setTagValue('');
-                    }}
-                    className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
-                  >
-                    {categories.map((category) => (
-                      <option key={category}>{category}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="mt-3 block text-xs text-slate-600">
-                  Etiqueta
-                  <input
-                    list="contact-tag-options"
-                    value={tagValue}
-                    onChange={(event) => setTagValue(event.target.value)}
-                    maxLength={80}
-                    placeholder="Selecciona o escribe una etiqueta"
-                    className="mt-1 h-9 w-full rounded-md border border-slate-200 px-3 text-sm"
-                  />
-                  <datalist id="contact-tag-options">
-                    {tagCatalog.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                </label>
-                <button
-                  type="button"
-                  disabled={!tagValue.trim() || busy}
-                  onClick={() => void saveTag()}
-                  className="mt-4 w-full rounded-md bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  Asignar etiqueta
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="mb-3 text-sm text-slate-500">
-                  Un contacto puede pertenecer a varios grupos.
-                </p>
-                {groupDialog === 'assign' && allGroupNames.length > 0 ? (
-                  <label className="block text-xs text-slate-600">
-                    Grupo existente
-                    <select
-                      value={groupValue}
-                      onChange={(event) => setGroupValue(event.target.value)}
-                      className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
-                    >
-                      <option value="">Selecciona un grupo</option>
-                      {allGroupNames
-                        .filter(
-                          (name) =>
-                            !groups.some(
-                              (group) => normalize(group.field_value) === normalize(name)
-                            )
-                        )
-                        .map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                ) : (
-                  <label className="block text-xs text-slate-600">
-                    Nombre del grupo
-                    <input
-                      value={groupValue}
-                      onChange={(event) => setGroupValue(event.target.value)}
-                      maxLength={80}
-                      placeholder="Ej. Proveedores frecuentes"
-                      className="mt-1 h-9 w-full rounded-md border border-slate-200 px-3 text-sm"
-                    />
-                  </label>
-                )}
-                {groupDialog === 'assign' && !allGroupNames.length && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Aún no hay grupos. Escribe el nombre del primero.
-                  </p>
-                )}
-                <button
-                  type="button"
-                  disabled={!groupValue.trim() || busy}
-                  onClick={() => void saveGroup()}
-                  className="mt-4 w-full rounded-md bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {groupDialog === 'create' ? 'Crear y asignar grupo' : 'Asignar grupo'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+          {tags.length > 0 && (
+            <ul aria-label="Etiquetas asignadas" className="max-h-36 space-y-1.5 overflow-y-auto">
+              {tags.map((tag) => (
+                <li key={tag.raw} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-1.5 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: contactTagColor(contactCatalog, tag.category, tag.label) }} />
+                    <span className="[overflow-wrap:anywhere]">{tag.category}: {tag.label}</span>
+                  </span>
+                  <button type="button" className="shrink-0 rounded p-1.5 text-muted-foreground hover:text-destructive"
+                    onClick={() => void removeTag(tag.raw)} aria-label={`Quitar ${tag.raw}`}>
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className="grid gap-1.5 text-sm font-medium">
+            Categoría
+            <select value={activeTagCategory} className={contactControl} onChange={(event) => {
+              setTagCategory(event.target.value); setTagValue(''); setTagError('');
+            }}>
+              {selectableCategories.map((category) => <option key={category}>{category}</option>)}
+              <option value="__custom__" disabled={personalCatalog.unavailable}>Otra categoría · Crear etiqueta</option>
+            </select>
+          </label>
+          {personalCatalog.error ? (
+            <p className="text-sm text-destructive" role="alert">
+              No se pudo cargar el catálogo. <button type="button" className="underline" onClick={personalCatalog.refresh}>Reintentar</button>
+            </p>
+          ) : personalCatalog.loading ? <p className="text-sm text-muted-foreground" role="status">Cargando etiquetas…</p>
+          : activeTagCategory === '__custom__' ? (
+            <>
+              <label className="grid gap-1.5 text-sm font-medium">Nombre de la categoría
+                <input required maxLength={80} className={contactControl} value={customTagCategory} onChange={(event) => setCustomTagCategory(event.target.value)} />
+              </label>
+              <label className="grid gap-1.5 text-sm font-medium">Nombre de la etiqueta
+                <input required maxLength={80} className={contactControl} value={tagValue} onChange={(event) => setTagValue(event.target.value)} />
+              </label>
+              <CatalogColorPicker value={customTagColor} onChange={setCustomTagColor} />
+            </>
+          ) : (
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium">Etiqueta</legend>
+              <div className="flex max-h-44 flex-wrap content-start gap-2 overflow-y-auto p-0.5">
+                {tagCatalog.map((name) => {
+                  const assigned = tags.some((tag) => catalogKey(tag.category) === catalogKey(activeTagCategory) && catalogKey(tag.label) === catalogKey(name));
+                  return (
+                    <button type="button" key={name} aria-pressed={tagValue === name} disabled={assigned}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50 ${tagValue === name ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`}
+                      onClick={() => setTagValue(name)}>
+                      <span className="size-2.5 rounded-full" style={{ backgroundColor: contactTagColor(contactCatalog, activeTagCategory, name) }} />
+                      {name}
+                    </button>
+                  );
+                })}
+                {!tagCatalog.length && <p className="text-sm text-muted-foreground">Sin etiquetas disponibles en esta categoría.</p>}
+              </div>
+            </fieldset>
+          )}
+        </ContactEditorDialog>
       )}
     </div>
   );

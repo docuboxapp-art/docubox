@@ -1,5 +1,6 @@
 import { parseCaseFilters } from './consultation-filters';
 import { CUSTOM_FILTER_ICON_OPTIONS } from '@/lib/filters/custom-filter-icons';
+import { caseOrderOptions } from './consultation-order';
 
 export type CaseFilterValues = {
   category: string;
@@ -113,7 +114,7 @@ export function normalizeCaseFilterValues(value: unknown): CaseFilterValues {
   }
   if (result.type && !uuid.test(result.type))
     throw new Error('Selecciona un tipo de expediente válido.');
-  if (!['recent', 'oldest', 'name'].includes(result.sort))
+  if (!caseOrderOptions.some(({ id }) => id === result.sort))
     throw new Error('Selecciona un orden válido.');
   if (result.query.length > 120 || result.tag.length > 120)
     throw new Error('La búsqueda y las etiquetas admiten hasta 120 caracteres.');

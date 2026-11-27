@@ -5,6 +5,7 @@ import {
   PDFArray,
   PDFContentStream,
   PDFDocument,
+  PDFName,
   PDFPage,
   PDFFont,
   PDFRawStream,
@@ -12,6 +13,7 @@ import {
 } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { embedDocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
+import { SIGNERS_SHEET_PDF_PAGE_KEY } from '@/lib/signatures/signing-options';
 
 export type DocumentSealStatus = 'VALID' | 'INVALID' | 'UNVERIFIED' | 'REVOKED';
 
@@ -1064,7 +1066,12 @@ export async function applyCryptographicPlacementAtFoot(
 ) {
   const pdf = await PDFDocument.load(documentBytes, { ignoreEncryption: false });
   const { bold, mono } = await embedDocuboxPdfFonts(pdf);
-  const lastPage = pdf.getPage(pdf.getPageCount() - 1);
+  const pages = pdf.getPages();
+  const firstSignersPage = pages.findIndex((page) =>
+    page.node.has(PDFName.of(SIGNERS_SHEET_PDF_PAGE_KEY))
+  );
+  const documentPageCount = firstSignersPage > 0 ? firstSignersPage : pages.length;
+  const lastPage = pages[documentPageCount - 1];
   const { width, height } = lastPage.getSize();
   const margin = Math.max(16, width * 0.035);
   const contentWidth = width - margin * 2;
@@ -1097,7 +1104,7 @@ export async function applyCryptographicPlacementAtFoot(
   );
   const targetPage = usesLastPage
     ? lastPage
-    : pdf.addPage([width, height]);
+    : pdf.insertPage(documentPageCount, [width, height]);
   const topMargin = Math.max(18, height * 0.028);
   let y = usesLastPage ? bottomMargin + requiredHeight : height - topMargin;
 

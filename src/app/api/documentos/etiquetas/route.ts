@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createAnonClient } from '@/lib/supabase/server';
+import { readDocumentTags } from '@/lib/catalog/document-reads';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .from('etiquetas')
-      .select('id, nombre, color')
-      .order('nombre');
+    const authorization = request.headers.get('authorization');
+    if (!authorization?.startsWith('Bearer '))
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    const supabase = createAnonClient(authorization.slice(7));
+    const { data, error } = await readDocumentTags(supabase);
 
     if (error) {
-      console.error('Error fetching etiquetas:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'No se pudieron cargar las etiquetas.' }, { status: 503 });
     }
 
-    return NextResponse.json({ data: data || [] });
-  } catch (err: any) {
-    console.error('Unexpected error fetching etiquetas:', err);
-    return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 });
+    return NextResponse.json(
+      { data: data || [] },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch {
+    return NextResponse.json({ error: 'No se pudieron cargar las etiquetas.' }, { status: 503 });
   }
 }

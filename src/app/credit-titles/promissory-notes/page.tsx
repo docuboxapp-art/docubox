@@ -1,10 +1,12 @@
 'use client';
 
-import type React from 'react';
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, FileText, MoreHorizontal, Plus, Search } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 import { createClient } from '@/lib/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import {
@@ -80,6 +82,14 @@ function PromissoryNotesContent() {
       }),
     [items, query, status]
   );
+  const { orderedRows, sortHeading } = useTableOrdering(filtered, {
+    folio: (item) => item.folio,
+    subscriber: (item) => item.subscriberName,
+    beneficiary: (item) => item.beneficiaryName,
+    due: (item) => tableDate(item.maturityDate),
+    holder: (item) => item.currentHolderName,
+    status: (item) => STATUS_META[item.status]?.label,
+  });
 
   return (
     <AppLayout noPadding>
@@ -150,7 +160,7 @@ function PromissoryNotesContent() {
           ) : (
             <>
               <div className="divide-y divide-slate-200 md:hidden dark:divide-border">
-                {filtered.map((item) => (
+                {orderedRows.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => router.push(`/credit-titles/promissory-notes/${item.id}`)}
@@ -171,81 +181,85 @@ function PromissoryNotesContent() {
                 ))}
               </div>
               <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[1160px] border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-border dark:bg-muted/40">
-                      <Heading>Folio</Heading>
-                      <Heading>Suscriptor</Heading>
-                      <Heading>Beneficiario</Heading>
-                      <Heading>Importe / saldo</Heading>
-                      <Heading>Vencimiento</Heading>
-                      <Heading>Tenedor actual</Heading>
-                      <Heading>Estado</Heading>
-                      <Heading align="right">Acciones</Heading>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-border">
-                    {filtered.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-muted/30">
-                        <td className="px-4 py-4">
-                          <button
-                            onClick={() =>
-                              router.push(`/credit-titles/promissory-notes/${item.id}`)
-                            }
-                            className="flex items-center gap-3 text-left"
-                          >
-                            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-indigo-100 bg-indigo-50 text-indigo-700">
-                              <FileText size={17} />
-                            </span>
-                            <span>
-                              <span className="block text-sm font-600 text-primary">
-                                {item.folio}
-                              </span>
-                              <span className="mt-0.5 block text-xs text-slate-500">
-                                {item.kindLabel || kindLabel(item.kind)}
-                              </span>
-                            </span>
-                          </button>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p className="max-w-52 truncate text-sm font-500">
-                            {item.subscriberName}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">{item.subscriberRfc}</p>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-slate-600">{item.beneficiaryName}</td>
-                        <td className="px-4 py-4">
-                          <p className="text-sm font-600">
-                            {formatMoney(item.amount, item.currency)}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            Saldo {formatMoney(item.balance, item.currency)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-slate-600">
-                          {formatDate(item.maturityDate)}
-                        </td>
-                        <td className="px-4 py-4 text-sm text-slate-600">
-                          {item.currentHolderName}
-                        </td>
-                        <td className="px-4 py-4">
-                          <PromissoryNoteStatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <button
-                            aria-label="Abrir pagare"
-                            onClick={() =>
-                              router.push(`/credit-titles/promissory-notes/${item.id}`)
-                            }
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border"
-                          >
-                            <MoreHorizontal size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PaginatedTableScrollArea items={orderedRows} label="Pagarés">
+                  {(pageRows) => (
+                    <table className="w-full min-w-[1160px] border-collapse">
+                      <thead className="workspace-table-heading">
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-border dark:bg-muted/40">
+                          <th className="px-4 py-3" {...sortHeading('folio', 'Folio')} />
+                          <th className="px-4 py-3" {...sortHeading('subscriber', 'Suscriptor')} />
+                          <th className="px-4 py-3" {...sortHeading('beneficiary', 'Beneficiario')} />
+                          <th scope="col" className="px-4 py-3">Importe / saldo</th>
+                          <th className="px-4 py-3" {...sortHeading('due', 'Vencimiento')} />
+                          <th className="px-4 py-3" {...sortHeading('holder', 'Tenedor actual')} />
+                          <th className="px-4 py-3" {...sortHeading('status', 'Estado')} />
+                          <th scope="col" className="px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-border">
+                        {pageRows.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-muted/30">
+                            <td className="px-4 py-4">
+                              <button
+                                onClick={() =>
+                                  router.push(`/credit-titles/promissory-notes/${item.id}`)
+                                }
+                                className="flex items-center gap-3 text-left"
+                              >
+                                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-indigo-100 bg-indigo-50 text-indigo-700">
+                                  <FileText size={17} />
+                                </span>
+                                <span>
+                                  <span className="block text-sm font-600 text-primary">
+                                    {item.folio}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                    {item.kindLabel || kindLabel(item.kind)}
+                                  </span>
+                                </span>
+                              </button>
+                            </td>
+                            <td className="px-4 py-4">
+                              <p className="max-w-52 truncate text-sm font-500">
+                                {item.subscriberName}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">{item.subscriberRfc}</p>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-slate-600">{item.beneficiaryName}</td>
+                            <td className="px-4 py-4">
+                              <p className="text-sm font-600">
+                                {formatMoney(item.amount, item.currency)}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                Saldo {formatMoney(item.balance, item.currency)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-slate-600">
+                              {formatDate(item.maturityDate)}
+                            </td>
+                            <td className="px-4 py-4 text-sm text-slate-600">
+                              {item.currentHolderName}
+                            </td>
+                            <td className="px-4 py-4">
+                              <PromissoryNoteStatusBadge status={item.status} />
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <button
+                                aria-label="Abrir pagare"
+                                onClick={() =>
+                                  router.push(`/credit-titles/promissory-notes/${item.id}`)
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border"
+                              >
+                                <MoreHorizontal size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTableScrollArea>
               </div>
             </>
           )}
@@ -255,21 +269,6 @@ function PromissoryNotesContent() {
   );
 }
 
-function Heading({
-  children,
-  align = 'left',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}) {
-  return (
-    <th
-      className={`px-4 py-3 text-xs font-600 text-slate-500 ${align === 'right' ? 'text-right' : ''}`}
-    >
-      {children}
-    </th>
-  );
-}
 function formatDate(value: string) {
   return value
     ? new Date(`${value}T12:00:00`).toLocaleDateString('es-MX', {

@@ -1,9 +1,19 @@
 import 'server-only';
+import { contactEmailPattern, normalizeContactEmail } from '@/lib/contacts/detail';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CASE_STATUS_META, type CaseFileStatus } from '@/lib/case-files/schema';
+import { canViewFormResponses } from '@/lib/forms/publication-policy';
+import {
+  caseInvitationBlock,
+  caseInvitationTiming,
+  type CaseInvitationParticipant,
+} from './case-access.server';
+import { compareFormResponses, formTokenAction } from './form-access.server';
 import {
   activityTime,
   formActivityState,
+  isFormResponseDraft,
+  ownsRecipient,
   recipientKey,
   type ActivityAction,
   type ActivityItem,
@@ -34,6 +44,7 @@ type Token = {
   created_at: string;
   launched_by_user_id: string | null;
   launcher_name: string | null;
+  liveness_verified_at?: string | null;
 };
 type PublicInvite = {
   form_id: string;
@@ -105,7 +116,7 @@ type Launch = {
   scheduled_at: string | null;
 };
 const TOKEN_COLUMNS =
-  'id,template_id,recipient_user_id,recipient_email,recipient_name,access_mode,expires_at,used_at,created_at,launched_by_user_id,launcher_name';
+  'id,template_id,recipient_user_id,recipient_email,recipient_name,access_mode,expires_at,used_at,created_at,launched_by_user_id,launcher_name,liveness_verified_at';
 const INVITATION_COLUMNS =
   'id,workspace_id,case_title,folio,case_file_id,participant_id,recipient,recipient_name,participant_role,sender_name,created_by,created_at,sent_at,not_before,expires_at,revoked_at,generation,delivery_status';
 const CASE_COLUMNS =
@@ -115,6 +126,9 @@ const RESPONSE_COLUMNS =
 const unique = <T>(rows: T[], key: (row: T) => string) => [
   ...new Map(rows.map((row) => [key(row), row])).values(),
 ];
+const newestInvitationFirst = (a: Invitation, b: Invitation) =>
+  activityTime(b.created_at) - activityTime(a.created_at) ||
+  b.generation - a.generation || a.id.localeCompare(b.id);
 
 /** Read every page; never silently truncate a person's inbox at the Data API row limit. */
 export async function readActivityRows<T>(
@@ -195,15 +209,22 @@ async function names(db: Reader, workspaceIds: string[], userIds: string[]) {
   };
 }
 
+type ContactFormActivity = ActivityItem & { identityVerifiedAt?: string; templateId?: string };
+
 export async function loadFormActivity(
   db: Reader,
   actor: Actor,
   mode: ActivityMode,
-  now = Date.now()
-): Promise<ActivityItem[]> {
+  now = Date.now(),
+  contactScope?: { email: string; workspaceId: string }
+): Promise<ContactFormActivity[]> {
+  const pattern = contactScope ? contactEmailPattern(contactScope.email) : null;
+  const emailFilter = pattern === null ? 'eq' : 'ilike';
+  const scopedEmail = pattern ?? contactScope?.email;
   const [directTokens, userTokens, publicInvites, ownSchedules, ownTemplates] = await Promise.all([
     readActivityRows<Token>((start, end) => {
       const query = db.from('form_tokens').select(TOKEN_COLUMNS);
+      if (scopedEmail) query.filter('recipient_email', emailFilter, scopedEmail);
       return (
         mode === 'sent'
           ? query.eq('launched_by_user_id', actor.id)
@@ -228,6 +249,7 @@ export async function loadFormActivity(
       const query = db
         .from('form_public_invitees')
         .select('form_id,recipient_email,recipient_name,invited_at,invited_by');
+      if (scopedEmail) query.filter('recipient_email', emailFilter, scopedEmail);
       return (
         mode === 'sent'
           ? query.eq('invited_by', actor.id)
@@ -239,46 +261,41 @@ export async function loadFormActivity(
         .range(start, end);
     }),
     mode === 'sent'
-      ? readActivityRows<Schedule>((start, end) =>
-          db
+      ? readActivityRows<Schedule>((start, end) => {
+          const query = db
             .from('form_send_schedules')
             .select(
               'id,template_id,recipient_email,recipient_name,requested_by,created_at,scheduled_at,sent_at,status,token_id'
             )
-            .eq('requested_by', actor.id)
-            .order('created_at', { ascending: false })
-            .order('id')
-            .range(start, end)
-        )
+            .eq('requested_by', actor.id);
+          if (scopedEmail) query.filter('recipient_email', emailFilter, scopedEmail);
+          return query.order('created_at', { ascending: false }).order('id').range(start, end);
+        })
       : [],
     mode === 'sent'
-      ? readActivityRows<{ id: string }>((start, end) =>
-          db
-            .from('form_templates')
-            .select('id')
-            .eq('created_by', actor.id)
-            .order('id')
-            .range(start, end)
-        )
+      ? readActivityRows<{ id: string }>((start, end) => {
+          const query = db.from('form_templates').select('id').eq('created_by', actor.id);
+          if (contactScope) query.eq('workspace_id', contactScope.workspaceId);
+          return query.order('id').range(start, end);
+        })
       : [],
   ]);
   // Older private launches did not record the launcher. Their template creator is the fallback.
   const legacyTokens: Token[] = [];
   for (let offset = 0; offset < ownTemplates.length; offset += 100) {
     legacyTokens.push(
-      ...(await readActivityRows<Token>((start, end) =>
-        db
+      ...(await readActivityRows<Token>((start, end) => {
+        const query = db
           .from('form_tokens')
           .select(TOKEN_COLUMNS)
           .in(
             'template_id',
             ownTemplates.slice(offset, offset + 100).map((row) => row.id)
           )
-          .is('launched_by_user_id', null)
-          .order('created_at', { ascending: false })
-          .order('id')
-          .range(start, end)
-      ))
+          .is('launched_by_user_id', null);
+        if (scopedEmail) query.filter('recipient_email', emailFilter, scopedEmail);
+        return query.order('created_at', { ascending: false }).order('id').range(start, end);
+      }))
     );
   }
   // A public invitation and its claimed token are one request, not two requests.
@@ -354,7 +371,9 @@ export async function loadFormActivity(
     mode === 'sent' ? activeWorkspaces(db, actor, now) : null,
   ]);
   const visibleForms = forms.filter(
-    (form) => !allowedWorkspaces || allowedWorkspaces.includes(form.workspace_id)
+    (form) =>
+      (!allowedWorkspaces || allowedWorkspaces.includes(form.workspace_id)) &&
+      (!contactScope || form.workspace_id === contactScope.workspaceId)
   );
   const lookup = await names(
     db,
@@ -367,10 +386,11 @@ export async function loadFormActivity(
   const bound = new Set(bindings.map((row) => row.token_id));
   const tokens = candidates.filter(
     (row) =>
+      (mode === 'sent' || ownsRecipient(actor, row)) &&
       !bound.has(row.id) &&
       !schedules.some((schedule) => schedule.token_id === row.id && schedule.status !== 'sent')
   );
-  const items: ActivityItem[] = [];
+  const items: ContactFormActivity[] = [];
   function add(
     form: Form,
     id: string,
@@ -378,10 +398,13 @@ export async function loadFormActivity(
     invitation: PublicInvite | undefined,
     schedule?: Schedule
   ) {
+    const email =
+      token?.recipient_email || invitation?.recipient_email || schedule?.recipient_email || '';
+    if (contactScope && normalizeContactEmail(email) !== contactScope.email) return;
     const response = token
       ? responses
           .filter((row) => row.token_id === token.id)
-          .sort((a, b) => activityTime(b.submitted_at) - activityTime(a.submitted_at))[0]
+          .sort(compareFormResponses)[0]
       : undefined;
     const state = formActivityState(
       {
@@ -398,23 +421,28 @@ export async function loadFormActivity(
     );
     const actions: ActivityAction[] = [];
     if (mode === 'sent') {
-      actions.push({
-        label: 'Ver respuestas',
-        href: `/formularios/respuestas?id=${form.id}${response ? `&respuesta=${response.id}` : ''}`,
-      });
+      if (canViewFormResponses(form.status)) {
+        const responseId = response && !isFormResponseDraft(response.status) ? response.id : '';
+        actions.push({
+          label: 'Ver respuestas',
+          href: `/formularios/respuestas?id=${form.id}${responseId ? `&respuesta=${responseId}` : ''}`,
+        });
+      }
       actions.push({ label: 'Ver formulario', href: `/formularios/preview?id=${form.id}` });
     } else if (token) {
-      const canOpen = ['pending', 'in_progress', 'signature', 'completed'].includes(state.state);
-      actions.push({
-        label:
-          state.state === 'completed'
-            ? 'Ver mi respuesta'
-            : state.state === 'signature'
-              ? 'Continuar firma'
-              : 'Responder formulario',
-        open: { source: 'form-token', id: token.id },
-        ...(!canOpen ? { disabledReason: state.stateLabel } : {}),
-      });
+      const action = formTokenAction(actor, token, form, response, now);
+      if (action.kind === 'disabled' && action.canVerifyAgain && invitation) {
+        actions.push({
+          label: 'Abrir con código',
+          open: { source: 'form-public', id: form.id },
+        });
+      } else {
+        actions.push({
+          label: action.label,
+          open: { source: 'form-token', id: token.id },
+          ...(action.kind === 'disabled' && { disabledReason: action.disabledReason }),
+        });
+      }
     } else
       actions.push({
         label: 'Abrir con código',
@@ -439,10 +467,7 @@ export async function loadFormActivity(
             'Participante'
           : token?.launcher_name ||
             lookup.person(token?.launched_by_user_id || invitation?.invited_by || form.created_by),
-      email:
-        mode === 'sent'
-          ? token?.recipient_email || invitation?.recipient_email || schedule?.recipient_email || ''
-          : '',
+      email: mode === 'sent' ? email : '',
       role: form.requires_signature ? 'Responder y firmar' : 'Responder formulario',
       ...state,
       sentAt:
@@ -467,12 +492,16 @@ export async function loadFormActivity(
           ? 'El envío aún no se ha completado.'
           : state.state === 'signature'
             ? 'Respuesta recibida; falta completar la firma.'
-            : response?.status !== 'draft' && response?.submitted_at
+            : !isFormResponseDraft(response?.status) && response?.submitted_at
               ? 'Respuesta recibida.'
               : isPublic
                 ? 'Acceso mediante código de formulario.'
                 : 'Invitación privada al formulario.',
       actions,
+      ...(contactScope && { templateId: form.id }),
+      ...(contactScope && token?.liveness_verified_at
+        ? { identityVerifiedAt: token.liveness_verified_at }
+        : {}),
     });
   }
   for (const token of tokens) {
@@ -578,7 +607,10 @@ export async function loadCaseActivity(
     'id',
     grants.map((row) => row.invitation_id)
   );
-  const ownInvitations = unique([...recipientInvitations, ...grantInvitations], (row) => row.id);
+  const ownInvitations = unique(
+    [...recipientInvitations, ...grantInvitations].sort((a, b) => a.generation - b.generation),
+    (row) => `${row.case_file_id}:${row.participant_id}`
+  );
   const reviewerCaseIds = [...new Set(reviewerRows.map((row) => row.case_file_id))];
   const internalCases = workspaceIds.length
     ? await readActivityRows<Case>((start, end) => {
@@ -600,21 +632,42 @@ export async function loadCaseActivity(
           .range(start, end);
       })
     : [];
-  const externalCases = await byIds<Case>(
-    db,
-    'case_files',
-    CASE_COLUMNS,
-    'id',
-    ownInvitations
-      .filter((row) => !row.revoked_at && activityTime(row.expires_at) > now)
-      .map((row) => row.case_file_id)
+  const candidates = ownInvitations.filter(
+    (row) => !caseInvitationTiming(row, now) && row.recipient.trim().toLowerCase() === actor.email
   );
-  // An expired/revoked recipient sees the invitation they received, not current case contents.
-  const currentIds = new Set([...internalCases, ...externalCases].map((row) => row.id));
+  const [invitedCases, participants] = await Promise.all([
+    byIds<Case>(db, 'case_files', CASE_COLUMNS, 'id', candidates.map((row) => row.case_file_id)),
+    byIds<CaseInvitationParticipant>(
+      db,
+      'case_file_participants',
+      'id,case_file_id,workspace_id,user_id,status',
+      'id',
+      candidates.map((row) => row.participant_id)
+    ),
+  ]);
+  const invitedCaseById = new Map(invitedCases.map((row) => [row.id, row]));
+  const participantById = new Map(participants.map((row) => [row.id, row]));
+  const invitationBlocks = new Map(ownInvitations.map((invitation) => [
+    invitation.id,
+    caseInvitationBlock(
+      invitation,
+      actor,
+      invitedCaseById.get(invitation.case_file_id),
+      participantById.get(invitation.participant_id),
+      now
+    ),
+  ]));
+  const activeInvitationCaseIds = new Set(
+    ownInvitations.filter((row) => !invitationBlocks.get(row.id)).map((row) => row.case_file_id)
+  );
+  const externalCases = invitedCases.filter((row) => activeInvitationCaseIds.has(row.id));
+  // Historic or unavailable invitations show only the original invitation data.
+  const internalIds = new Set(internalCases.map((row) => row.id));
+  const currentIds = new Set([...internalIds, ...activeInvitationCaseIds]);
   const snapshots = unique(
     ownInvitations
       .filter((row) => !currentIds.has(row.case_file_id))
-      .sort((a, b) => a.generation - b.generation),
+      .sort((a, b) => newestInvitationFirst(b, a)),
     (row) => row.case_file_id
   );
   const snapshotIds = new Set(snapshots.map((row) => row.case_file_id));
@@ -677,10 +730,14 @@ export async function loadCaseActivity(
           .map((value) => [value.participant_id, value])
       ).values(),
     ];
-    const invitation = latest
-      .slice()
-      .sort((a, b) => activityTime(b.created_at) - activityTime(a.created_at))[0];
-    const isInternal = internalCases.some((value) => value.id === row.id);
+    const newestFirst = latest.slice().sort(newestInvitationFirst);
+    const invitation = mode === 'received'
+      ? newestFirst.find((value) => !invitationBlocks.get(value.id)) ?? newestFirst[0]
+      : newestFirst[0];
+    const participationBlock = mode === 'received' && invitation
+      ? invitationBlocks.get(invitation.id)
+      : null;
+    const isInternal = internalIds.has(row.id);
     const scheduled = !!launch?.scheduled_at && activityTime(launch.scheduled_at) > now;
     let state: ActivityState =
       row.status === 'sealed'
@@ -697,17 +754,9 @@ export async function loadCaseActivity(
       state = 'scheduled';
       stateLabel = 'Envío programado';
     }
-    if (!['completed', 'cancelled'].includes(state) && !isInternal && invitation?.revoked_at) {
-      state = 'cancelled';
-      stateLabel = 'Invitación revocada';
-    } else if (
-      !['completed', 'cancelled'].includes(state) &&
-      !isInternal &&
-      invitation &&
-      activityTime(invitation.expires_at) <= now
-    ) {
-      state = 'expired';
-      stateLabel = 'Invitación vencida';
+    if (!isInternal && participationBlock) {
+      state = participationBlock.state;
+      stateLabel = participationBlock.stateLabel;
     }
     const roles: string[] = [];
     const assignments =
@@ -733,25 +782,16 @@ export async function loadCaseActivity(
     const actions: ActivityAction[] = [];
     if (isInternal)
       actions.push({
-        label: mode === 'received' ? 'Atender expediente' : 'Consultar expediente',
+        label: mode === 'received' && !['completed', 'cancelled', 'scheduled'].includes(state)
+          ? 'Atender expediente'
+          : 'Consultar expediente',
         href: `/expedientes/${row.id}`,
       });
     if (mode === 'received' && invitation)
       actions.push({
         label: 'Abrir mi participación',
         open: { source: 'case-invitation', id: invitation.id },
-        ...(invitation.revoked_at ||
-        activityTime(invitation.expires_at) <= now ||
-        scheduled ||
-        row.status === 'cancelled'
-          ? {
-              disabledReason: invitation.revoked_at
-                ? 'Invitación revocada.'
-                : scheduled
-                  ? 'El envío todavía está programado.'
-                  : 'La invitación ya no está disponible.',
-            }
-          : {}),
+        ...(participationBlock && { disabledReason: participationBlock.reason }),
       });
     results.push({
       id: `case:${row.id}`,
@@ -775,13 +815,16 @@ export async function loadCaseActivity(
       expiresAt:
         mode === 'received' && !isInternal ? invitation?.expires_at || null : row.target_close_at,
       access: launch?.access_mode || 'private',
-      scheduledAt: launch?.scheduled_at || null,
+      scheduledAt: launch?.scheduled_at ||
+        (participationBlock?.state === 'scheduled' ? invitation?.not_before : null),
       priority: row.priority,
       progress: snapshotIds.has(row.id) ? null : row.progress,
       detail:
         mode === 'sent'
           ? `${latest.length} participantes · ${latest.filter((value) => value.delivery_status === 'sent' && !value.revoked_at).length} invitaciones enviadas`
-          : 'Documentos, formularios y verificaciones del expediente.',
+          : snapshotIds.has(row.id)
+            ? participationBlock?.reason || 'Invitación al expediente.'
+            : 'Documentos, formularios y verificaciones del expediente.',
       actions,
     });
   }

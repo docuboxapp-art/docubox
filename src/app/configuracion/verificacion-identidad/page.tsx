@@ -12,8 +12,8 @@ import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
-import { deleteIdentityPolicy, listIdentityPolicies, saveIdentityPolicy } from '@/lib/identity/storage';
-import { clonePolicyConfig, type IdentityPolicyRecord } from '@/lib/identity/schema';
+import { deleteIdentityPolicy, listIdentityPolicies, saveIdentityPolicy, type StoredIdentityPolicy } from '@/lib/identity/storage';
+import { clonePolicyConfig } from '@/lib/identity/schema';
 
 const statusStyle = {
   active: { label: 'Activa', className: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
@@ -28,61 +28,83 @@ export default function IdentityPoliciesPage() {
   const router = useRouter();
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
-  const [policies, setPolicies] = useState<IdentityPolicyRecord[]>([]);
+  const workspaceId = activeWorkspace?.id;
+  const canManage = activeWorkspace && (activeWorkspace.ownerId === user?.id || ['owner', 'admin'].includes(activeWorkspace.role));
+  const [policies, setPolicies] = useState<StoredIdentityPolicy[]>([]);
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [menu, setMenu] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
-  const [localMode, setLocalMode] = useState(false);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  const [saving, setSaving] = useState(false);
 
-  const load = async () => {
-    if (!activeWorkspace?.id) return;
-    setLoading(true);
-    const result = await listIdentityPolicies(createClient(), activeWorkspace.id);
-    setPolicies(result.policies);
-    setLocalMode(!result.remote);
-    setLoading(false);
-  };
+  useEffect(() => {
+    if (!workspaceId) return;
+    let current = true;
+    async function load(id: string) {
+      setLoading(true);
+      setError('');
+      try {
+        const records = await listIdentityPolicies(createClient(), id);
+        if (current) {
+          setPolicies(records);
+          setLoadedWorkspaceId(id);
+        }
+      } catch (cause) {
+        if (current) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las políticas.');
+      } finally {
+        if (current) setLoading(false);
+      }
+    }
+    void load(workspaceId);
+    return () => { current = false; };
+  }, [workspaceId, revision]);
 
-  useEffect(() => { load(); }, [activeWorkspace?.id]);
-
-  const filtered = useMemo(() => policies.filter((policy) => {
+  const currentPolicies = useMemo(() => loadedWorkspaceId === workspaceId ? policies : [], [loadedWorkspaceId, policies, workspaceId]);
+  const filtered = useMemo(() => currentPolicies.filter((policy) => {
     const text = `${policy.name} ${policy.description} ${policy.policyType}`.toLowerCase();
     return text.includes(query.toLowerCase()) && (status === 'all' || policy.status === status);
-  }), [policies, query, status]);
+  }), [currentPolicies, query, status]);
 
   const metrics = useMemo(() => ({
-    active: policies.filter((item) => item.status === 'active').length,
-    enhanced: policies.filter((item) => item.assuranceLevel === 'enhanced').length,
-    reusable: policies.filter((item) => item.config.reuseMode !== 'never').length,
-    manual: policies.filter((item) => item.config.manualReview !== 'never').length,
-  }), [policies]);
+    active: currentPolicies.filter((item) => !item.needsSync && item.status === 'active').length,
+    enhanced: currentPolicies.filter((item) => item.assuranceLevel === 'enhanced').length,
+    reusable: currentPolicies.filter((item) => item.config.reuseMode !== 'never').length,
+    manual: currentPolicies.filter((item) => item.config.manualReview !== 'never').length,
+  }), [currentPolicies]);
 
-  const duplicate = async (policy: IdentityPolicyRecord) => {
-    if (!activeWorkspace?.id || !user?.id) return;
-    const config = clonePolicyConfig(policy.config);
-    config.name = `${policy.name} (copia)`;
-    await saveIdentityPolicy(createClient(), activeWorkspace.id, user.id, config, { status: 'draft' });
-    setNotice('Politica duplicada como borrador.');
-    setMenu(null);
-    load();
-  };
-
-  const archive = async (policy: IdentityPolicyRecord) => {
-    if (!activeWorkspace?.id || !user?.id) return;
-    await saveIdentityPolicy(createClient(), activeWorkspace.id, user.id, policy.config, { id: policy.id, status: 'archived' });
-    setNotice('Politica archivada.');
-    setMenu(null);
-    load();
-  };
-
-  const remove = async (policy: IdentityPolicyRecord) => {
-    if (!activeWorkspace?.id || !window.confirm(`Eliminar la politica "${policy.name}"?`)) return;
-    await deleteIdentityPolicy(createClient(), activeWorkspace.id, policy.id);
-    setPolicies((current) => current.filter((item) => item.id !== policy.id));
-    setMenu(null);
-  };
+  async function change(policy: StoredIdentityPolicy, action: 'duplicate' | 'archive' | 'remove') {
+    if (!workspaceId || !canManage || saving) return;
+    if (action === 'remove' && !window.confirm(`¿Eliminar la política "${policy.name}"?`)) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const client = createClient();
+      if (action === 'remove') {
+        await deleteIdentityPolicy(client, workspaceId, policy);
+        setNotice('Política eliminada.');
+      } else if (action === 'archive') {
+        if (policy.needsSync) throw new Error('Guarda primero la política en Supabase para poder archivarla.');
+        await saveIdentityPolicy(client, workspaceId, policy.config, { id: policy.id, status: 'archived' });
+        setNotice('Política archivada.');
+      } else {
+        const config = clonePolicyConfig(policy.config);
+        config.name = `${policy.name.slice(0, 153)} (copia)`;
+        await saveIdentityPolicy(client, workspaceId, config, { status: 'draft' });
+        setNotice('Política duplicada como borrador.');
+      }
+      setRevision((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo completar la acción.');
+    } finally {
+      setMenu(null);
+      setSaving(false);
+    }
+  }
 
   return (
     <AppLayout noPadding>
@@ -92,21 +114,24 @@ export default function IdentityPoliciesPage() {
             <div>
               <h1 className="text-2xl font-600 text-slate-950 dark:text-foreground">Verificacion de identidad</h1>
               <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-muted-foreground">
-                Define politicas reutilizables de identidad, prueba de vida y evidencia antes de permitir una firma.
+                Guarda y versiona las políticas de identidad del espacio. Cada flujo de firma usa su propia configuración.
               </p>
             </div>
-            <Link href="/configuracion/verificacion-identidad/nueva" className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition hover:bg-primary/90">
-              <Plus size={16} /> Nueva politica
-            </Link>
+            {canManage && (
+              <Link href="/configuracion/verificacion-identidad/nueva" className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-600 text-white shadow-sm transition hover:bg-primary/90">
+                <Plus size={16} /> Nueva política
+              </Link>
+            )}
           </header>
 
           {notice && <BottomNotice message={notice} tone="success" onClose={() => setNotice('')} />}
-          {localMode && <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">Las politicas se conservan localmente hasta aplicar la migracion de identidad en Supabase.</div>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error} <button type="button" onClick={() => setRevision((value) => value + 1)} className="underline">Actualizar</button></p>}
+          {currentPolicies.some((policy) => policy.needsSync) && <p className="mt-4 text-sm text-muted-foreground">Abre las políticas guardadas en este navegador para sincronizarlas.</p>}
 
           <section className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-border dark:bg-card">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-border">
               <div><h2 className="text-sm font-600">Panorama del espacio</h2><p className="mt-0.5 text-xs text-slate-500">Cobertura y nivel de control de las politicas actuales.</p></div>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-600 text-slate-600">{policies.length} politicas</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-600 text-slate-600">{currentPolicies.length} políticas</span>
             </div>
             <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 dark:divide-border lg:grid-cols-4 lg:divide-y-0">
               <Metric icon={ShieldCheck} label="Activas" value={metrics.active} tone="blue" />
@@ -135,9 +160,9 @@ export default function IdentityPoliciesPage() {
                   const style = statusStyle[policy.status];
                   return <article key={policy.id} className="relative overflow-visible rounded-lg border border-slate-200 bg-white transition hover:border-blue-200 hover:shadow-sm dark:border-border dark:bg-card">
                     <div className="flex items-start justify-between border-b border-slate-100 p-4 dark:border-border">
-                      <div className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-primary"><Fingerprint size={19} /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-600 text-slate-950 dark:text-foreground">{policy.name}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-600 ${style.className}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{style.label}</span></div><p className="mt-1 text-xs text-slate-500">Version {policy.version} · {typeLabels[policy.policyType]}</p></div></div>
+                      <div className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-primary"><Fingerprint size={19} /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-600 text-slate-950 dark:text-foreground">{policy.name}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-600 ${style.className}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{policy.needsSync ? 'Por sincronizar' : style.label}</span></div><p className="mt-1 text-xs text-slate-500">Version {policy.version} · {typeLabels[policy.policyType]}</p></div></div>
                       <button onClick={() => setMenu(menu === policy.id ? null : policy.id)} aria-label="Mas acciones" className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"><MoreHorizontal size={17} /></button>
-                      {menu === policy.id && <div className="absolute right-3 top-12 z-20 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg"><button onClick={() => duplicate(policy)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><Copy size={13} /> Duplicar</button><button onClick={() => archive(policy)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><Archive size={13} /> Archivar</button><button onClick={() => remove(policy)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"><Trash2 size={13} /> Eliminar</button></div>}
+                      {menu === policy.id && <div className="absolute right-3 top-12 z-20 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg"><button disabled={saving || !canManage} onClick={() => void change(policy, 'duplicate')} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><Copy size={13} /> Duplicar</button><button disabled={saving || !canManage} onClick={() => void change(policy, 'archive')} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><Archive size={13} /> Archivar</button><button disabled={saving || !canManage} onClick={() => void change(policy, 'remove')} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"><Trash2 size={13} /> Eliminar</button></div>}
                     </div>
                     <div className="p-4"><p className="min-h-10 text-sm leading-5 text-slate-500">{policy.description || 'Sin descripcion.'}</p><div className="mt-4 grid grid-cols-3 divide-x divide-slate-200 rounded-md border border-slate-200"><SmallMetric value={assuranceLabels[policy.assuranceLevel]} label="nivel" /><SmallMetric value={policy.config.documents.length} label="documentos" /><SmallMetric value={policy.config.livenessMode === 'hybrid' ? 'Hibrida' : policy.config.livenessMode === 'passive' ? 'Pasiva' : policy.config.livenessMode === 'active' ? 'Activa' : 'Asistida'} label="prueba de vida" /></div></div>
                     <footer className="flex items-center justify-between border-t border-slate-100 px-4 py-3 dark:border-border"><span className="text-[11px] text-slate-400">Actualizada {new Date(policy.updatedAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</span><button onClick={() => router.push(`/configuracion/verificacion-identidad/${policy.id}`)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-600 text-slate-700 hover:bg-slate-50">Configurar <ChevronRight size={13} /></button></footer>

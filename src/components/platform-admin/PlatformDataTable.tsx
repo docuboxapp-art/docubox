@@ -4,21 +4,18 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Database,
   LockKeyhole,
   Search,
 } from 'lucide-react';
 import type { PlatformRow } from '@/lib/platform-admin/data';
+import { TableSortButton } from '@/components/workspaces/TableSortButton';
+import { tableAriaSort, type ListDirection } from '@/lib/workspaces/list-order';
+import TablePagination, { useTablePagination } from '@/components/workspaces/TablePagination';
 
 export type PlatformColumn = { key: string; label: string; mono?: boolean };
-
-const PAGE_SIZE = 25;
 
 function formatValue(key: string, value: PlatformRow[string]) {
   if (value === null || value === '') return '—';
@@ -87,7 +84,6 @@ export default function PlatformDataTable({
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState(columns[0]?.key ?? '');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('es-MX');
@@ -107,17 +103,12 @@ export default function PlatformDataTable({
     });
   }, [columns, query, rows, sortDirection, sortKey]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const visibleRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagination = useTablePagination(filtered.length, JSON.stringify([query, sortKey, sortDirection]));
+  const visibleRows = filtered.slice(pagination.start, pagination.end);
 
-  const changeSort = (key: string) => {
-    if (sortKey === key) setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(key);
-      setSortDirection('asc');
-    }
-    setPage(1);
+  const changeSort = (key: string, direction: ListDirection) => {
+    setSortKey(key);
+    setSortDirection(direction);
   };
 
   return (
@@ -137,10 +128,7 @@ export default function PlatformDataTable({
           />
           <input
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar en esta vista..."
             className="h-9 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
           />
@@ -149,29 +137,25 @@ export default function PlatformDataTable({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+          <thead className="workspace-table-heading">
             <tr>
-              {columns.map((column) => (
-                <th
-                  key={column.key}
-                  className="border-b border-slate-200 px-4 py-3 font-medium dark:border-slate-800"
-                >
-                  <button
-                    type="button"
-                    onClick={() => changeSort(column.key)}
-                    className="inline-flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white"
+              {columns.map((column) => {
+                const direction = sortKey === column.key ? sortDirection : undefined;
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    aria-sort={tableAriaSort(direction)}
+                    className="whitespace-nowrap border-b border-border px-4 py-3"
                   >
-                    {column.label}
-                    {sortKey === column.key ? (
-                      sortDirection === 'asc' ? (
-                        <ArrowUp className="h-3 w-3" />
-                      ) : (
-                        <ArrowDown className="h-3 w-3" />
-                      )
-                    ) : null}
-                  </button>
-                </th>
-              ))}
+                    <TableSortButton
+                      label={column.label}
+                      direction={direction}
+                      onSort={(next) => changeSort(column.key, next)}
+                    />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -223,31 +207,7 @@ export default function PlatformDataTable({
           </tbody>
         </table>
       </div>
-      <footer className="flex h-12 items-center justify-between border-t border-slate-200 px-4 dark:border-slate-800">
-        <span className="text-xs text-slate-500">
-          Página {currentPage} de {pageCount}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPage((value) => Math.max(1, value - 1))}
-            disabled={currentPage === 1}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 disabled:opacity-40 dark:border-slate-700"
-            aria-label="Página anterior"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-            disabled={currentPage === pageCount}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 disabled:opacity-40 dark:border-slate-700"
-            aria-label="Página siguiente"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </footer>
+      <TablePagination {...pagination} />
     </section>
   );
 }

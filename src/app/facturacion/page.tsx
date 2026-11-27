@@ -1,7 +1,11 @@
 'use client';
 
+import { PaginatedTableScrollArea } from '@/components/workspaces/TableScrollArea';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
+import { useTableOrdering } from '@/components/workspaces/useTableOrdering';
+import { tableDate } from '@/lib/workspaces/list-order';
 import {
   CreditCard, Star, CheckCircle, ShoppingBag, FileText, PenTool,
   HardDrive, Download, X, Building2, MapPin, Phone, Mail, Hash,
@@ -254,26 +258,30 @@ function InvoiceModal({ purchase, onClose }: InvoiceModalProps) {
           <div>
             <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-3">Desglose de Cargos</p>
             <div className="border border-border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/40 border-b border-border">
-                    <th className="text-left px-4 py-2.5 text-xs font-600 text-muted-foreground">Concepto</th>
-                    <th className="text-center px-4 py-2.5 text-xs font-600 text-muted-foreground">Cant.</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-600 text-muted-foreground">P. Unitario</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-600 text-muted-foreground">Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {purchase.charges.map((charge, i) => (
-                    <tr key={i} className="border-b border-border last:border-0">
-                      <td className="px-4 py-3 text-foreground text-xs">{charge.concept}</td>
-                      <td className="px-4 py-3 text-center text-muted-foreground text-xs">{charge.qty}</td>
-                      <td className="px-4 py-3 text-right text-muted-foreground text-xs">{charge.unitPrice}</td>
-                      <td className="px-4 py-3 text-right font-600 text-foreground text-xs">{charge.subtotal}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <PaginatedTableScrollArea items={purchase.charges} label="Cargos de la compra">
+                {(pageRows) => (
+                  <table className="w-full text-sm">
+                    <thead className="workspace-table-heading">
+                      <tr className="bg-muted/40 border-b border-border">
+                        <th className="text-left px-4 py-2.5 text-xs font-600 text-muted-foreground">Concepto</th>
+                        <th className="text-center px-4 py-2.5 text-xs font-600 text-muted-foreground">Cant.</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-600 text-muted-foreground">P. Unitario</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-600 text-muted-foreground">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageRows.map((charge, i) => (
+                        <tr key={i} className="border-b border-border last:border-0">
+                          <td className="px-4 py-3 text-foreground text-xs">{charge.concept}</td>
+                          <td className="px-4 py-3 text-center text-muted-foreground text-xs">{charge.qty}</td>
+                          <td className="px-4 py-3 text-right text-muted-foreground text-xs">{charge.unitPrice}</td>
+                          <td className="px-4 py-3 text-right font-600 text-foreground text-xs">{charge.subtotal}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTableScrollArea>
             </div>
           </div>
 
@@ -474,19 +482,9 @@ function PlanesTab({ onUpgrade, onPlanChanged }: { onUpgrade: () => void; onPlan
           <p className="text-sm text-muted-foreground mt-0.5">Selecciona el plan que mejor se adapte a tus necesidades. Todos los planes incluyen CFDI y soporte.</p>
         </div>
 
-        {successMsg && (
-          <div className="mb-4 flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-            <CheckCircle size={15} className="text-emerald-600 flex-shrink-0" />
-            <p className="text-sm font-600 text-emerald-800">{successMsg}</p>
-          </div>
-        )}
+        {successMsg && <BottomNotice message={successMsg} tone="success" onClose={() => setSuccessMsg(null)} />}
 
-        {errorMsg && (
-          <div className="mb-4 flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-            <AlertCircle size={15} className="text-red-600 flex-shrink-0" />
-            <p className="text-sm font-600 text-red-800">{errorMsg}</p>
-          </div>
-        )}
+        {errorMsg && <BottomNotice message={errorMsg} tone="critical" onClose={() => setErrorMsg(null)} />}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {planes.map((plan) => {
@@ -818,7 +816,17 @@ interface HistorialTabProps {
 function HistorialTab({ history, loading }: HistorialTabProps) {
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null);
 
-  const purchases: Purchase[] = history.map((item, i) => mapHistoryToPurchase(item, i));
+  const purchases = history.map((item, index) => ({
+    ...mapHistoryToPurchase(item, index),
+    createdAt: item.created_at,
+    totalAmount: item.amount,
+  }));
+  const { orderedRows, sortHeading } = useTableOrdering(purchases, {
+    folio: (row) => row.id,
+    date: (row) => tableDate(row.createdAt),
+    description: (row) => row.description,
+    amount: (row) => row.totalAmount,
+  });
 
   const totalPaid = purchases
     .filter((p) => p.status === 'Pagado')
@@ -881,50 +889,54 @@ function HistorialTab({ history, loading }: HistorialTabProps) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/30 border-b border-border">
-                  <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Folio</th>
-                  <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Fecha</th>
-                  <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Descripción</th>
-                  <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Monto</th>
-                  <th className="text-center px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Estado</th>
-                  <th className="text-center px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Factura</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {purchases.map((p) => {
-                  const sc = statusConfig[p.status];
-                  return (
-                    <tr key={p.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{p.id}</td>
-                      <td className="px-5 py-3.5 text-sm text-foreground whitespace-nowrap">{p.date}</td>
-                      <td className="px-5 py-3.5 text-sm text-foreground">{p.description}</td>
-                      <td className="px-5 py-3.5 text-right font-600 text-foreground tabular-nums">{p.amount}</td>
-                      <td className="px-5 py-3.5 text-center">
-                        <span className={`inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-center">
-                        {p.status === 'Pagado' ? (
-                          <button
-                            onClick={() => setSelectedPurchase(p)}
-                            className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-600 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors"
-                          >
-                            <Download size={12} />
-                            Ver detalle
-                          </button>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </td>
+            <PaginatedTableScrollArea items={orderedRows} label="Historial de compras">
+              {(pageRows) => (
+                <table className="w-full text-sm">
+                  <thead className="workspace-table-heading">
+                    <tr className="bg-muted/30 border-b border-border">
+                      <th className="text-left px-5 py-3" {...sortHeading('folio', 'Folio')} />
+                      <th className="text-left px-5 py-3" {...sortHeading('date', 'Fecha')} />
+                      <th className="text-left px-5 py-3" {...sortHeading('description', 'Descripción')} />
+                      <th className="text-right px-5 py-3" {...sortHeading('amount', 'Monto', 'desc')} />
+                      <th className="text-center px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Estado</th>
+                      <th className="text-center px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Factura</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {pageRows.map((p) => {
+                      const sc = statusConfig[p.status];
+                      return (
+                        <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{p.id}</td>
+                          <td className="px-5 py-3.5 text-sm text-foreground whitespace-nowrap">{p.date}</td>
+                          <td className="px-5 py-3.5 text-sm text-foreground">{p.description}</td>
+                          <td className="px-5 py-3.5 text-right font-600 text-foreground tabular-nums">{p.amount}</td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span className={`inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            {p.status === 'Pagado' ? (
+                              <button
+                                onClick={() => setSelectedPurchase(p)}
+                                className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-600 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors"
+                              >
+                                <Download size={12} />
+                                Ver detalle
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTableScrollArea>
           </div>
         )}
       </div>
@@ -1015,58 +1027,62 @@ function ConsumosTab({ subscription, loading }: ConsumosTabProps) {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/30 border-b border-border">
-                <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Recurso</th>
-                <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Usado</th>
-                <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Límite</th>
-                <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Disponible</th>
-                <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide w-44">Uso</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {consumos.map((m) => {
-                const pct = m.total === Infinity ? null : Math.round((m.used / m.total) * 100);
-                const available = m.total === Infinity ? '∞' : `${m.total - m.used} ${m.unit}`;
-                const isHigh = pct !== null && pct >= 80;
-                const isMed = pct !== null && pct >= 60 && pct < 80;
-                const MIcon = m.icon;
-                return (
-                  <tr key={m.label} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-7 h-7 rounded-lg ${m.bgColor} flex items-center justify-center`}>
-                          <MIcon size={13} className={m.textColor} />
-                        </div>
-                        <span className="font-600 text-foreground text-sm">{m.label}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-right text-foreground tabular-nums">{m.used} {m.unit}</td>
-                    <td className="px-5 py-4 text-right text-muted-foreground">{m.total === Infinity ? 'Ilimitado' : `${m.total} ${m.unit}`}</td>
-                    <td className="px-5 py-4 text-right font-600 text-foreground tabular-nums">{available}</td>
-                    <td className="px-5 py-4">
-                      {pct !== null ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${isHigh ? 'bg-red-500' : isMed ? 'bg-amber-500' : m.color}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          <span className={`text-xs font-600 w-8 text-right ${isHigh ? 'text-red-600' : isMed ? 'text-amber-600' : 'text-muted-foreground'}`}>{pct}%</span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-emerald-600 font-600 flex items-center gap-1">
-                          <CheckCircle size={11} />Ilimitado
-                        </span>
-                      )}
-                    </td>
+          <PaginatedTableScrollArea items={consumos} label="Consumos">
+            {(pageRows) => (
+              <table className="w-full text-sm">
+                <thead className="workspace-table-heading">
+                  <tr className="bg-muted/30 border-b border-border">
+                    <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Recurso</th>
+                    <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Usado</th>
+                    <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Límite</th>
+                    <th className="text-right px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Disponible</th>
+                    <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide w-44">Uso</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {pageRows.map((m) => {
+                    const pct = m.total === Infinity ? null : Math.round((m.used / m.total) * 100);
+                    const available = m.total === Infinity ? '∞' : `${m.total - m.used} ${m.unit}`;
+                    const isHigh = pct !== null && pct >= 80;
+                    const isMed = pct !== null && pct >= 60 && pct < 80;
+                    const MIcon = m.icon;
+                    return (
+                      <tr key={m.label} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-7 h-7 rounded-lg ${m.bgColor} flex items-center justify-center`}>
+                              <MIcon size={13} className={m.textColor} />
+                            </div>
+                            <span className="font-600 text-foreground text-sm">{m.label}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-right text-foreground tabular-nums">{m.used} {m.unit}</td>
+                        <td className="px-5 py-4 text-right text-muted-foreground">{m.total === Infinity ? 'Ilimitado' : `${m.total} ${m.unit}`}</td>
+                        <td className="px-5 py-4 text-right font-600 text-foreground tabular-nums">{available}</td>
+                        <td className="px-5 py-4">
+                          {pct !== null ? (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${isHigh ? 'bg-red-500' : isMed ? 'bg-amber-500' : m.color}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-600 w-8 text-right ${isHigh ? 'text-red-600' : isMed ? 'text-amber-600' : 'text-muted-foreground'}`}>{pct}%</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-emerald-600 font-600 flex items-center gap-1">
+                              <CheckCircle size={11} />Ilimitado
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </PaginatedTableScrollArea>
         </div>
       </div>
     </div>

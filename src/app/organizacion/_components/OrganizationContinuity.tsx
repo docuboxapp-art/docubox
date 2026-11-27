@@ -394,7 +394,7 @@ export default function OrganizationContinuity() {
     );
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="app-page-width space-y-6">
       <header className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-medium text-foreground">Continuidad organizacional</h2>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { NoticeCard } from '@/components/ui/BottomNotice';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -49,6 +49,11 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  readDocumentTags,
+  readDocumentTypeGroups,
+  readDocumentTypes,
+} from '@/lib/catalog/document-reads';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 import { FieldsSidebar } from '../components/FieldsSidebar';
@@ -72,6 +77,7 @@ import {
   type TemplateDocumentSettings,
   type TemplatePaperSize,
 } from '@/lib/templates/document-settings';
+import { loadTemplateDocumentSettings } from '@/lib/templates/remote-document-settings';
 import { templateApiFetch } from '@/lib/templates/client';
 import {
   readTemplateImportSession,
@@ -2661,9 +2667,9 @@ function StepInfoGeneral({
       try {
         const supabase = createClient();
         const [gruposRes, tiposRes, etiquetasRes] = await Promise.all([
-          supabase.from('grupo_tipo_documento').select('id, nombre').order('nombre'),
-          supabase.from('tipo_documento').select('id, nombre, grupo_id').order('nombre'),
-          supabase.from('etiquetas').select('id, nombre, color').order('nombre'),
+          readDocumentTypeGroups(supabase),
+          readDocumentTypes(supabase),
+          readDocumentTags(supabase),
         ]);
         if (gruposRes.data) setGrupos(gruposRes.data);
         if (tiposRes.data) setTiposDocumento(tiposRes.data);
@@ -2938,18 +2944,22 @@ function StepInfoGeneral({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                  <label
+                    htmlFor="template-type"
+                    className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700"
+                  >
                     <Layers size={14} className="text-slate-400" />
-                    Tipo de documento <span className="font-normal text-slate-400">(Opcional)</span>
+                    Tipo de plantilla
                   </label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input
+                        id="template-type"
                         type="text"
                         readOnly
                         value={selectedTipo?.nombre || ''}
                         placeholder={
-                          loadingData ? 'Cargando...' : 'Seleccionar tipo de documento...'
+                          loadingData ? 'Cargando...' : 'Seleccionar tipo de plantilla...'
                         }
                         disabled={loadingData}
                         className="h-10 w-full cursor-default rounded-lg border border-slate-200 bg-white px-3 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400"
@@ -2958,8 +2968,8 @@ function StepInfoGeneral({
                         <button
                           type="button"
                           onClick={() => onChange({ tipoDocumentoId: '', grupotipoId: '' })}
-                          aria-label="Quitar tipo de documento"
-                          title="Quitar tipo de documento"
+                          aria-label="Quitar tipo de plantilla"
+                          title="Quitar tipo de plantilla"
                           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
                         >
                           <X size={14} />
@@ -3041,9 +3051,13 @@ function StepInfoGeneral({
         )}
       </div>
 
-      {/* Tipo de documento modal */}
+      {/* Tipo de plantilla */}
       {showTipoModal && (
         <DocumentTypeModal
+          catalogKind="template-type"
+          title="Tipo de plantilla"
+          searchPlaceholder="Buscar tipo de plantilla..."
+          groupItemLabel="tipo"
           types={tiposDocumento}
           groups={grupos}
           selectedId={data.tipoDocumentoId}
@@ -3055,6 +3069,7 @@ function StepInfoGeneral({
       {/* Etiquetas modal */}
       {showEtiquetasModal && (
         <TagsModal
+          catalogKind="template-tag"
           tags={etiquetas}
           selectedIds={data.etiquetasIds}
           onConfirm={(ids) => {
@@ -3416,10 +3431,12 @@ function NuevaPlantillaPage() {
   );
 
   useEffect(() => {
-    if (templateId) return;
+    if (templateId || hasUnsavedChanges) return;
 
-    const settings = readTemplateDocumentSettings(activeWorkspace?.id);
-    const animationFrame = window.requestAnimationFrame(() => {
+    const workspaceId = activeWorkspace?.id;
+    let current = true;
+    function apply(settings: TemplateDocumentSettings) {
+      if (!current) return;
       setInfoData((current) => ({
         ...current,
         hojaTamano: settings.paperSize,
@@ -3427,10 +3444,21 @@ function NuevaPlantillaPage() {
       }));
       setMargenes(settings.margins);
       setShowRulers(settings.showRulers);
+    }
+    const animationFrame = window.requestAnimationFrame(() => {
+      apply(readTemplateDocumentSettings(workspaceId));
     });
+    if (workspaceId) {
+      void loadTemplateDocumentSettings(workspaceId).then(apply).catch(() => {
+        // The local editor defaults remain available during a connection failure.
+      });
+    }
 
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [activeWorkspace?.id, templateId]);
+    return () => {
+      current = false;
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [activeWorkspace?.id, hasUnsavedChanges, templateId]);
 
   const applyPageNumberConfig = useCallback(
     (opts: { position: 'header' | 'footer'; showOnFirst: boolean; startFrom: number }) => {
@@ -5486,16 +5514,14 @@ function NuevaPlantillaPage() {
       )}
 
       {/* Toast notifications */}
-      <div className="app-feedback-position flex flex-col gap-2">
-        {toasts.map((toast) => (
-          <NoticeCard
+      {toasts.map((toast) => (
+          <BottomNotice
             key={toast.id}
             message={toast.message}
             tone={toast.type === 'error' ? 'critical' : toast.type === 'success' ? 'success' : 'neutral'}
             onClose={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
           />
-        ))}
-      </div>
+      ))}
       {completionTitle && (
         <WizardSuccessScreen
           title={completionTitle}

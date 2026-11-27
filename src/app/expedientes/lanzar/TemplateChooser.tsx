@@ -14,7 +14,7 @@ type Choice = {
   case_type: string;
   publication_version: number;
 };
-export default function TemplateChooser() {
+export default function TemplateChooser({ initialContactId }: { initialContactId?: string }) {
   const { loading: authLoading } = useAuth();
   const { activeWorkspace, loading: workspaceLoading, refreshWorkspaces } = useWorkspace(),
     router = useRouter(),
@@ -75,7 +75,11 @@ export default function TemplateChooser() {
             </button>
             <button
               disabled={!selected || loading}
-              onClick={() => router.replace(`/expedientes/lanzar?tipo=${selected}`)}
+              onClick={() =>
+                router.replace(
+                  `/expedientes/lanzar?${new URLSearchParams({ tipo: selected, ...(initialContactId && { contact: initialContactId }) })}`
+                )
+              }
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               Continuar

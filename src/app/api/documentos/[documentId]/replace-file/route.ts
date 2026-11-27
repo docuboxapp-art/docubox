@@ -1,7 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { documentAccessResponse, requireDocumentAccess } from '@/lib/security/document-access';
-import { assertCaseSourceReplacementAllowed, CaseRuntimeError, runtimeFailure } from '@/lib/case-files/runtime.server';
+import {
+  DocumentAccessError,
+  documentAccessResponse,
+  requireDocumentAccess,
+} from '@/lib/security/document-access';
+import { canEditUnsignedDocument } from '@/lib/documents/workspace-actions.server';
+import {
+  assertCaseSourceReplacementAllowed,
+  CaseRuntimeError,
+  runtimeFailure,
+} from '@/lib/case-files/runtime.server';
 import {
   documentEncryptionPolicy,
   encryptAndUploadDocumentObject,
@@ -19,9 +28,13 @@ export async function POST(
       requireEdit: true,
     });
     await assertCaseSourceReplacementAllowed(documentId);
-    if (['completado', 'cancelado', 'rechazado'].includes(String(document.estado))) {
+    if (!(await canEditUnsignedDocument(service, document))) {
       return NextResponse.json(
-        { error: 'El archivo de un documento cerrado no puede reemplazarse.' },
+        {
+          error:
+            'Solo puedes reemplazar el archivo de un documento en proceso sin firmas registradas o en curso.',
+          code: 'DOCUMENT_EDIT_CONFLICT',
+        },
         { status: 409 }
       );
     }
@@ -95,7 +108,14 @@ export async function POST(
         if (upload.error) throw upload.error;
       }
       const fileUrl = encrypted ? `/api/documentos/${document.id}/viewer-file` : storagePath;
-      const updated = await service
+      if (!(await canEditUnsignedDocument(service, document))) {
+        throw new DocumentAccessError(
+          'DOCUMENT_EDIT_CONFLICT',
+          'La firma ya está en curso o quedó registrada. Se conservó el archivo original.',
+          409
+        );
+      }
+      const query = service
         .from('documentos')
         .update({
           storage_path: storagePath,
@@ -106,15 +126,30 @@ export async function POST(
           file_hash_sha256: plaintextSha256,
         })
         .eq('id', document.id)
-        .select('id')
+        .eq('estado', document.estado)
+        .is('deleted_at', null)
+        .is('fecha_completado', null);
+      const updated = await (
+        document.updated_at
+          ? query.eq('updated_at', document.updated_at)
+          : query.is('updated_at', null)
+      )
+        .select('id,updated_at')
         .maybeSingle();
-      if (updated.error || !updated.data)
-        throw updated.error || new Error('DOCUMENT_UPDATE_CONFLICT');
+      if (updated.error) throw updated.error;
+      if (!updated.data) {
+        throw new DocumentAccessError(
+          'DOCUMENT_EDIT_CONFLICT',
+          'El documento cambió mientras reemplazabas el archivo. Vuelve a abrirlo.',
+          409
+        );
+      }
       return NextResponse.json({
         ok: true,
         file_url: fileUrl,
         file_size: bytes.byteLength,
         file_type: file.type || 'application/octet-stream',
+        updated_at: updated.data.updated_at,
         sha256: plaintextSha256,
         document_version_id: versionId,
       });
@@ -130,7 +165,10 @@ export async function POST(
       bytes.fill(0);
     }
   } catch (error) {
-    if (error instanceof CaseRuntimeError) { const failure=runtimeFailure(error); return NextResponse.json(failure.body,{status:failure.status}); }
+    if (error instanceof CaseRuntimeError) {
+      const failure = runtimeFailure(error);
+      return NextResponse.json(failure.body, { status: failure.status });
+    }
     const access = documentAccessResponse(error);
     if (access.status !== 500) {
       return NextResponse.json(access.body, { status: access.status });

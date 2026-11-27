@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import React from 'react';
 import ts from 'typescript';
+import * as publicationPolicy from '../src/lib/forms/publication-policy.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/formularios/respuestas/page.tsx', 'utf8');
@@ -36,7 +37,8 @@ function createResponsesPage(status) {
         select() { return builder; },
         eq() { return builder; },
         single() { return Promise.resolve({ data: { name: 'Solicitud', status }, error: null }); },
-        order() { return Promise.resolve({ data: [] }); },
+        order() { return builder; },
+        then(resolve, reject) { return Promise.resolve({ data: [] }).then(resolve, reject); },
       };
       return builder;
     },
@@ -45,6 +47,7 @@ function createResponsesPage(status) {
     react: hooks,
     'next/navigation': { useRouter: () => ({ push() {} }), useSearchParams: () => ({ get: () => 'form-1' }) },
     '@/components/AppLayout': { default: () => null, __esModule: true },
+    '@/lib/forms/publication-policy': publicationPolicy,
     '@/lib/supabase/client': { createClient: () => client },
   };
   const compiled = ts.transpileModule(source, {

@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Search, User, UserPlus, Users } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { launchEmailPattern, type LaunchMember, type LaunchPerson } from '@/lib/case-files/launch';
+import {
+  launchContactColumns,
+  launchContactPerson,
+  launchEmailPattern,
+  type LaunchMember,
+  type LaunchPerson,
+} from '@/lib/case-files/launch';
 import LaunchDialog from './LaunchDialog';
 
 const inputClass =
@@ -58,7 +64,7 @@ export default function ParticipantPicker({
     let live = true;
     void supabase
       .from('contacts')
-      .select('id,nombre,apellido_paterno,apellido_materno,email,telefono,rfc,curp')
+      .select(launchContactColumns)
       .eq('user_id', userId)
       .order('nombre')
       .then(
@@ -69,27 +75,7 @@ export default function ParticipantPicker({
               'No se pudieron cargar tus contactos. Puedes reintentar o añadir una persona manualmente.'
             );
           else
-            setContacts(
-              (data || [])
-                .filter((person) => person.email)
-                .map((person) => ({
-                  id: person.id,
-                  name:
-                    [person.nombre, person.apellido_paterno, person.apellido_materno]
-                      .filter(Boolean)
-                      .join(' ') || person.email,
-                  email: person.email.trim().toLowerCase(),
-                  details: {
-                    nombre: person.nombre || '',
-                    apellido_paterno: person.apellido_paterno || '',
-                    apellido_materno: person.apellido_materno || '',
-                    phone: person.telefono || '',
-                    rfc: person.rfc || '',
-                    curp: person.curp || '',
-                    personalidad_juridica: 'fisica',
-                  },
-                }))
-            );
+            setContacts((data || []).map(launchContactPerson).filter((person) => person !== null));
           setLoading(false);
         },
         () => {

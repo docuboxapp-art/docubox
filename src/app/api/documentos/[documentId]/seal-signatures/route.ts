@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { getPublicAppUrl } from '@/lib/publicAppUrl';
 import { cookies } from 'next/headers';
 import { after, NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createServiceClient } from '@/lib/supabase/server';
+import { documentTypeReferences } from '@/lib/catalog/document-reads';
 import { resolveLegacyDocumentStoragePath } from '@/lib/documents/internal-source';
 import { pdfNativeProtectionPolicy } from '@/lib/documents/pdf-native-protection';
 import type { FinalPdfTechnicalMetadata } from '@/lib/documents/final-pdf-metadata';
@@ -352,7 +354,7 @@ async function sealSignaturesNow(
     const documentResult = await service
       .from('documentos')
       .select(
-        'id,documento_id,owner_id,workspace_id,estado,nombre,descripcion,numero_oficio,tipo_documento_id,otro_tipo_documento,participantes,campos_solicitados,storage_path,file_url,file_name,file_type,file_hash_sha256,participation_order,created_at,fecha_completado,sealed_pdf_path,sealed_pdf_hash,proteccion_firmado,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje'
+        'id,documento_id,owner_id,workspace_id,estado,nombre,descripcion,numero_oficio,tipo_documento_id,otro_tipo_documento,participantes,campos_solicitados,source_form_response_id,storage_path,file_url,file_name,file_type,file_hash_sha256,participation_order,created_at,fecha_completado,sealed_pdf_path,sealed_pdf_hash,proteccion_firmado,impedir_impresion,evitar_copia_texto,impedir_modificacion,impedir_extraccion,evitar_montaje'
       )
       .eq('id', documentId)
       .is('deleted_at', null)
@@ -473,7 +475,7 @@ async function sealSignaturesNow(
     const responsesResult = await service
       .from('participation_responses')
       .select(
-        'participante_id,participante_email,participante_nombre,firma_data,firma_completada_at,signature_method,signature_stamp_style,signature_hash,signature_ip,signature_metadata'
+        'participante_id,participant_record_id,participant_reference_id,participante_email,participante_nombre,firma_data,firma_completada_at,consent_accepted,consent_accepted_at,signature_method,signature_stamp_style,signature_hash,signature_ip,signature_metadata'
       )
       .eq('documento_id', document.id)
       .eq('firma_completada', true)
@@ -489,7 +491,8 @@ async function sealSignaturesNow(
     const signatureFields = Array.isArray(document.campos_solicitados)
       ? (document.campos_solicitados as SignatureStampField[]).filter(isSignatureStampField)
       : [];
-    if (signatureFields.length === 0) {
+    const allowSignersSheet = !document.source_form_response_id;
+    if (!allowSignersSheet && signatureFields.length === 0) {
       return NextResponse.json(
         { error: 'El documento no tiene campos de firma configurados para estampar.' },
         { status: 409 }
@@ -576,11 +579,7 @@ async function sealSignaturesNow(
         .limit(1)
         .maybeSingle(),
       document.tipo_documento_id
-        ? service
-            .from('tipo_documento')
-            .select('nombre')
-            .eq('id', document.tipo_documento_id)
-            .maybeSingle()
+        ? documentTypeReferences(service, [document.tipo_documento_id]).range(0, 0)
         : Promise.resolve({ data: null, error: null }),
       service
         .from('document_additional_metadata')
@@ -676,7 +675,7 @@ async function sealSignaturesNow(
       documentVersion: Number(versionResult.data?.version_number || 1),
       title: document.nombre || document.file_name,
       documentType: firstText(
-        documentTypeResult.data?.nombre,
+        documentTypeResult.data?.[0]?.nombre,
         document.otro_tipo_documento,
         'No especificado'
       )!,
@@ -762,7 +761,7 @@ async function sealSignaturesNow(
 
     let visualPdfBytes: Uint8Array;
     let visualPdfSha256: string;
-    let stampsApplied: number;
+    let signaturesApplied: number;
     let metadataSnapshotSha256: string | null;
 
     if (document.sealed_pdf_path && !document.sealed_pdf_path.includes('/pades/')) {
@@ -798,7 +797,7 @@ async function sealSignaturesNow(
           { status: 409 }
         );
       }
-      stampsApplied = responses.length;
+      signaturesApplied = responses.length;
       metadataSnapshotSha256 = null;
     } else {
       const rendered = await createSignedDocumentPdf({
@@ -806,14 +805,16 @@ async function sealSignaturesNow(
         fields: resolvedSignatureFields,
         responses,
         technicalMetadata,
+        allowSignersSheet,
+        verificationUrl: `${getPublicAppUrl()}/v/${encodeURIComponent(document.id)}`,
       });
       visualPdfBytes = rendered.bytes;
       visualPdfSha256 = rendered.sha256;
-      stampsApplied = rendered.stampsApplied;
+      signaturesApplied = rendered.signaturesApplied;
       metadataSnapshotSha256 = rendered.metadataSnapshotSha256;
     }
 
-    if (stampsApplied === 0) {
+    if (signaturesApplied === 0) {
       return NextResponse.json(
         { error: 'Ninguna firma completada corresponde a los campos configurados.' },
         { status: 409 }
@@ -834,7 +835,7 @@ async function sealSignaturesNow(
       visualPdfBytes,
       visualPdfSha256,
       completedAt: closedAt,
-      signaturesApplied: stampsApplied,
+      signaturesApplied,
       pdfProtectionPolicy: pdfNativeProtectionPolicy(document),
       requiredLevel: requiredPadesLevel,
     });
@@ -858,7 +859,7 @@ async function sealSignaturesNow(
         template_materialized_pdf_sha256: suppliedTemplatePdf ? renderedInputHash : null,
         visual_pdf_sha256: visualPdfSha256,
         sealed_sha256: pades.sha256,
-        signatures: stampsApplied,
+        signatures: signaturesApplied,
         storage_path: pades.storagePath,
         document_version_id: pades.documentVersionId,
         certification_uuid: pades.certificationUuid,
@@ -882,7 +883,7 @@ async function sealSignaturesNow(
     return NextResponse.json({
       ok: true,
       sha256: pades.sha256,
-      signatures: stampsApplied,
+      signatures: signaturesApplied,
       storage_path: pades.storagePath,
       metadata_snapshot_sha256: metadataSnapshotSha256,
       document_version_id: pades.documentVersionId,

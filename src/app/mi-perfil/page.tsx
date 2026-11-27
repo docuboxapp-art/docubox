@@ -1,10 +1,19 @@
 'use client';
 
+import { toast } from 'sonner';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ProfileDocumentsPanel } from './components/ProfileDocumentsPanel';
+import { ProfilePrivacyPanel } from './components/ProfilePrivacyPanel';
+import { ProfileSectionHeader } from './components/ProfileSectionHeader';
 import AppLayout from '@/components/AppLayout';
+import { TableSortHeading } from '@/components/workspaces/TableSortButton';
+import { compareListDates, type ListDirection } from '@/lib/workspaces/list-order';
+import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
 import ResponsiveSidebar from '@/components/ResponsiveSidebar';
 import {
   User,
+  UserPlus,
   Building2,
   ShieldCheck,
   PenTool,
@@ -22,7 +31,6 @@ import {
   AlertCircle,
   Loader2,
   Check,
-  UserPlus,
   X,
   Link2,
   Trash2,
@@ -54,8 +62,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { acceptWorkspaceMembership, joinWorkspaceByCode, loadWorkspaceInvitations } from '@/lib/workspace-invitation';
 import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
-import { ProfilePrivacyPanel } from './components/ProfilePrivacyPanel';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   encryptEfirmaKeyForStorage,
@@ -290,26 +298,6 @@ const sidebarSections = [
     items: [{ id: 'historial-eliminaciones', label: 'Historial de eliminaciones', icon: History }],
   },
 ];
-
-const COPOMEX_TOKEN = '076eac35-f150-43e8-88ca-21f2cb8d50cd';
-
-interface ProfileSectionHeaderProps {
-  title: string;
-  description: string;
-  actions?: React.ReactNode;
-}
-
-function ProfileSectionHeader({ title, description, actions }: ProfileSectionHeaderProps) {
-  return (
-    <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between dark:border-slate-700">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-600 text-slate-950 dark:text-white">{title}</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </header>
-  );
-}
 
 // ─── Parse CER file ───────────────────────────────────────────────────────────
 
@@ -1089,36 +1077,8 @@ function JoinWorkspaceModal({ onClose }: { onClose: () => void }) {
     setError('');
     setSuccess('');
     try {
-      const supabase = createClient();
-      const trimmedCode = code.trim();
-      const { data: workspaces, error: wsErr } = await supabase
-        .from('workspaces')
-        .select('id, name, workspace_type')
-        .or(`invite_code.eq.${trimmedCode},name.ilike.${trimmedCode}`);
-      const ws = workspaces && workspaces.length > 0 ? workspaces[0] : null;
-      if (wsErr || !ws) {
-        setError('No se encontró ningún espacio de trabajo con ese código o nombre.');
-        return;
-      }
-      if (ws.workspace_type === 'personal') {
-        setError('No puedes unirte a un espacio de trabajo personal.');
-        return;
-      }
-      const { data: existing } = await supabase
-        .from('workspace_members')
-        .select('id')
-        .eq('workspace_id', ws.id)
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (existing) {
-        setError('Ya eres miembro de este espacio de trabajo.');
-        return;
-      }
-      const { error: joinErr } = await supabase
-        .from('workspace_members')
-        .insert({ workspace_id: ws.id, user_id: user.id, role: 'member' });
-      if (joinErr) throw joinErr;
-      setSuccess(`¡Te has unido a "${ws.name}" exitosamente!`);
+      const name = await joinWorkspaceByCode(code);
+      setSuccess(`Te has unido a "${name}".`);
       await refreshWorkspaces();
       setTimeout(() => onClose(), 2000);
     } catch (err: any) {
@@ -1155,14 +1115,14 @@ function JoinWorkspaceModal({ onClose }: { onClose: () => void }) {
           </p>
           <div>
             <label className="block text-xs font-600 text-muted-foreground mb-1.5">
-              Código de invitación o nombre del espacio
+              Código de invitación
             </label>
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-              placeholder="Ej: EMPRESA-2024 o nombre del espacio"
+              placeholder="Ej: EMPRESA-2024"
               className="w-full px-3 py-2.5 border border-border rounded-lg text-sm text-foreground bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors placeholder:text-gray-400"
             />
           </div>
@@ -1394,7 +1354,9 @@ export default function MiPerfilPage() {
   const [deletionHistorySearch, setDeletionHistorySearch] = useState('');
   const [deletionHistorySort, setDeletionHistorySort] = useState<'newest' | 'oldest'>('newest');
   const [deletionHistoryPage, setDeletionHistoryPage] = useState(1);
-  const [deletionHistoryPageSize, setDeletionHistoryPageSize] = useState<15 | 30 | 50 | 100>(15);
+  const [deletionHistoryPageSize, setDeletionHistoryPageSize] = useState<15 | 30 | 50 | 100>(
+    DEFAULT_TABLE_PAGE_SIZE
+  );
 
   // Profile state
   const [profile, setProfile] = useState<ProfileData>({
@@ -1424,6 +1386,7 @@ export default function MiPerfilPage() {
 
   // Profile edit mode state
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const profileBeforeEdit = useRef<ProfileData | null>(null);
   const [rfcValidating, setRfcValidating] = useState(false);
   const [rfcError, setRfcError] = useState('');
   const [rfcValidated, setRfcValidated] = useState(false);
@@ -1449,6 +1412,7 @@ export default function MiPerfilPage() {
   const [cpError, setCpError] = useState('');
   const [colonias, setColonias] = useState<string[]>([]);
   const cpDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cpRequestRef = useRef<AbortController | null>(null);
 
   // Workspace docs state
   const [workspaceDocs, setWorkspaceDocs] = useState<WorkspaceDoc[]>([]);
@@ -1502,6 +1466,8 @@ export default function MiPerfilPage() {
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpPaired, setTotpPaired] = useState(false);
   const [totpLoading, setTotpLoading] = useState(false);
+  const [totpPurposeSaving, setTotpPurposeSaving] = useState(false);
+  const [totpSettingsError, setTotpSettingsError] = useState('');
   const [showTotpModal, setShowTotpModal] = useState(false);
   const [showTotpDisableModal, setShowTotpDisableModal] = useState(false);
   const [totpDisablePassword, setTotpDisablePassword] = useState('');
@@ -1694,8 +1660,9 @@ export default function MiPerfilPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (new URLSearchParams(window.location.search).get('section') === 'historial-eliminaciones') {
-      setActiveSection('historial-eliminaciones');
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section === 'historial-eliminaciones' || section === 'privacidad') {
+      setActiveSection(section);
     }
   }, []);
 
@@ -2070,14 +2037,16 @@ export default function MiPerfilPage() {
     setTotpLoading(true);
     try {
       const supabase = createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('user_totp_settings')
-        .select('is_enabled, totp_purpose, confirmed_at, secret_encrypted')
+        .select('is_enabled, totp_purpose, confirmed_at')
         .eq('user_id', user.id)
         .maybeSingle();
+      if (error) throw error;
+      setTotpSettingsError('');
       if (data) {
         setTotpEnabled(!!data.is_enabled);
-        setTotpPaired(!!(data.secret_encrypted && data.confirmed_at));
+        setTotpPaired(Boolean(data.confirmed_at));
         if (data.totp_purpose) {
           // Support both legacy single string and new array format
           const raw = data.totp_purpose;
@@ -2121,9 +2090,7 @@ export default function MiPerfilPage() {
         setTotpDeviceInfo(null);
       }
     } catch {
-      setTotpEnabled(false);
-      setTotpPaired(false);
-      setTotpDeviceInfo(null);
+      setTotpSettingsError('No se pudo consultar el autenticador.');
     } finally {
       setTotpLoading(false);
     }
@@ -2173,25 +2140,28 @@ export default function MiPerfilPage() {
   };
 
   const handleTotpPurposeChange = async (purpose: 'm2fa' | 'firma') => {
-    const current = totpPurposes;
-    let updated: Array<'m2fa' | 'firma'>;
-    if (current.includes(purpose)) {
-      if (current.length === 1) return;
-      updated = current.filter((p) => p !== purpose);
-    } else {
-      updated = [...current, purpose];
-    }
-    setTotpPurposes(updated);
-    if (!user) return;
+    if (!user || totpPurposeSaving) return;
+    const updated = totpPurposes.includes(purpose)
+      ? totpPurposes.filter((value) => value !== purpose)
+      : [...totpPurposes, purpose];
+    if (!updated.length) return;
+    setTotpPurposeSaving(true);
+    setTotpSettingsError('');
     try {
-      const supabase = createClient();
       const dbValue = updated.length === 2 ? 'both' : updated[0];
-      await supabase
+      const { error } = await createClient()
         .from('user_totp_settings')
         .update({ totp_purpose: dbValue })
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('is_enabled', true)
+        .select('totp_purpose')
+        .single();
+      if (error) throw error;
+      setTotpPurposes(updated);
     } catch {
-      /* silent */
+      setTotpSettingsError('No se pudo guardar el propósito del autenticador.');
+    } finally {
+      setTotpPurposeSaving(false);
     }
   };
 
@@ -2259,15 +2229,16 @@ export default function MiPerfilPage() {
     setMembersLoading(true);
     try {
       const supabase = createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('workspace_members')
         .select('id, user_id, role')
-        .eq('workspace_id', wsId);
+        .eq('workspace_id', wsId)
+        .eq('status', 'active');
+      if (error) throw error;
       if (data && data.length > 0) {
-        const userIds = data.map((m: any) => m.user_id);
-        const profiles = await loadVisibleProfileCards(userIds).catch(() => []);
-        const mapped = data.map((m: any) => {
-          const p = profiles?.find((pr: any) => pr.id === m.user_id);
+        const profiles = await loadVisibleProfileCards(data.map((member) => member.user_id)).catch(() => []);
+        const mapped = data.map((m) => {
+          const p = profiles.find((profile) => profile.id === m.user_id);
           return {
             id: m.id,
             user_id: m.user_id,
@@ -2291,57 +2262,23 @@ export default function MiPerfilPage() {
   const loadWsInvitations = async () => {
     if (!user) return;
     setWsInvitationsLoading(true);
+    setWsInvitationError('');
     try {
-      const supabase = createClient();
-      // Look for workspace_members rows where user_id matches and role = 'invited'
-      // or a dedicated invitations table if it exists. We'll check workspace_members with status='pending'
-      const { data: invites } = await supabase
-        .from('workspace_members')
-        .select('id, workspace_id, role, created_at')
-        .eq('user_id', user.id)
-        .eq('role', 'invited');
-      if (invites && invites.length > 0) {
-        const wsIds = invites.map((i: any) => i.workspace_id);
-        const { data: wsData } = await supabase
-          .from('workspaces')
-          .select('id, name, owner_id')
-          .in('id', wsIds);
-        const ownerIds = (wsData || []).map((w: any) => w.owner_id).filter(Boolean);
-        const ownerProfiles = await loadVisibleProfileCards(ownerIds).catch(() => []);
-        const mapped = invites.map((inv: any) => {
-          const ws = wsData?.find((w: any) => w.id === inv.workspace_id);
-          const owner = ownerProfiles.find((p: any) => p.id === ws?.owner_id);
-          return {
-            id: inv.id,
-            workspace_id: inv.workspace_id,
-            workspace_name: ws?.name || 'Espacio desconocido',
-            owner_name: owner?.name || '',
-            owner_email: owner?.email || '',
-            invited_at: inv.created_at,
-          };
-        });
-        setWsInvitations(mapped);
-      } else {
-        setWsInvitations([]);
-      }
+      setWsInvitations(await loadWorkspaceInvitations());
     } catch {
       setWsInvitations([]);
+      setWsInvitationError('No se pudieron consultar las invitaciones.');
     } finally {
       setWsInvitationsLoading(false);
     }
   };
 
-  const handleAcceptInvitation = async (invId: string, wsId: string, wsName: string) => {
+  const handleAcceptInvitation = async (invId: string) => {
     if (!user) return;
     setWsInvitationAccepting(invId);
     setWsInvitationError('');
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: 'member' })
-        .eq('id', invId);
-      if (error) throw error;
+      await acceptWorkspaceMembership(invId);
       await refreshWorkspaces();
       setWsInvitations((prev) => prev.filter((i) => i.id !== invId));
     } catch (err: any) {
@@ -2357,36 +2294,8 @@ export default function MiPerfilPage() {
     setWsJoinError('');
     setWsJoinSuccess('');
     try {
-      const supabase = createClient();
-      const trimmedCode = wsJoinCode.trim();
-      const { data: wsResults } = await supabase
-        .from('workspaces')
-        .select('id, name, workspace_type')
-        .or(`invite_code.eq.${trimmedCode},name.ilike.${trimmedCode}`);
-      const ws = wsResults && wsResults.length > 0 ? wsResults[0] : null;
-      if (!ws) {
-        setWsJoinError('No se encontró ningún espacio de trabajo con ese código o nombre.');
-        return;
-      }
-      if (ws.workspace_type === 'personal') {
-        setWsJoinError('No puedes unirte a un espacio de trabajo personal.');
-        return;
-      }
-      const { data: existing } = await supabase
-        .from('workspace_members')
-        .select('id')
-        .eq('workspace_id', ws.id)
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (existing) {
-        setWsJoinError('Ya eres miembro de este espacio de trabajo.');
-        return;
-      }
-      const { error: joinErr } = await supabase
-        .from('workspace_members')
-        .insert({ workspace_id: ws.id, user_id: user.id, role: 'member' });
-      if (joinErr) throw joinErr;
-      setWsJoinSuccess(`¡Te has unido a "${ws.name}" exitosamente!`);
+      const name = await joinWorkspaceByCode(wsJoinCode);
+      setWsJoinSuccess(`Te has unido a "${name}".`);
       setWsJoinCode('');
       await refreshWorkspaces();
     } catch (err: any) {
@@ -2397,17 +2306,29 @@ export default function MiPerfilPage() {
   };
 
   const fetchCopomex = async (cp: string, currentColonia?: string) => {
+    cpRequestRef.current?.abort();
     if (cp.length !== 5) {
+      setCpLoading(false);
       setColonias([]);
       setCpError('');
       setProfile((prev) => ({ ...prev, estado: '', municipio: '' }));
       return;
     }
+    const controller = new AbortController();
+    cpRequestRef.current = controller;
     setCpLoading(true);
     setCpError('');
     try {
-      const res = await fetch(`https://api.copomex.com/query/info_cp/${cp}?token=${COPOMEX_TOKEN}`);
-      const data: ColoniaResponse[] = await res.json();
+      const { data: { session } } = await createClient().auth.getSession();
+      if (!session) throw new Error('Inicia sesión para consultar el código postal.');
+      const res = await fetch(`/api/perfil/codigo-postal?cp=${cp}`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await res.json();
+      if (controller.signal.aborted) return;
+      if (!res.ok) throw new Error(result.error);
+      const data: ColoniaResponse[] = result;
       if (!Array.isArray(data) || data.length === 0 || data[0]?.error) {
         setCpError('Código postal no encontrado');
         setColonias([]);
@@ -2427,17 +2348,20 @@ export default function MiPerfilPage() {
             ? currentColonia
             : coloniasList[0] || '',
       }));
-    } catch {
-      setCpError('Error al consultar el código postal');
-      setColonias([]);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setCpError(error instanceof Error ? error.message : 'Captura el domicilio manualmente.');
+        setColonias([]);
+      }
     } finally {
-      setCpLoading(false);
+      if (!controller.signal.aborted) setCpLoading(false);
     }
   };
 
   const handleCpChange = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 5);
     setProfile((prev) => ({ ...prev, codigoPostal: digits }));
+    cpRequestRef.current?.abort();
     if (cpDebounceRef.current) clearTimeout(cpDebounceRef.current);
     cpDebounceRef.current = setTimeout(() => {
       fetchCopomex(digits);
@@ -2554,6 +2478,13 @@ export default function MiPerfilPage() {
 
   const cancelProfileEditing = () => {
     resetPendingAvatar();
+    cpRequestRef.current?.abort();
+    if (cpDebounceRef.current) clearTimeout(cpDebounceRef.current);
+    if (profileBeforeEdit.current) setProfile(profileBeforeEdit.current);
+    setCpError('');
+    setCpLoading(false);
+    setColonias([]);
+    setRfcValidated(Boolean(rfcOriginal));
     setIsEditingProfile(false);
     setRfcError('');
     setSaveError('');
@@ -2646,6 +2577,7 @@ export default function MiPerfilPage() {
       setAvatarRemovalPending(false);
       await refreshUserProfile?.();
       setSavedOk(true);
+      profileBeforeEdit.current = null;
       setIsEditingProfile(false);
       setRfcOriginal(profile.rfc);
       setTimeout(() => setSavedOk(false), 3000);
@@ -2830,9 +2762,9 @@ export default function MiPerfilPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'No fue posible enviar el correo.');
-      alert(`Se envió un enlace de validación a ${user.email}. Revisa tu bandeja de entrada.`);
+      toast.success(`Se envió un enlace de validación a ${user.email}. Revisa tu bandeja de entrada.`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'No fue posible enviar el correo.');
+      toast.error(error instanceof Error ? error.message : 'No fue posible enviar el correo.');
     } finally {
       setVerificationAction(null);
     }
@@ -3129,6 +3061,7 @@ export default function MiPerfilPage() {
   const [mfaMsg, setMfaMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [sessions, setSessions] = useState<UserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState('');
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [loginActivity, setLoginActivity] = useState<LoginActivity[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -3136,6 +3069,7 @@ export default function MiPerfilPage() {
     'today' | 'week' | '30days' | '90days' | 'all'
   >('30days');
   const [activityPage, setActivityPage] = useState(1);
+  const [activityOrder, setActivityOrder] = useState<ListDirection>('desc');
 
   // Security Events state
   const [securityEvents, setSecurityEvents] = useState<
@@ -3163,6 +3097,7 @@ export default function MiPerfilPage() {
 
   const loadSecurityData = async () => {
     if (!user) return;
+    setSessionsLoading(true);
     const supabase = createClient();
     const { data: profileData } = await supabase
       .from('user_profiles')
@@ -3188,48 +3123,25 @@ export default function MiPerfilPage() {
       setPasswordCreatedAt(user.created_at || null);
     }
 
-    setSessionsLoading(true);
+    setSessionsError('');
     try {
-      const { data: sessionsData } = await supabase
-        .from('user_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('last_active_at', { ascending: false })
-        .limit(10);
-      if (sessionsData && sessionsData.length > 0) {
-        setSessions(sessionsData as UserSession[]);
-      } else {
-        const currentSession: UserSession = {
-          id: 'current',
-          device_name: 'Este dispositivo',
-          device_type: 'web',
-          browser: getBrowserName(),
-          os: getOSName(),
-          ip_address: null,
-          location: null,
-          is_current: true,
-          last_active_at: new Date().toISOString(),
-          created_at: user.created_at || new Date().toISOString(),
-        };
-        setSessions([currentSession]);
-        await supabase
-          .from('user_sessions')
-          .upsert(
-            {
-              id: 'current-' + user.id,
-              user_id: user.id,
-              session_token: 'current',
-              device_name: currentSession.device_name,
-              device_type: currentSession.device_type,
-              browser: currentSession.browser,
-              os: currentSession.os,
-              is_current: true,
-              last_active_at: new Date().toISOString(),
-            },
-            { onConflict: 'id' }
-          )
-          .select();
-      }
+      const { data, error } = await supabase.rpc('list_docubox_my_sessions');
+      if (error) throw error;
+      setSessions((data || []).map((session: { id: string; user_agent: string | null; is_current: boolean; last_active_at: string; created_at: string }) => ({
+        id: session.id,
+        is_current: session.is_current,
+        last_active_at: session.last_active_at,
+        created_at: session.created_at,
+        device_name: parseDeviceFromUserAgent(session.user_agent),
+        device_type: /Android|iPhone/i.test(session.user_agent ?? '') ? 'mobile' : /iPad|tablet/i.test(session.user_agent ?? '') ? 'tablet' : 'web',
+        browser: getBrowserName(session.user_agent ?? ''),
+        os: null,
+        ip_address: null,
+        location: null,
+      })));
+    } catch {
+      setSessions([]);
+      setSessionsError('No se pudieron consultar las sesiones de tu cuenta.');
     } finally {
       setSessionsLoading(false);
     }
@@ -3367,25 +3279,23 @@ export default function MiPerfilPage() {
     }
   };
 
-  const handleRevokeSession = async (sessionId: string) => {
-    if (!user) return;
-    setRevokingSession(sessionId);
+  const handleRevokeSession = async (session: UserSession) => {
+    if (!user || revokingSession || !window.confirm('¿Cerrar esta sesión?')) return;
+    setRevokingSession(session.id);
+    setSessionsError('');
     try {
       const supabase = createClient();
-      await supabase.from('user_sessions').delete().eq('id', sessionId).eq('user_id', user.id);
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      await supabase.from('login_activity_log').insert({
-        user_id: user.id,
-        event_type: 'session_revoked',
-        device_name: 'Este dispositivo',
-        device_type: 'web',
-        browser: getBrowserName(),
-        os: getOSName(),
-        status: 'success',
-      });
-      loadSecurityData();
+      if (session.is_current) {
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        if (error) throw error;
+        window.location.assign('/login');
+        return;
+      }
+      const { error } = await supabase.rpc('revoke_docubox_my_session', { p_session: session.id });
+      if (error) throw error;
+      setSessions((previous) => previous.filter(({ id }) => id !== session.id));
     } catch {
-      /* silent */
+      setSessionsError('No se pudo cerrar la sesión. Inténtalo de nuevo.');
     } finally {
       setRevokingSession(null);
     }
@@ -3408,6 +3318,7 @@ export default function MiPerfilPage() {
           !isEditingProfile ? (
             <button
               onClick={() => {
+                profileBeforeEdit.current = profile;
                 setIsEditingProfile(true);
                 setSaveError('');
                 setSavedOk(false);
@@ -3823,9 +3734,10 @@ export default function MiPerfilPage() {
             <input
               type="text"
               value={profile.estado}
-              readOnly
+              readOnly={!isEditingProfile || !cpError}
+              onChange={(event) => handleChange('estado', event.target.value)}
               placeholder="Se completa con el C.P."
-              className={readonlyClass}
+              className={isEditingProfile && cpError ? inputClass : readonlyClass}
             />
           </div>
           <div>
@@ -3833,9 +3745,10 @@ export default function MiPerfilPage() {
             <input
               type="text"
               value={profile.municipio}
-              readOnly
+              readOnly={!isEditingProfile || !cpError}
+              onChange={(event) => handleChange('municipio', event.target.value)}
               placeholder="Se completa con el C.P."
-              className={readonlyClass}
+              className={isEditingProfile && cpError ? inputClass : readonlyClass}
             />
           </div>
         </div>
@@ -3965,18 +3878,8 @@ export default function MiPerfilPage() {
         </div>
       </div>
 
-      {savedOk && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm font-500">
-          <CheckCircle size={15} />
-          Cambios guardados correctamente
-        </div>
-      )}
-      {saveError && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-500">
-          <AlertCircle size={15} />
-          {saveError}
-        </div>
-      )}
+      {savedOk && <BottomNotice message="Cambios guardados correctamente." tone="success" onClose={() => setSavedOk(false)} />}
+      {saveError && <BottomNotice message={saveError} tone="critical" />}
       {isEditingProfile && (
         <div className="flex items-center gap-3">
           <button
@@ -4287,7 +4190,7 @@ export default function MiPerfilPage() {
                   Unirse a Espacio de Trabajo
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Ingresa el código de invitación o nombre del espacio al que deseas unirte.
+                  Ingresa el código de invitación del espacio.
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
@@ -4296,7 +4199,7 @@ export default function MiPerfilPage() {
                   value={wsJoinCode}
                   onChange={(e) => setWsJoinCode(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleWsJoin()}
-                  placeholder="Ej: EMPRESA-2024 o nombre del espacio"
+                  placeholder="Ej: EMPRESA-2024"
                   className="flex-1 px-3 py-2.5 border border-border rounded-lg text-sm text-foreground bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors placeholder:text-gray-400"
                 />
                 <button
@@ -4312,18 +4215,8 @@ export default function MiPerfilPage() {
                   Unirse
                 </button>
               </div>
-              {wsJoinError && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                  <AlertCircle size={14} />
-                  {wsJoinError}
-                </div>
-              )}
-              {wsJoinSuccess && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-                  <CheckCircle size={14} />
-                  {wsJoinSuccess}
-                </div>
-              )}
+              {wsJoinError && <BottomNotice message={wsJoinError} tone="critical" />}
+              {wsJoinSuccess && <BottomNotice message={wsJoinSuccess} tone="success" onClose={() => setWsJoinSuccess('')} />}
             </div>
 
             {/* Received invitations */}
@@ -4388,16 +4281,16 @@ export default function MiPerfilPage() {
                           )}
                         </p>
                         <p className="text-[10px] text-gray-400 mt-0.5">
-                          {new Date(inv.invited_at).toLocaleDateString('es-MX', {
+                          {inv.invited_at ? new Date(inv.invited_at).toLocaleDateString('es-MX', {
                             day: '2-digit',
                             month: 'short',
                             year: 'numeric',
-                          })}
+                          }) : '—'}
                         </p>
                       </div>
                       <button
                         onClick={() =>
-                          handleAcceptInvitation(inv.id, inv.workspace_id, inv.workspace_name)
+                          handleAcceptInvitation(inv.id)
                         }
                         disabled={wsInvitationAccepting === inv.id}
                         className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors disabled:opacity-60 whitespace-nowrap flex-shrink-0"
@@ -4654,12 +4547,8 @@ export default function MiPerfilPage() {
               <p className="text-xs text-muted-foreground mt-0.5">
                 Protege tu cuenta con Google Authenticator o Microsoft Authenticator.
               </p>
-              {totpSuccessMsg && (
-                <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                  <CheckCircle size={11} />
-                  {totpSuccessMsg}
-                </p>
-              )}
+              {totpSettingsError && <p role="alert" className="mt-1 text-xs text-destructive">{totpSettingsError}</p>}
+              {totpSuccessMsg && <BottomNotice message={totpSuccessMsg} tone="success" onClose={() => setTotpSuccessMsg(null)} />}
               {totpEnabled && (
                 <div className="mt-3 flex flex-col gap-1.5">
                   <div className="flex items-start gap-2.5 px-3 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
@@ -4794,19 +4683,7 @@ export default function MiPerfilPage() {
               </button>
             </div>
 
-            {webAuthnDeviceFeedback && (
-              <div
-                className={`mx-4 mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${webAuthnDeviceFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}
-                role="status"
-              >
-                {webAuthnDeviceFeedback.type === 'success' ? (
-                  <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" />
-                ) : (
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                )}
-                <span>{webAuthnDeviceFeedback.message}</span>
-              </div>
-            )}
+            {webAuthnDeviceFeedback && <BottomNotice message={webAuthnDeviceFeedback.message} tone={webAuthnDeviceFeedback.type === 'success' ? 'success' : 'critical'} onClose={() => setWebAuthnDeviceFeedback(null)} />}
 
             {webAuthnDevicesLoading ? (
               <div className="flex items-center justify-center py-6">
@@ -5618,8 +5495,10 @@ export default function MiPerfilPage() {
         return true; // 'all'
       });
     };
-    const filteredActivity = getFilteredActivity();
-    const ACTIVITY_PAGE_SIZE = 10;
+    const filteredActivity = getFilteredActivity().sort((left, right) =>
+      compareListDates(left.created_at, right.created_at, activityOrder)
+    );
+    const ACTIVITY_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE;
     const activityTotalPages = Math.max(1, Math.ceil(filteredActivity.length / ACTIVITY_PAGE_SIZE));
     const pagedActivity = filteredActivity.slice(
       (activityPage - 1) * ACTIVITY_PAGE_SIZE,
@@ -5812,6 +5691,8 @@ export default function MiPerfilPage() {
             </div>
             {sessionsLoading && <Loader2 size={14} className="text-primary animate-spin" />}
           </div>
+          {sessionsError && <p role="alert" className="text-sm text-destructive">{sessionsError} <button type="button" className="underline" onClick={() => void loadSecurityData()}>Actualizar</button></p>}
+          {!sessionsLoading && !sessionsError && sessions.length === 0 && <p className="text-sm text-muted-foreground">No hay sesiones activas.</p>}
           <div className="flex flex-col gap-2">
             {sessions.map((session) => (
               <div
@@ -5840,8 +5721,8 @@ export default function MiPerfilPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => handleRevokeSession(session.id)}
-                  disabled={revokingSession === session.id}
+                  onClick={() => void handleRevokeSession(session)}
+                  disabled={Boolean(revokingSession)}
                   className="flex items-center gap-1 px-2.5 py-1.5 border border-red-200 rounded-lg text-xs text-red-600 hover:bg-red-50 transition-colors disabled:opacity-60 flex-shrink-0"
                 >
                   {revokingSession === session.id ? (
@@ -5892,11 +5773,16 @@ export default function MiPerfilPage() {
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="workspace-table-heading">
                   <tr className="bg-gray-50 border-b border-border">
-                    <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground whitespace-nowrap">
-                      Fecha
-                    </th>
+                    <TableSortHeading
+                      label="Fecha"
+                      sort={activityOrder}
+                      ascending="asc"
+                      descending="desc"
+                      onSort={(value) => { setActivityOrder(value); setActivityPage(1); }}
+                      className="text-left px-3 py-2.5 whitespace-nowrap"
+                    />
                     <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground whitespace-nowrap">
                       Hora
                     </th>
@@ -5986,7 +5872,7 @@ export default function MiPerfilPage() {
               </table>
             </div>
           )}
-          {filteredActivity.length > 0 && (
+          {shouldShowTablePagination(filteredActivity.length) && (
             <div className="flex items-center justify-between pt-1">
               <p className="text-xs text-muted-foreground">
                 Mostrando{' '}
@@ -6062,7 +5948,7 @@ export default function MiPerfilPage() {
 
         {/* Eventos de Seguridad */}
         {(() => {
-          const SEC_PAGE_SIZE = 10;
+          const SEC_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE;
 
           const getSecEventLabel = (type: string) => {
             switch (type) {
@@ -6401,7 +6287,7 @@ export default function MiPerfilPage() {
                   </div>
 
                   {/* Pagination */}
-                  {fullyFiltered.length > SEC_PAGE_SIZE && (
+                  {shouldShowTablePagination(fullyFiltered.length) && (
                     <div className="flex items-center justify-between pt-1 border-t border-border">
                       <p className="text-xs text-muted-foreground">
                         Mostrando{' '}
@@ -6484,9 +6370,7 @@ export default function MiPerfilPage() {
 
   // ─── Browser/OS Detection Helpers ─────────────────────────────────────────────
 
-  function getBrowserName(): string {
-    if (typeof window === 'undefined') return 'Desconocido';
-    const ua = navigator.userAgent;
+  function getBrowserName(ua = typeof window === 'undefined' ? '' : navigator.userAgent): string {
     if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
     if (ua.includes('Firefox')) return 'Firefox';
     if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari';
@@ -6623,13 +6507,20 @@ export default function MiPerfilPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1040px]">
-                <thead className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-600 text-slate-500">
+                <thead className="workspace-table-heading border-b border-slate-200 bg-slate-50/80 text-left text-xs font-600 text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Elemento</th>
                     <th className="px-4 py-3">Cronología</th>
                     <th className="px-4 py-3">Acción</th>
                     <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3">Registro</th>
+                    <TableSortHeading
+                      label="Registro"
+                      sort={deletionHistorySort}
+                      ascending="oldest"
+                      descending="newest"
+                      onSort={(value) => { setDeletionHistorySort(value); setDeletionHistoryPage(1); }}
+                      className="px-4 py-3 whitespace-nowrap"
+                    />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -6700,7 +6591,7 @@ export default function MiPerfilPage() {
               </table>
             </div>
           )}
-          {!deletionHistoryLoading && !deletionHistoryError && records.length > 0 && (
+          {!deletionHistoryLoading && !deletionHistoryError && shouldShowTablePagination(records.length) && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
               <label className="flex items-center gap-2">
                 <span>Registros por página</span>
@@ -6768,7 +6659,7 @@ export default function MiPerfilPage() {
       case 'historial-eliminaciones':
         return renderDeletionHistory();
       case 'privacidad':
-        return renderPrivacidad();
+        return <ProfilePrivacyPanel key={user?.id} />;
       default:
         return null;
     }
@@ -6793,112 +6684,14 @@ export default function MiPerfilPage() {
           </p>
         </div>
 
-        {/* Documentos solicitados */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border bg-muted/30">
-            <h3 className="text-sm font-600 text-foreground">Documentos solicitados</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Documentos que un workspace ha solicitado y aún no has subido
-            </p>
-          </div>
-          <div className="p-8 flex flex-col items-center gap-3 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-              <CheckCircle size={22} className="text-gray-400" />
-            </div>
-            <p className="text-sm font-600 text-foreground">
-              No tienes documentos pendientes por subir
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Cuando un workspace te solicite documentos, aparecerán aquí
-            </p>
-          </div>
-        </div>
-
-        {/* Documentos de mi expediente */}
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-600 text-foreground">Documentos de mi expediente</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Catálogo de documentos de identidad y respaldo
-              </p>
-            </div>
-            <button className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors">
-              <Upload size={13} />
-              Agregar documento
-            </button>
-          </div>
-          <div className="divide-y divide-border">
-            {[
-              {
-                tipo: 'INE',
-                desc: 'Credencial para votar',
-                slots: ['Frente', 'Reverso'],
-                vigencia: true,
-              },
-              {
-                tipo: 'Comprobante de domicilio',
-                desc: 'Máximo 3 meses de antigüedad',
-                slots: null,
-                vigencia: true,
-              },
-              {
-                tipo: 'Constancia de situación fiscal (SAT)',
-                desc: 'Constancia actualizada del SAT',
-                slots: null,
-                vigencia: false,
-              },
-              {
-                tipo: 'Poder notarial',
-                desc: 'Solo para persona moral',
-                slots: null,
-                vigencia: true,
-              },
-              {
-                tipo: 'Comprobante de ingresos',
-                desc: 'Recibo de nómina o estado de cuenta',
-                slots: null,
-                vigencia: false,
-              },
-              { tipo: 'Otro', desc: 'Documento adicional', slots: null, vigencia: false },
-            ].map((doc) => (
-              <div key={doc.tipo} className="px-5 py-4 flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-600 text-foreground">{doc.tipo}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
-                      Sin subir
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{doc.desc}</p>
-                  {doc.slots && (
-                    <div className="flex gap-2 mt-1.5">
-                      {doc.slots.map((slot) => (
-                        <span
-                          key={slot}
-                          className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100"
-                        >
-                          {slot}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-xs text-foreground hover:bg-gray-50 transition-colors flex-shrink-0">
-                  <Upload size={12} />
-                  Subir
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+        {user && <ProfileDocumentsPanel key={user.id} userId={user.id} />}
 
         {/* Compartidos activos */}
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border bg-muted/30">
             <h3 className="text-sm font-600 text-foreground">Compartidos activos</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Documentos actualmente compartidos con workspaces
+              Entregas autorizadas para expedientes y solicitudes
             </p>
           </div>
           <div className="p-8 flex flex-col items-center gap-3 text-center">
@@ -6906,7 +6699,7 @@ export default function MiPerfilPage() {
               <Globe size={22} className="text-gray-400" />
             </div>
             <p className="text-sm font-600 text-foreground">
-              No tienes documentos compartidos activos
+              Consulta las entregas desde el expediente donde fueron solicitadas
             </p>
           </div>
         </div>
@@ -6918,17 +6711,16 @@ export default function MiPerfilPage() {
               Historial de accesos y consentimiento
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              Este registro sirve como evidencia de consentimiento para el uso de datos personales
-              conforme a la <span className="font-semibold">LFPDPPP</span>.
+              Los consentimientos y accesos de las entregas se consultan en su proceso de origen.
             </p>
           </div>
           <div className="p-8 flex flex-col items-center gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
               <Activity size={22} className="text-gray-400" />
             </div>
-            <p className="text-sm font-600 text-foreground">Sin registros de acceso</p>
+            <p className="text-sm font-600 text-foreground">Acceso a los archivos personales</p>
             <p className="text-xs text-muted-foreground">
-              Los accesos a tus documentos compartidos aparecerán aquí
+              Los archivos guardados en esta sección son de acceso exclusivo de tu cuenta.
             </p>
           </div>
         </div>
@@ -6936,21 +6728,15 @@ export default function MiPerfilPage() {
     );
   };
 
-  // ─── Privacidad ───────────────────────────────────────────────────────────
-
-  const renderPrivacidad = () => (
-    <div className="flex flex-col gap-6">
-      <ProfileSectionHeader title="Privacidad" description="Elige quién puede ver tu perfil y contactarte." />
-      <ProfilePrivacyPanel key={user?.id} />
-    </div>
-  );
-
   return (
     <AppLayout noPadding>
-      <div className="app-page-bleed app-page-frame bg-[#F5F7FA] dark:bg-slate-950">
-        <div className="workspace-layout app-page-width flex flex-col gap-4 lg:flex-row xl:gap-6">
+      <div className="app-page-bleed app-page-frame bg-[#F5F7FA] xl:flex xl:flex-col dark:bg-slate-950">
+        <div className="workspace-layout app-page-width flex flex-col gap-4 xl:flex-1 xl:flex-row xl:gap-6">
           {/* Internal profile navigation */}
-          <ResponsiveSidebar label="Secciones de mi perfil" className="flex w-full flex-shrink-0 flex-col border-b border-slate-200 bg-white lg:w-60 lg:border-b-0 lg:border-r 2xl:w-64 dark:border-slate-700 dark:bg-slate-900">
+          <ResponsiveSidebar
+            label="Secciones de mi perfil"
+            className="workspace-sidebar flex w-full shrink-0 flex-col rounded-lg border border-slate-200 bg-white md:w-60 2xl:w-64 dark:border-border dark:bg-card"
+          >
             <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:gap-0.5 md:overflow-x-visible md:px-2.5 md:pb-3 md:pt-3">
               {sidebarSections.map((section, sectionIndex) => (
                 <div key={section.label} className="contents md:block">

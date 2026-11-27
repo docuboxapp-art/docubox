@@ -148,7 +148,7 @@ function ParticipantsTable({ result }: { result: PublicVerificationResult }) {
       {participants.length ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1080px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-600 uppercase text-slate-500">
+            <thead className="workspace-table-heading border-b border-slate-200 bg-slate-50 text-[10px] font-600 uppercase text-slate-500">
               <tr>
                 <th className="px-5 py-3">Nombre</th>
                 <th className="px-4 py-3">Correo</th>

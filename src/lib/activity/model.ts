@@ -1,3 +1,10 @@
+import {
+  compareListDates,
+  compareTableValues,
+  tableDate,
+  type TableSortValue,
+} from '../workspaces/list-order';
+
 export type ActivityKind = 'formularios' | 'expedientes';
 export type ActivityMode = 'received' | 'sent';
 export type ActivityState =
@@ -64,6 +71,14 @@ export function activityDate(item: ActivityItem, field: ActivityDateField = 'sen
         : item.sentAt;
 }
 
+const activitySortValues: Readonly<Record<string, (item: ActivityItem) => TableSortValue>> = {
+  title: (item) => item.title,
+  person: (item) => item.person,
+  state: (item) => item.stateLabel,
+  sent: (item) => tableDate(item.sentAt),
+  progress: (item) => item.progress,
+};
+
 export function matchesActivityState(item: ActivityItem, state: string, now = Date.now()) {
   const terminal = ['completed', 'expired', 'cancelled'].includes(item.state);
   if (state === 'active')
@@ -86,6 +101,9 @@ export function ownsRecipient(
     ? recipient.recipient_user_id === user.id
     : recipient.recipient_email.trim().toLowerCase() === user.email.trim().toLowerCase();
 }
+
+export const isFormResponseDraft = (status?: string) =>
+  status === 'draft' || status === 'started' || status === 'in_progress';
 
 export function formActivityState(
   input: {
@@ -113,15 +131,20 @@ export function formActivityState(
             : 'Envío programado',
     };
   if (input.scheduledStatus === 'failed') return { state: 'failed', stateLabel: 'Error de envío' };
+  if (input.responseStatus === 'cancelled')
+    return { state: 'cancelled', stateLabel: 'Respuesta cancelada' };
+  if (input.responseStatus === 'rejected')
+    return { state: 'observed', stateLabel: 'Respuesta rechazada' };
+  const draft = isFormResponseDraft(input.responseStatus);
   if (
     input.responseStatus === 'signed' ||
-    (input.responseStatus !== 'draft' && input.submittedAt && !input.requiresSignature)
+    (!draft && input.submittedAt && !input.requiresSignature)
   )
     return {
       state: 'completed',
       stateLabel: input.requiresSignature ? 'Respuesta firmada' : 'Respondido',
     };
-  if (input.responseStatus !== 'draft' && (input.submittedAt || input.usedAt))
+  if (!draft && (input.submittedAt || input.usedAt))
     return input.requiresSignature
       ? { state: 'signature', stateLabel: 'Pendiente de firma' }
       : { state: 'in_progress', stateLabel: 'Procesando respuesta' };
@@ -133,7 +156,7 @@ export function formActivityState(
       stateLabel:
         input.templateStatus === 'archived' ? 'Formulario archivado' : 'Formulario pausado',
     };
-  if (input.responseStatus === 'draft')
+  if (draft)
     return { state: 'in_progress', stateLabel: 'Respuesta en progreso' };
   return { state: 'pending', stateLabel: 'Pendiente de respuesta' };
 }
@@ -165,6 +188,11 @@ export function filterActivity(
   start.setHours(0, 0, 0, 0);
   if (criteria.period && ['7', '30', '365'].includes(criteria.period))
     start.setDate(start.getDate() - (Number(criteria.period) - 1));
+  const sortField = criteria.sort.slice(0, criteria.sort.lastIndexOf('_'));
+  const readSortValue = Object.hasOwn(activitySortValues, sortField)
+    ? activitySortValues[sortField]
+    : undefined;
+  const sortDirection = criteria.sort.endsWith('_desc') ? 'desc' : 'asc';
   return items
     .filter(
       (item) =>
@@ -188,19 +216,25 @@ export function filterActivity(
             activityTime(activityDate(item, criteria.dateField)) <= now))
     )
     .sort((a, b) => {
-      if (criteria.sort === 'name') return a.title.localeCompare(b.title, 'es');
-      const first = activityTime(activityDate(a, criteria.dateField));
-      const second = activityTime(activityDate(b, criteria.dateField));
-      const byDate =
-        !first && second
-          ? 1
-          : first && !second
-            ? -1
-            : criteria.sort === 'oldest'
-              ? first - second
-              : second - first;
-      return criteria.sort === 'urgent'
-        ? Number(b.priority === 'urgent') - Number(a.priority === 'urgent') || byDate
-        : byDate;
+      if (readSortValue) {
+        return (
+          compareTableValues(readSortValue(a), readSortValue(b), sortDirection) ||
+          a.title.localeCompare(b.title, 'es') ||
+          a.id.localeCompare(b.id)
+        );
+      }
+      if (criteria.sort === 'urgent') {
+        const byUrgency = Number(b.priority === 'urgent') - Number(a.priority === 'urgent');
+        if (byUrgency) return byUrgency;
+      }
+      if (criteria.sort !== 'name') {
+        const byDate = compareListDates(
+          activityDate(a, criteria.dateField),
+          activityDate(b, criteria.dateField),
+          criteria.sort === 'oldest' ? 'asc' : 'desc'
+        );
+        if (byDate) return byDate;
+      }
+      return a.title.localeCompare(b.title, 'es') || a.id.localeCompare(b.id);
     });
 }

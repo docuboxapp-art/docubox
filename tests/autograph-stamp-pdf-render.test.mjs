@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
 import { build } from 'esbuild';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import sharp from 'sharp';
 
 const styles = [
@@ -29,7 +29,7 @@ const signaturePng = await sharp(
   Buffer.from('<svg width="240" height="80" xmlns="http://www.w3.org/2000/svg"><path d="M12 62 Q48 5 72 48 T138 36 Q178 4 190 40 T230 35" fill="none" stroke="#1e293b" stroke-width="3"/></svg>')
 ).png().toBuffer();
 
-test('all autograph stamp styles render into the final PDF', async () => {
+test('all autograph stamp styles render into the final PDF', async (t) => {
   const original = await PDFDocument.create();
   for (const style of styles) {
     const page = original.addPage([500, 230]);
@@ -104,4 +104,89 @@ test('all autograph stamp styles render into the final PDF', async () => {
   if (process.env.DOCUBOX_STAMP_PREVIEW_OUTPUT) {
     await writeFile(process.env.DOCUBOX_STAMP_PREVIEW_OUTPUT, result.bytes);
   }
+
+  const sample = await PDFDocument.create();
+  sample.addPage().drawText('Documento original de prueba');
+  const sampleBytes = await sample.save();
+  const signers = [
+    ['Alma Ejemplo', 'autografa'],
+    ['Bruno Ejemplo', 'efirma'],
+    ['Carmen Ejemplo', 'clicksign'],
+    ['Diego Ejemplo', 'clicksign'],
+  ].map(([name, method], index) => ({
+    participante_id: `account-${index}`,
+    participant_record_id: `invitation-${index}`,
+    participante_nombre: name,
+    participante_email: `firmante${index + 1}@example.test`,
+    firma_completada_at: '2026-11-26T14:15:10.000Z',
+    firma_data: method === 'autografa' ? `data:image/png;base64,${signaturePng.toString('base64')}` : null,
+    consent_accepted: index !== 3,
+    consent_accepted_at: index !== 3 ? '2026-11-26T14:14:33.000Z' : null,
+    signature_method: method,
+    signature_stamp_style: ['AC4', 'EM4', 'CC2', 'CL3'][index],
+    signature_hash: 'a12b3456789cd'.repeat(5).slice(0, 64),
+    signature_metadata: method === 'efirma'
+      ? { certificate_serial: '00000000000000000001', certificate_valid_until: '2028-11-26T14:15:10.000Z', ocsp_status: 'Válido' }
+      : method === 'autografa' ? { otp_verified: true } : {},
+  }));
+  const sampleMetadata = { ...technicalMetadata, title: 'Convenio de prueba', participantCount: signers.length };
+  const renderSample = (overrides) => createSignedDocumentPdf({
+    originalBytes: sampleBytes,
+    fields: [],
+    responses: signers,
+    technicalMetadata: sampleMetadata,
+    allowSignersSheet: true,
+    verificationUrl: 'https://docubox.mx/v/example',
+    ...overrides,
+  });
+
+  await t.test('appends one or more pages when signers have no signature placements', async () => {
+    const sheet = await renderSample({});
+    assert.equal(sheet.stampsApplied, 0);
+    assert.equal(sheet.signaturesApplied, 4);
+    assert.equal(sheet.signatureSheetPages, 2);
+    const pdf = await PDFDocument.load(sheet.bytes);
+    assert.equal(pdf.getPageCount(), 3);
+    const signatureImages = (pageIndex) =>
+      pdf.getPage(pageIndex).node.Resources().lookup(PDFName.of('XObject'), PDFDict).keys().length;
+    // Header uses two images. The additional images come from the autograph
+    // trace and the configured QR-bearing stamps on both appendix pages.
+    assert.ok(signatureImages(1) >= 4);
+    assert.ok(signatureImages(2) >= 4);
+    if (process.env.DOCUBOX_SIGNERS_PREVIEW_OUTPUT) {
+      await writeFile(process.env.DOCUBOX_SIGNERS_PREVIEW_OUTPUT, sheet.bytes);
+    }
+  });
+
+  await t.test('keeps existing placements when other signers need the sheet', async () => {
+    const sheet = await renderSample({
+      fields: [{ ...fields[0], participantId: 'invitation-0' }],
+      responses: signers.slice(0, 2),
+    });
+    assert.equal(sheet.stampsApplied, 1);
+    assert.equal(sheet.signaturesApplied, 2);
+    assert.equal(sheet.signatureSheetPages, 1);
+    assert.equal((await PDFDocument.load(sheet.bytes)).getPageCount(), 2);
+  });
+
+  await t.test('honors a placement saved by the signer and never stamps an invalid page', async () => {
+    const position = { page: 1, x: 5, y: 20, width: 36, height: 20 };
+    const sheet = await renderSample({
+      fields: [{ ...fields[0], participantId: 'invitation-0', page: 99 }],
+      responses: [{
+        ...signers[0],
+        signature_metadata: { signature_positions: [position, { ...position, page: 9 }] },
+      }],
+    });
+    assert.equal(sheet.stampsApplied, 1);
+    assert.equal(sheet.signaturesApplied, 1);
+    assert.equal(sheet.signatureSheetPages, 0);
+    assert.equal((await PDFDocument.load(sheet.bytes)).getPageCount(), 1);
+  });
+
+  await t.test('omits fallback sheets in published forms', async () => {
+    const sheet = await renderSample({ allowSignersSheet: false });
+    assert.equal(sheet.signaturesApplied, 0);
+    assert.equal(sheet.signatureSheetPages, 0);
+  });
 });

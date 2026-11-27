@@ -33,22 +33,45 @@ export default function IdentityPolicyBuilder({ policyId }: { policyId?: string 
   const router = useRouter();
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
+  const workspaceId = activeWorkspace?.id;
+  const canManage = activeWorkspace && (activeWorkspace.ownerId === user?.id || ['owner', 'admin'].includes(activeWorkspace.role));
   const [step, setStep] = useState(0);
   const [config, setConfig] = useState<IdentityPolicyConfig>(() => clonePolicyConfig(BASE_IDENTITY_POLICY));
   const [currentId, setCurrentId] = useState(policyId);
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState<string>();
+  const [legacy, setLegacy] = useState(false);
+  const [recordStatus, setRecordStatus] = useState<'draft' | 'active' | 'archived'>('draft');
   const [loading, setLoading] = useState(Boolean(policyId));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [testOpen, setTestOpen] = useState(false);
 
   useEffect(() => {
-    if (!policyId || !activeWorkspace?.id) return;
-    getIdentityPolicy(createClient(), activeWorkspace.id, policyId).then((record) => {
-      if (record) setConfig(clonePolicyConfig(record.config));
-      else setMessage('No se encontro la politica. Puedes guardar una nueva version desde esta configuracion.');
-      setLoading(false);
-    });
-  }, [policyId, activeWorkspace?.id]);
+    if (!policyId || !workspaceId) return;
+    let current = true;
+    async function load(id: string, policy: string) {
+      setLoading(true);
+      setMessage('');
+      try {
+        const record = await getIdentityPolicy(createClient(), id, policy);
+        if (!current) return;
+        if (!record) throw new Error('La política no se encontró en este espacio.');
+        setConfig(clonePolicyConfig(record.config));
+        setCurrentId(record.id);
+        setLegacy(Boolean(record.needsSync));
+        setRecordStatus(record.needsSync ? 'draft' : record.status);
+        setLoadedWorkspaceId(id);
+      } catch (cause) {
+        if (current) setMessage(cause instanceof Error ? cause.message : 'No se pudo cargar la política.');
+      } finally {
+        if (current) setLoading(false);
+      }
+    }
+    void load(workspaceId, policyId);
+    return () => { current = false; };
+  }, [policyId, workspaceId]);
+
+  const canSave = Boolean(workspaceId && canManage && (!policyId || loadedWorkspaceId === workspaceId));
 
   const summary = useMemo(() => ({
     controls: policyControlCount(config),
@@ -58,14 +81,21 @@ export default function IdentityPolicyBuilder({ policyId }: { policyId?: string 
   }), [config]);
 
   const persist = async (status: 'draft' | 'active') => {
-    if (!activeWorkspace?.id || !user?.id) { setMessage('No se encontro el espacio de trabajo activo.'); return; }
+    if (!workspaceId || !canSave || saving) return;
     if (!config.name.trim()) { setStep(0); setMessage('Asigna un nombre a la politica antes de guardarla.'); return; }
     setSaving(true); setMessage('');
-    const result = await saveIdentityPolicy(createClient(), activeWorkspace.id, user.id, config, { id: currentId, status });
-    setCurrentId(result.record.id);
-    setSaving(false);
-    setMessage(status === 'active' ? `Version ${result.record.version} publicada y activada.` : 'Borrador guardado.');
-    if (!policyId && result.record.id) window.history.replaceState(null, '', `/configuracion/verificacion-identidad/${result.record.id}`);
+    try {
+      const saved = await saveIdentityPolicy(createClient(), workspaceId, config, { id: currentId, status, legacy });
+      setCurrentId(saved.id);
+      setLegacy(false);
+      setRecordStatus(status);
+      setMessage(status === 'active' ? `Versión ${saved.version} publicada.` : 'Borrador guardado.');
+      if (saved.id !== currentId) window.history.replaceState(null, '', `/configuracion/verificacion-identidad/${saved.id}`);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'No se pudo guardar la política.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) return <AppLayout noPadding><div className="flex min-h-[calc(100vh-4rem)] items-center justify-center bg-[#f6f8fb]"><Loader2 size={24} className="animate-spin text-primary" /></div></AppLayout>;
@@ -73,8 +103,8 @@ export default function IdentityPolicyBuilder({ policyId }: { policyId?: string 
   return <AppLayout>
     <div>
       <header className="flex min-h-[56px] items-center justify-between gap-2 border-b border-slate-200 pb-4 dark:border-border">
-        <div className="flex min-w-0 items-center gap-3"><button onClick={() => router.push('/configuracion/verificacion-identidad')} aria-label="Cerrar configurador" className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ArrowLeft size={17} /></button><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="truncate text-sm font-600">{config.name || 'Nueva politica de verificacion'}</h1><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-600 text-amber-700">Borrador</span></div><p className="mt-0.5 hidden text-xs text-slate-500 sm:block">Versiona las reglas que deberan completarse antes de firmar.</p></div></div>
-        <div className="flex items-center gap-2"><button onClick={() => setTestOpen(true)} className="hidden h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 md:inline-flex"><PlayCircle size={14} /> Probar</button><button onClick={() => persist('draft')} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 disabled:opacity-60"><Save size={14} /> Guardar</button><button onClick={() => persist('active')} disabled={saving || summary.blockers.length > 0} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-600 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Publicar</button></div>
+        <div className="flex min-w-0 items-center gap-3"><button onClick={() => router.push('/configuracion/verificacion-identidad')} aria-label="Cerrar configurador" className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ArrowLeft size={17} /></button><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="truncate text-sm font-600">{config.name || 'Nueva politica de verificacion'}</h1><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-600 text-amber-700">{recordStatus === 'active' ? 'Publicada' : recordStatus === 'archived' ? 'Archivada' : 'Borrador'}</span></div><p className="mt-0.5 hidden text-xs text-slate-500 sm:block">Versiona las reglas de verificación de este espacio.</p></div></div>
+        <div className="flex items-center gap-2"><button onClick={() => setTestOpen(true)} className="hidden h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 md:inline-flex"><PlayCircle size={14} /> Probar</button><button onClick={() => persist('draft')} disabled={saving || !canSave} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-600 text-slate-700 hover:bg-slate-50 disabled:opacity-60"><Save size={14} /> Guardar</button><button onClick={() => persist('active')} disabled={saving || !canSave || summary.blockers.length > 0} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-600 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Publicar</button></div>
       </header>
 
       {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
@@ -142,4 +172,4 @@ function Divider() { return <div className="border-t border-slate-200" />; }
 function Summary({ label, value }: { label: string; value: React.ReactNode }) { return <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 last:border-0"><span className="text-xs text-slate-500">{label}</span><span className="text-xs font-600 text-slate-800 dark:text-foreground">{value}</span></div>; }
 function Decision({ tone, label, value }: { tone: 'emerald' | 'amber' | 'red'; label: string; value: string }) { const colors = { emerald: 'bg-emerald-50 text-emerald-700', amber: 'bg-amber-50 text-amber-700', red: 'bg-red-50 text-red-700' }; return <div className={`border-b border-slate-200 p-4 text-center last:border-0 md:border-b-0 md:border-r ${colors[tone]}`}><p className="text-xs font-600">{label}</p><p className="mt-1 text-xl font-600 tabular-nums">{value}</p></div>; }
 function labelAssurance(value: IdentityPolicyConfig['assuranceLevel']) { return ({ basic: 'Basico', standard: 'Estandar', enhanced: 'Reforzado', custom: 'Personalizado' })[value]; }
-function TestDialog({ config, onClose }: { config: IdentityPolicyConfig; onClose: () => void }) { const checks = [{ label: 'Politica identificable', ok: Boolean(config.name.trim()) }, { label: 'Consentimiento de privacidad', ok: config.privacyConsent }, { label: 'Consentimiento biometrico', ok: config.biometricConsent }, { label: 'Prueba de vida configurada', ok: Boolean(config.livenessMode) }, { label: 'Evidencia verificable', ok: config.generatePdfReport || config.generateEvidencePackage }]; return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4"><div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-2xl"><div className="flex items-start justify-between"><div><h2 className="text-base font-600">Prueba de configuracion</h2><p className="mt-1 text-xs text-slate-500">Simulacion previa a publicar la politica.</p></div><button onClick={onClose} className="text-xs text-slate-500">Cerrar</button></div><div className="mt-5 space-y-2">{checks.map((item) => <div key={item.label} className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5"><span className="text-sm text-slate-700">{item.label}</span>{item.ok ? <CheckCircle2 size={17} className="text-emerald-600" /> : <AlertTriangle size={17} className="text-amber-500" />}</div>)}</div><button onClick={onClose} className="mt-5 h-9 w-full rounded-md bg-primary text-sm font-600 text-white">Entendido</button></div></div>; }
+function TestDialog({ config, onClose }: { config: IdentityPolicyConfig; onClose: () => void }) { const checks = [{ label: 'Politica identificable', ok: Boolean(config.name.trim()) }, { label: 'Consentimiento de privacidad', ok: config.privacyConsent }, { label: 'Consentimiento biometrico', ok: config.biometricConsent }, { label: 'Prueba de vida configurada', ok: Boolean(config.livenessMode) }, { label: 'Evidencia verificable', ok: config.generatePdfReport || config.generateEvidencePackage }]; return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4"><div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-2xl"><div className="flex items-start justify-between"><div><h2 className="text-base font-600">Prueba de configuracion</h2><p className="mt-1 text-xs text-slate-500">Revisión de los requisitos configurados antes de publicar.</p></div><button onClick={onClose} className="text-xs text-slate-500">Cerrar</button></div><div className="mt-5 space-y-2">{checks.map((item) => <div key={item.label} className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5"><span className="text-sm text-slate-700">{item.label}</span>{item.ok ? <CheckCircle2 size={17} className="text-emerald-600" /> : <AlertTriangle size={17} className="text-amber-500" />}</div>)}</div><button onClick={onClose} className="mt-5 h-9 w-full rounded-md bg-primary text-sm font-600 text-white">Entendido</button></div></div>; }

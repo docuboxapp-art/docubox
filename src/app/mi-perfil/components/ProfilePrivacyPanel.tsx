@@ -1,20 +1,26 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
-import { Check, Eye, Lock, MessageSquare, Shield, UserPlus } from 'lucide-react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import { Eye, Loader2, Lock, MessageSquare, Save, Shield, UserPlus } from 'lucide-react';
+import { toast } from 'sonner';
+import { InfoTooltip } from '@/components/forms/ExperienceOption';
+import { ContactRequestsPanel } from '@/components/profiles/ContactRequestsPanel';
 import { profilePrivacy } from '@/lib/profile-privacy/client';
+import { useContactRequests } from '@/lib/profile-privacy/useContactRequests';
 import {
+  CONTACT_REQUEST_APPROVAL_LABEL,
   formatPrivacyDate,
   PROFILE_FIELDS,
   PROFILE_SCOPE_LABELS,
   PROFILE_SCOPES,
-  REQUEST_STATUS_LABELS,
-  type ContactAccessRequest,
-  type FieldScope,
+  PROFILE_SECTIONS,
   type ProfileBlock,
+  type ProfileScope,
+  type ProfileSection,
   type ProfileSettings,
   type ProfileVisit,
 } from '@/lib/profile-privacy/model';
+import { ProfileSectionHeader } from './ProfileSectionHeader';
 
 const actionButton =
   'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm font-medium hover:bg-muted focus-visible:outline-primary disabled:opacity-50';
@@ -22,18 +28,48 @@ const primaryButton =
   'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-primary disabled:opacity-50';
 const formControl =
   'min-h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30';
-const fieldGroups = [...new Set(PROFILE_FIELDS.map(({ group }) => group))];
-const sectionTabLinkClassName =
-  'flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-muted-foreground hover:bg-card focus-visible:outline-primary aria-[current=page]:border-border aria-[current=page]:bg-card aria-[current=page]:text-primary';
+const scopeAudience: Record<ProfileScope, { description: string; summary: string }> = {
+  nadie: {
+    description: 'Solo tú puedes ver esta información.',
+    summary: 'Solo tú',
+  },
+  workspaces: {
+    description: 'Personas con una membresía activa en un espacio de trabajo que compartes.',
+    summary: 'Miembros activos de espacios en común',
+  },
+  solo_contactos: {
+    description: 'Personas de tu agenda y personas cuya solicitud para agregarte aprobaste.',
+    summary: 'Personas de tu agenda y contactos aprobados',
+  },
+  contactos: {
+    description:
+      'Incluye a las personas de tu agenda, a quienes aprobaste como contactos y a los miembros activos de espacios de trabajo en común.',
+    summary: 'Contactos de tu agenda, contactos aprobados y miembros activos de espacios en común',
+  },
+};
+const visibilityModes = [
+  [
+    'general',
+    'Permisos generales del perfil',
+    'Elige quién puede ver las secciones que compartas.',
+  ],
+  ['fields', 'Visibilidad por campo', 'Elige quién puede ver cada dato de tu perfil.'],
+] as const;
+const visibilityOption =
+  'flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 text-sm hover:bg-muted has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5';
 const protectedFields = [
   'Firma autógrafa',
   'e.firma y certificados',
   'Datos de verificación',
   'Configuración de seguridad',
 ];
+const privacyHeading = {
+  title: 'Privacidad',
+  description: 'Elige quién puede ver tu perfil y contactarte.',
+};
 const tabs = [
   ['options', 'Opciones de privacidad', Lock],
-  ['requests', 'Solicitudes de acceso', UserPlus],
+  ['requests', 'Solicitudes de contacto', UserPlus],
   ['visits', 'Quién ha visto tu perfil', Eye],
   ['blocks', 'Usuarios bloqueados', Shield],
   ['communication', 'Comunicación', MessageSquare],
@@ -79,7 +115,7 @@ function Toggle({
   );
 }
 
-function usePrivacyRecords<T>(operation: 'requests' | 'visits' | 'blocks' | 'settings') {
+function usePrivacyRecords<T>(operation: 'visits' | 'blocks' | 'settings_v2') {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -130,84 +166,6 @@ function Feedback({
   ) : null;
 }
 
-function PrivacyRequests() {
-  const { data, error, reload } = usePrivacyRecords<ContactAccessRequest[]>('requests');
-  const [busy, setBusy] = useState('');
-  const [failure, setFailure] = useState('');
-  async function decide(id: string, decision: 'approve' | 'decline' | 'revoke') {
-    setBusy(id);
-    setFailure('');
-    try {
-      await profilePrivacy('decide', { requestId: id, decision });
-      reload();
-    } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : 'No fue posible resolver la solicitud.');
-    } finally {
-      setBusy('');
-    }
-  }
-  return (
-    <PrivacyCard title="Solicitudes de acceso">
-      <p className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
-        Al aprobar una solicitud, la persona puede agregarte a su agenda y ver los campos que
-        compartes con ella.
-      </p>
-      <Feedback
-        error={error || failure}
-        pending={!data}
-        onRetry={error ? () => void reload() : undefined}
-      />
-      {data?.length === 0 && (
-        <p className="p-4 text-sm text-muted-foreground">No hay solicitudes de acceso.</p>
-      )}
-      <ul className="divide-y divide-border">
-        {data?.map((item) => (
-          <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="min-w-0 break-words">
-              <p className="text-sm font-medium">{item.name}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {formatPrivacyDate(item.created_at)} · {REQUEST_STATUS_LABELS[item.status]}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {item.status === 'pending' && (
-                <>
-                  <button
-                    type="button"
-                    className={actionButton}
-                    disabled={Boolean(busy)}
-                    onClick={() => void decide(item.id, 'decline')}
-                  >
-                    Rechazar
-                  </button>
-                  <button
-                    type="button"
-                    className={primaryButton}
-                    disabled={Boolean(busy)}
-                    onClick={() => void decide(item.id, 'approve')}
-                  >
-                    Aprobar
-                  </button>
-                </>
-              )}
-              {item.status === 'approved' && (
-                <button
-                  type="button"
-                  className={actionButton}
-                  disabled={Boolean(busy)}
-                  onClick={() => void decide(item.id, 'revoke')}
-                >
-                  Revocar acceso
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </PrivacyCard>
-  );
-}
-
 function PrivacyVisits() {
   const { data, error, reload } = usePrivacyRecords<ProfileVisit[]>('visits');
   return (
@@ -234,10 +192,8 @@ function PrivacyBlocks() {
   const { data, error, reload } = usePrivacyRecords<ProfileBlock[]>('blocks');
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState('');
   async function change(peerId?: string) {
     setBusy(true);
-    setFailure('');
     try {
       if (peerId) await profilePrivacy('unblock', { peerId });
       else {
@@ -246,7 +202,7 @@ function PrivacyBlocks() {
       }
       reload();
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : 'No fue posible actualizar el bloqueo.');
+      toast.error(cause instanceof Error ? cause.message : 'No fue posible actualizar el bloqueo.');
     } finally {
       setBusy(false);
     }
@@ -275,11 +231,7 @@ function PrivacyBlocks() {
           Bloquear usuario
         </button>
       </form>
-      <Feedback
-        error={error || failure}
-        pending={!data}
-        onRetry={error ? () => void reload() : undefined}
-      />
+      <Feedback error={error} pending={!data} onRetry={error ? () => void reload() : undefined} />
       {data?.length === 0 && (
         <p className="p-4 text-sm text-muted-foreground">No tienes usuarios bloqueados.</p>
       )}
@@ -311,13 +263,16 @@ function PrivacyBlocks() {
 }
 
 export function ProfilePrivacyPanel() {
-  const { data, error, reload } = usePrivacyRecords<ProfileSettings>('settings');
+  const { data, error, reload } = usePrivacyRecords<ProfileSettings>('settings_v2');
   return data ? (
     <PrivacyPreferences settings={data} />
   ) : (
-    <PrivacyCard title="Opciones de privacidad">
-      <Feedback error={error} pending onRetry={() => void reload()} />
-    </PrivacyCard>
+    <div className="space-y-4">
+      <ProfileSectionHeader {...privacyHeading} />
+      <PrivacyCard title="Opciones de privacidad">
+        <Feedback error={error} pending onRetry={reload} />
+      </PrivacyCard>
+    </div>
   );
 }
 
@@ -326,28 +281,54 @@ function PrivacyPreferences({ settings }: { settings: ProfileSettings }) {
   const [draft, setDraft] = useState(settings);
   const [active, setActive] = useState<Tab>('options');
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const requests = useContactRequests({ watch: active === 'requests' });
+  const visibilityId = useId();
+  const preferencesFormId = `${visibilityId}-preferences`;
   const changed = JSON.stringify(draft) !== JSON.stringify(saved);
   const editable = active === 'options' || active === 'communication';
+  const fields: ProfileSettings['fields'] =
+    draft.mode === 'fields' && saved.mode === 'general' && Object.keys(draft.fields).length === 0
+      ? Object.fromEntries(
+          PROFILE_FIELDS.map((field) => [
+            field.key,
+            draft.sections.includes(field.group) ? draft.scope : 'nadie',
+          ])
+        )
+      : draft.fields;
+
+  function selectTab(tab: Tab) {
+    setActive(tab);
+    if (tab === 'requests') requests.reload();
+  }
 
   function edit(update: Partial<ProfileSettings>) {
     setDraft((current) => ({ ...current, ...update }));
-    setStatus('');
-    setError('');
+  }
+
+  function toggleSection(section: ProfileSection, checked: boolean) {
+    edit({
+      sections: PROFILE_SECTIONS.map(({ key }) => key).filter((key) =>
+        key === section ? checked : draft.sections.includes(key)
+      ),
+    });
   }
 
   async function save() {
     if (saving || !changed) return;
+    const preferences = { ...draft, fields };
     setSaving(true);
-    setStatus('');
-    setError('');
+    const notice = toast.loading('Guardando preferencias…');
     try {
-      await profilePrivacy('save', draft);
-      setSaved(draft);
-      setStatus('Preferencias guardadas.');
+      await profilePrivacy('save_v2', preferences);
+      if (draft.allowContacts !== saved.allowContacts) requests.reload();
+      setSaved(preferences);
+      setDraft(preferences);
+      toast.success('Preferencias guardadas.', { id: notice });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron guardar las preferencias.');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudieron guardar las preferencias.',
+        { id: notice }
+      );
     } finally {
       setSaving(false);
     }
@@ -355,29 +336,48 @@ function PrivacyPreferences({ settings }: { settings: ProfileSettings }) {
 
   return (
     <div className="space-y-4">
-      <nav
-        aria-label="Secciones de privacidad"
-        className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1"
-      >
-        {tabs
-          .filter(([id]) => id !== 'requests' || saved.allowContacts)
-          .map(([id, label, Icon]) => (
+      <ProfileSectionHeader
+        {...privacyHeading}
+        actions={
+          editable && changed ? (
+            <button
+              type="submit"
+              form={preferencesFormId}
+              className="ml-auto flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-600 text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-primary disabled:opacity-60"
+              disabled={saving}
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          ) : undefined
+        }
+      />
+      <nav aria-label="Secciones de privacidad" className="min-w-0 overflow-x-auto">
+        <div className="flex min-w-max gap-1 border-b border-border">
+          {tabs.map(([id, label, Icon]) => (
             <button
               key={id}
               type="button"
               aria-current={active === id ? 'page' : undefined}
-              className={sectionTabLinkClassName}
-              onClick={() => setActive(id)}
+              className={`-mb-px flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50 ${
+                active === id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
+              }`}
+              onClick={() => selectTab(id)}
             >
-              <Icon size={15} className="shrink-0" aria-hidden="true" /> {label}
+              <Icon size={14} className="shrink-0" aria-hidden="true" />
+              {label}
             </button>
           ))}
+        </div>
       </nav>
-      {active === 'requests' && <PrivacyRequests />}
+      {active === 'requests' && <ContactRequestsPanel {...requests} />}
       {active === 'visits' && <PrivacyVisits />}
       {active === 'blocks' && <PrivacyBlocks />}
       {editable && (
         <form
+          id={preferencesFormId}
           onSubmit={(event) => {
             event.preventDefault();
             void save();
@@ -387,88 +387,208 @@ function PrivacyPreferences({ settings }: { settings: ProfileSettings }) {
           <fieldset disabled={saving} className="min-w-0 space-y-4">
             {active === 'options' ? (
               <>
-                <PrivacyCard title="Alcance de visibilidad de mi perfil">
-                  <div className="space-y-2 p-4">
-                    {PROFILE_SCOPES.map((scope) => (
-                      <label
-                        key={scope}
-                        className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
-                      >
-                        <input
-                          type="radio"
-                          name="profile-scope"
-                          className="size-4 accent-primary"
-                          checked={draft.scope === scope}
-                          onChange={() => edit({ scope })}
-                        />
-                        {PROFILE_SCOPE_LABELS[scope]}
-                      </label>
-                    ))}
-                  </div>
-                  <div className="border-t border-border">
-                    <Toggle
-                      label="Aceptar solicitudes para ser contacto"
-                      description="Podrás revisar y aprobar quién te agrega a su agenda."
-                      checked={draft.allowContacts}
-                      onChange={(allowContacts) => edit({ allowContacts })}
-                    />
-                  </div>
+                <PrivacyCard title="Recepción de solicitudes">
+                  <Toggle
+                    label={CONTACT_REQUEST_APPROVAL_LABEL}
+                    description={
+                      draft.allowContacts !== saved.allowContacts
+                        ? 'Guarda los cambios para aplicar esta opción.'
+                        : 'Si la activas, te pedirán aprobación. Si la desactivas, podrán agregarte directamente a su agenda.'
+                    }
+                    checked={draft.allowContacts}
+                    onChange={(allowContacts) => edit({ allowContacts })}
+                  />
                 </PrivacyCard>
-                <PrivacyCard title="Visibilidad por campo">
-                  <p className="px-4 py-3 text-sm text-muted-foreground">
-                    Cada campo se comparte dentro del alcance de tu perfil.
-                  </p>
-                  {fieldGroups.map((group) => (
-                    <div key={group} className="divide-y divide-border">
-                      <h4 className="border-t border-border bg-muted/40 px-4 py-2 text-xs font-semibold text-muted-foreground sm:px-5">
-                        {group}
-                      </h4>
-                      {PROFILE_FIELDS.filter((field) => field.group === group).map((field) => (
-                        <label
-                          key={field.key}
-                          className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm sm:px-5"
-                        >
-                          <span>{field.label}</span>
-                          <select
-                            aria-label={field.label}
-                            className={formControl}
-                            value={
-                              draft.fields[field.key] ?? ('private' in field ? 'nadie' : 'heredar')
-                            }
-                            onChange={(event) =>
-                              edit({
-                                fields: {
-                                  ...draft.fields,
-                                  [field.key]: event.target.value as FieldScope,
-                                },
-                              })
-                            }
-                          >
-                            <option value="heredar">Alcance del perfil</option>
-                            {PROFILE_SCOPES.map((scope) => (
-                              <option key={scope} value={scope}>
-                                {PROFILE_SCOPE_LABELS[scope]}
-                              </option>
-                            ))}
-                          </select>
+                <PrivacyCard title="Alcance de visibilidad de mi perfil">
+                  <fieldset className="grid min-w-0 gap-2 p-4 sm:grid-cols-2 sm:px-5">
+                    <legend className="sr-only">Cómo configurar la visibilidad</legend>
+                    {visibilityModes.map(([mode, label, description]) => {
+                      const modeId = `${visibilityId}-mode-${mode}`;
+                      return (
+                        <label key={mode} className={visibilityOption}>
+                          <input
+                            type="radio"
+                            name={`${visibilityId}-mode`}
+                            aria-labelledby={modeId}
+                            aria-describedby={`${modeId}-description`}
+                            className="mt-0.5 size-4 shrink-0 accent-primary"
+                            checked={draft.mode === mode}
+                            onChange={() => edit({ mode })}
+                          />
+                          <span className="min-w-0">
+                            <span id={modeId} className="block font-medium">
+                              {label}
+                            </span>
+                            <span
+                              id={`${modeId}-description`}
+                              className="mt-0.5 block text-xs leading-relaxed text-muted-foreground"
+                            >
+                              {description}
+                            </span>
+                          </span>
                         </label>
-                      ))}
+                      );
+                    })}
+                  </fieldset>
+                  {draft.mode === 'general' && (
+                    <div className="space-y-4 px-4 pb-4 sm:px-5">
+                      <fieldset className="min-w-0 space-y-2">
+                        <legend className="mb-2 text-sm font-semibold">
+                          Quién puede ver tu perfil
+                        </legend>
+                        {PROFILE_SCOPES.map((scope) => {
+                          const scopeId = `${visibilityId}-scope-${scope}`;
+
+                          return (
+                            <label key={scope} className={visibilityOption}>
+                              <input
+                                type="radio"
+                                name={`${visibilityId}-scope`}
+                                aria-labelledby={scopeId}
+                                aria-describedby={`${scopeId}-description`}
+                                className="mt-0.5 size-4 shrink-0 accent-primary"
+                                checked={draft.scope === scope}
+                                onChange={() => edit({ scope })}
+                              />
+                              <span className="min-w-0">
+                                <span id={scopeId} className="block font-medium">
+                                  {PROFILE_SCOPE_LABELS[scope]}
+                                </span>
+                                <span
+                                  id={`${scopeId}-description`}
+                                  className="mt-0.5 block text-xs leading-relaxed text-muted-foreground"
+                                >
+                                  {scopeAudience[scope].description}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                      {draft.scope !== 'nadie' && (
+                        <fieldset className="min-w-0 space-y-2">
+                          <legend className="mb-2 text-sm font-semibold">
+                            Secciones para compartir
+                          </legend>
+                          <p className="text-sm text-muted-foreground">
+                            Las secciones que marques serán visibles para el grupo seleccionado.
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {PROFILE_SECTIONS.map(({ key, label, description }) => {
+                              const sectionId = `${visibilityId}-section-${key}`;
+                              return (
+                                <label key={key} className={visibilityOption}>
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5 size-4 shrink-0 accent-primary"
+                                    aria-labelledby={sectionId}
+                                    aria-describedby={`${sectionId}-description`}
+                                    checked={draft.sections.includes(key)}
+                                    onChange={(event) =>
+                                      toggleSection(key, event.currentTarget.checked)
+                                    }
+                                  />
+                                  <span className="min-w-0">
+                                    <span id={sectionId} className="block font-medium">
+                                      {label}
+                                    </span>
+                                    <span
+                                      id={`${sectionId}-description`}
+                                      className="mt-0.5 block text-xs leading-relaxed text-muted-foreground"
+                                    >
+                                      {description}
+                                    </span>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </fieldset>
+                      )}
                     </div>
-                  ))}
-                  <div className="divide-y divide-border border-t border-border bg-muted/30">
-                    {protectedFields.map((label) => (
-                      <div
-                        key={label}
-                        className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm sm:px-5"
-                      >
-                        <span>{label}</span>
-                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Lock size={12} aria-hidden="true" /> Privado
-                        </span>
+                  )}
+                </PrivacyCard>
+                {draft.mode === 'fields' && (
+                  <PrivacyCard title="Visibilidad por campo">
+                    {PROFILE_SECTIONS.map(({ key: group, label }) => (
+                      <div key={group} className="divide-y divide-border">
+                        <h4 className="border-t border-border bg-muted/40 px-4 py-2 text-xs font-semibold text-muted-foreground sm:px-5">
+                          {label}
+                        </h4>
+                        {PROFILE_FIELDS.filter((field) => field.group === group).map((field) => {
+                          const fieldScope = fields[field.key] ?? 'nadie';
+                          const fieldId = `${visibilityId}-${field.key}`;
+                          const audienceId = `${fieldId}-audience`;
+
+                          return (
+                            <div
+                              key={field.key}
+                              className="grid gap-2 px-4 py-2.5 text-sm sm:px-5 md:grid-cols-[minmax(0,1fr)_20rem] md:items-center"
+                            >
+                              <span className="min-w-0">
+                                <label htmlFor={fieldId} className="block font-medium">
+                                  {field.label}
+                                </label>
+                                <span
+                                  id={audienceId}
+                                  className="mt-0.5 block text-xs leading-relaxed text-muted-foreground"
+                                >
+                                  {scopeAudience[fieldScope].summary}
+                                  {field.key === 'full_name' && fieldScope !== 'nadie' && (
+                                    <span className="block">
+                                      También se aplica la visibilidad del nombre y los apellidos.
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                              <span className="min-w-0">
+                                <span className="flex items-center gap-2">
+                                  <select
+                                    id={fieldId}
+                                    aria-describedby={audienceId}
+                                    className={`${formControl} min-w-0 flex-1`}
+                                    value={fieldScope}
+                                    onChange={(event) =>
+                                      edit({
+                                        fields: {
+                                          ...fields,
+                                          [field.key]: event.target.value as ProfileScope,
+                                        },
+                                      })
+                                    }
+                                  >
+                                    {PROFILE_SCOPES.map((scope) => (
+                                      <option key={scope} value={scope}>
+                                        {PROFILE_SCOPE_LABELS[scope]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <InfoTooltip
+                                    label={`la visibilidad de ${field.label}`}
+                                    description={scopeAudience[fieldScope].description}
+                                  />
+                                </span>
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
-                  </div>
-                </PrivacyCard>
+                    <div className="divide-y divide-border border-t border-border bg-muted/30">
+                      {protectedFields.map((label) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm sm:px-5"
+                        >
+                          <span>{label}</span>
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Lock size={12} aria-hidden="true" /> Privado
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </PrivacyCard>
+                )}
               </>
             ) : (
               <PrivacyCard title="Comunicación directa">
@@ -489,26 +609,6 @@ function PrivacyPreferences({ settings }: { settings: ProfileSettings }) {
               </PrivacyCard>
             )}
           </fieldset>
-          <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
-            <div>
-              {status && (
-                <p
-                  role="status"
-                  className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-300"
-                >
-                  <Check size={15} aria-hidden="true" /> {status}
-                </p>
-              )}
-              {error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-            </div>
-            <button type="submit" className={primaryButton} disabled={saving || !changed}>
-              {saving ? 'Guardando…' : 'Guardar cambios'}
-            </button>
-          </div>
         </form>
       )}
     </div>

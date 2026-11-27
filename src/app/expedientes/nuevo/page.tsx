@@ -1,12 +1,12 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Copy,
   ChevronDown,
   AlertCircle,
-  AlertTriangle,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
@@ -56,7 +56,9 @@ import {
   documentRequirementCategories,
   type DocumentRequirementCatalogItem,
 } from '@/lib/case-files/template-catalog';
-import { caseCategories, caseTags } from '@/lib/case-files/category-catalog';
+import { caseCategories } from '@/lib/case-files/category-catalog';
+import { builtInCatalog, catalogVisibilityKey, validCatalogColor } from '@/lib/catalog/classification';
+import { usePersonalCatalog } from '@/lib/catalog/client';
 import {
   isCaseWizardStepEnabled,
   readCaseDefaults,
@@ -169,6 +171,7 @@ export default function NuevoExpedientePage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
+  const catalog = usePersonalCatalog(user?.id);
   const workspaceId = activeWorkspace?.id;
   const initializedForWorkspace = useRef<string | null>(null);
   const [draft, setDraft] = useState<CaseTemplateDraft>(() => emptyCaseTemplate());
@@ -199,6 +202,25 @@ export default function NuevoExpedientePage() {
   const [notice, setNotice] = useState('');
   const [defaultsNotice, setDefaultsNotice] = useState('');
   const [generalPicker, setGeneralPicker] = useState<'category' | 'type' | 'tags' | null>(null);
+  const classifications = [...builtInCatalog, ...catalog.entries];
+  const categoryOptions = classifications.filter((entry) => entry.kind === 'case-category');
+  const activeCategory = categoryOptions.find((entry) => entry.id === draft.categoryCode);
+  const typeOptions = classifications.filter((entry) => entry.kind === 'case-type' &&
+    entry.group === draft.categoryCode);
+  const tagOptions = classifications.filter((entry) => entry.kind === 'case-tag')
+    .map((entry) => ({ id: entry.id, nombre: entry.name, color: entry.color, group: entry.group, catalog_archived: entry.archived }));
+  const tagChoices = [
+    ...tagOptions,
+    ...(draft.catalogTags ?? []).filter((tag) => !tagOptions.some((entry) => entry.id === tag.id))
+      .map((tag) => ({ ...tag, catalog_archived: true })),
+  ];
+  const canChooseType = Boolean(
+    activeCategory &&
+      !activeCategory.archived &&
+      !catalog.loading &&
+      !catalog.error &&
+      !catalog.hidden.has(catalogVisibilityKey('case-category', activeCategory.id))
+  );
   const isDirty = savedDraftJson !== null && savedDraftJson !== JSON.stringify(draft);
 
   useEffect(() => {
@@ -817,6 +839,8 @@ export default function NuevoExpedientePage() {
         typeCode: draft.typeCode,
         folio: draft.folio.trim(),
         tagIds: draft.tagIds,
+        catalogTags: tagChoices.filter((tag) => draft.tagIds.includes(tag.id))
+          .map(({ id, nombre, color, group }) => ({ id, nombre, color, group })),
         personality: draft.personality,
         sections: draft.sections,
         verifications: draft.verifications,
@@ -1091,7 +1115,10 @@ export default function NuevoExpedientePage() {
                     />
                   </label>
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground">
+                    <label
+                      htmlFor="case-category"
+                      className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground"
+                    >
                       <Layers size={14} className="text-slate-400" />
                       Categoría de expediente
                     </label>
@@ -1099,8 +1126,9 @@ export default function NuevoExpedientePage() {
                       <div className="relative min-w-0 flex-1">
                         <input
                           readOnly
+                          id="case-category"
                           value={draft.caseType}
-                          placeholder="Sin especificar"
+                          placeholder="Seleccionar categoría..."
                           className={`${generalInputClass} cursor-default pr-8`}
                         />
                         {draft.caseType && (
@@ -1133,7 +1161,10 @@ export default function NuevoExpedientePage() {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground">
+                    <label
+                      htmlFor="case-type"
+                      className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground"
+                    >
                       <FolderKanban size={14} className="text-slate-400" />
                       Tipo de expediente
                     </label>
@@ -1141,9 +1172,10 @@ export default function NuevoExpedientePage() {
                       <div className="relative min-w-0 flex-1">
                         <input
                           readOnly
-                          disabled={!draft.categoryCode}
+                          disabled={!canChooseType}
+                          id="case-type"
                           value={draft.caseSubtype}
-                          placeholder="Sin especificar"
+                          placeholder="Seleccionar tipo..."
                           className={`${generalInputClass} cursor-default pr-8 disabled:bg-slate-50 disabled:text-slate-400`}
                         />
                         {draft.caseSubtype && (
@@ -1161,7 +1193,7 @@ export default function NuevoExpedientePage() {
                       </div>
                       <button
                         type="button"
-                        disabled={!draft.categoryCode}
+                        disabled={!canChooseType}
                         onClick={() => setGeneralPicker('type')}
                         className={catalogButtonClass}
                       >
@@ -1184,7 +1216,7 @@ export default function NuevoExpedientePage() {
                       <div className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-border dark:bg-background">
                         {draft.tagIds.length ? (
                           draft.tagIds.map((id) => {
-                            const tag = caseTags.find((item) => item.id === id);
+                            const tag = tagChoices.find((item) => item.id === id);
                             return (
                               tag && (
                                 <span
@@ -1193,7 +1225,7 @@ export default function NuevoExpedientePage() {
                                 >
                                   <span
                                     className="h-2 w-2 rounded-full"
-                                    style={{ backgroundColor: tag.color }}
+                                    style={{ backgroundColor: validCatalogColor(tag.color) }}
                                   />
                                   {tag.nombre}
                                   <button
@@ -2030,41 +2062,14 @@ export default function NuevoExpedientePage() {
 
       <footer className="z-20 flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2 dark:border-border dark:bg-card lg:px-6">
         {(error || notice) && (
-          <div
-            id="case-wizard-feedback"
-            role={error ? 'alert' : 'status'}
-            aria-atomic="true"
-            className={
-              'flex w-full min-w-0 items-start gap-2 rounded-lg border px-3 py-2 text-sm ' +
-              (error
-                ? errorTone === 'warning'
-                  ? 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
-                  : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-100'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100')
-            }
-          >
-            {error ? (
-              errorTone === 'warning' ? (
-                <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-              ) : (
-                <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-              )
-            ) : (
-              <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-            )}
-            <p className="max-h-24 min-w-0 flex-1 overflow-y-auto break-words">{error || notice}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setError('');
-                setNotice('');
-              }}
-              aria-label="Cerrar mensaje"
-              className="shrink-0 rounded p-0.5 hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-offset-2"
-            >
-              <X size={15} aria-hidden="true" />
-            </button>
-          </div>
+          <BottomNotice
+            message={error || notice}
+            tone={error ? errorTone : 'success'}
+            onClose={() => {
+              setError('');
+              setNotice('');
+            }}
+          />
         )}
         <button
           type="button"
@@ -2238,22 +2243,24 @@ export default function NuevoExpedientePage() {
       )}
       {generalPicker === 'category' && (
         <DocumentTypeModal
+          catalogKind="case-category"
           title="Categoría de expediente"
           searchPlaceholder="Buscar categoría..."
           typeTabLabel="Categorías"
           itemPluralLabel="categorías"
           favoriteStorageKey="case_category_favorites"
           showGroupTab={false}
-          types={caseCategories.map((category) => ({
-            id: category.code,
+          types={categoryOptions.map((category) => ({
+            id: category.id,
             nombre: category.name,
             grupo_id: null,
-            descripcion: category.description,
+            descripcion: caseCategories.find((item) => item.code === category.id)?.description,
+            catalog_archived: category.archived,
           }))}
           groups={[]}
           selectedId={draft.categoryCode}
           onSelect={(code) => {
-            const category = caseCategories.find((item) => item.code === code);
+            const category = categoryOptions.find((item) => item.id === code);
             if (category)
               setDraft((current) =>
                 current.categoryCode === code
@@ -2273,6 +2280,7 @@ export default function NuevoExpedientePage() {
       )}
       {generalPicker === 'type' && (
         <DocumentTypeModal
+          catalogKind="case-type"
           title="Tipo de expediente"
           searchPlaceholder="Buscar tipo de expediente..."
           groupTabLabel="Por categoría"
@@ -2280,23 +2288,19 @@ export default function NuevoExpedientePage() {
           groupItemLabel="tipo"
           favoriteStorageKey="case_type_favorites"
           showGroupTab={false}
-          types={(
-            caseCategories.find((category) => category.code === draft.categoryCode)?.types || []
-          ).map((type) => ({ id: type.code, nombre: type.name, grupo_id: draft.categoryCode }))}
-          groups={caseCategories
-            .filter((category) => category.code === draft.categoryCode)
-            .map((category) => ({ id: category.code, nombre: category.name }))}
+          types={typeOptions.map((type) => ({ id: type.id, nombre: type.name, grupo_id: draft.categoryCode, catalog_archived: type.archived }))}
+          groups={activeCategory ? [{ id: activeCategory.id, nombre: activeCategory.name }] : []}
           selectedId={draft.typeCode}
           selectedGroupId={draft.categoryCode}
           onSelect={(code, groupCode) => {
-            const category = caseCategories.find((item) => item.code === groupCode);
-            const type = category?.types.find((item) => item.code === code);
+            const category = categoryOptions.find((item) => item.id === groupCode);
+            const type = typeOptions.find((item) => item.id === code);
             if (category && type)
               setDraft((current) => ({
                 ...current,
-                categoryCode: category.code,
+                categoryCode: category.id,
                 caseType: category.name,
-                typeCode: type.code,
+                typeCode: type.id,
                 caseSubtype: type.name,
               }));
             setGeneralPicker(null);
@@ -2306,7 +2310,8 @@ export default function NuevoExpedientePage() {
       )}
       {generalPicker === 'tags' && (
         <TagsModal
-          tags={caseTags}
+          catalogKind="case-tag"
+          tags={tagChoices}
           selectedIds={draft.tagIds}
           favoriteStorageKey="case_tag_favorites"
           onConfirm={(ids) => {

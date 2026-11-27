@@ -1,4 +1,5 @@
 'use client';
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import { useState } from 'react';
 import { Copy, Loader2, Send } from 'lucide-react';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
@@ -70,11 +71,7 @@ export default function RequestInvitationActions({
           {deliveryStatus === 'sent' ? 'Reenviar invitación' : 'Enviar invitación'}
         </button>
       </div>
-      {message && (
-        <p role="status" className="mt-3 text-sm text-muted-foreground">
-          {message}
-        </p>
-      )}
+      {message && <BottomNotice message={message} onClose={() => setMessage('')} />}
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-600">
           {error}

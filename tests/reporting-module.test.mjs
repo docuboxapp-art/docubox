@@ -7,7 +7,9 @@ import JSZip from 'jszip';
 const require = createRequire(import.meta.url);
 await build({ entryPoints: ['src/lib/reporting/engine.ts'], outfile: 'node_modules/.cache/report-engine-test.cjs', bundle: true, platform: 'node', format: 'cjs' });
 await build({ entryPoints: ['src/lib/reporting/export.ts'], outfile: 'node_modules/.cache/report-export-test.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['jszip', 'pdf-lib'] });
-const { runReport, aggregate, reportCategoryLabel, safeConfig } = require('../node_modules/.cache/report-engine-test.cjs');
+await build({ entryPoints: ['src/lib/reporting/form-fields.ts'], outfile: 'node_modules/.cache/report-form-fields-test.cjs', bundle: true, platform: 'node', format: 'cjs' });
+const { runReport, aggregate, reportCategoryLabel, safeConfig, buildReportSeries, selectedReportFields, reportConfigIssue } = require('../node_modules/.cache/report-engine-test.cjs');
+const { responseColumns } = require('../node_modules/.cache/report-form-fields-test.cjs');
 const { exportReport } = require('../node_modules/.cache/report-export-test.cjs');
 
 const fields = [{ id: 'nombre', label: 'Nombre', type: 'text' }, { id: 'estado', label: 'Estado', type: 'text' }, { id: 'cantidad', label: 'Cantidad', type: 'number' }];
@@ -45,6 +47,49 @@ test('conditions accept visible status names, calendar dates, booleans and numbe
     { field: 'urgente', operator: 'eq', value: 'Sí' },
     { field: 'cantidad', operator: 'eq', value: '3.0' },
   ]) assert.deepEqual(runReport([item], { ...base, conditions: [condition] }, allFields), [item]);
+});
+
+test('reports use the configured presentation and order, and reject conditions with stale fields', () => {
+  const config = safeConfig({ ...base, visualization: 'kpi', groupBy: '', fields: ['estado', 'nombre'], sortBy: '' }, 'expedientes');
+  assert.equal(config.visualization, 'kpi');
+  assert.equal(config.groupBy, '');
+  assert.equal(config.sortBy, '');
+  assert.deepEqual(selectedReportFields(config, fields).map(({ id }) => id), ['estado', 'nombre']);
+  assert.equal(reportConfigIssue(config, fields), '');
+  assert.match(reportConfigIssue({ ...config, visualization: 'bar' }, fields), /agrupación/);
+  assert.match(reportConfigIssue({
+    ...config, conditions: [{ field: 'retirado', operator: 'eq', value: 'a' }],
+  }, fields), /operadores/);
+  assert.equal(reportCategoryLabel('ready_to_sign', 'estado'), 'Listo para firma');
+});
+
+test('date conditions and monthly series keep the final date, sort in time and exclude unreported values from averages', () => {
+  const byDate = [...fields, { id: 'fecha', label: 'Fecha', type: 'date' }];
+  const raw = [
+    { fecha: '2026-11-20', cantidad: 6 },
+    { fecha: '2026-10-12', cantidad: 10 },
+    { fecha: '2026-10-13', cantidad: null },
+  ];
+  const filter = { ...base, conditions: [{ field: 'fecha', operator: 'lte', value: '2026-10-12' }], sortBy: '' };
+  assert.deepEqual(runReport(raw, filter, byDate), [raw[1]]);
+  const series = buildReportSeries(raw, {
+    groupBy: 'fecha', visualization: 'line', metric: 'cantidad', metricOperation: 'average', dateBucket: 'month',
+  }, byDate);
+  assert.deepEqual(series.items.map(({ label, value }) => [label, value]), [['2026-10', 10], ['2026-11', 6]]);
+});
+
+test('response fields use the published schema, separate reused field IDs and keep attachment contents out of reports', () => {
+  const forms = [
+    { id: 'first', name: 'Primero', schema: [{ id: 'legacy', label: 'Legado', type: 'text' }],
+      form_schema: { fields: [{ id: 'shared', label: 'Monto', type: 'currency' }, { id: 'pdf', label: 'Anexo', type: 'documento' }] } },
+    { id: 'second', name: 'Segundo', schema: [{ id: 'shared', label: 'Referencia', type: 'text' }] },
+  ];
+  const lookup = responseColumns(forms);
+  assert.deepEqual(lookup.project('first', { shared: '12.5', pdf: 'private-path', unknown: 'secret' }), {
+    'respuesta.first.shared': 12.5, 'respuesta.first.pdf': true, 'respuesta.pdf': true,
+  });
+  assert.deepEqual(lookup.project('second', { shared: 'A-1' }), { 'respuesta.second.shared': 'A-1' });
+  assert.equal(lookup.fields.some(field => field.id === 'respuesta.shared'), false);
 });
 
 test('CSV, Excel, JSON and PDF exports contain real configured rows', async () => {

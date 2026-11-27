@@ -23,6 +23,11 @@ import { FormDesignSaveError, saveFormAndDesignDefaults } from '@/lib/forms/desi
 import { WizardDesignPreview } from './WizardDesignPreview';
 import { createClient } from '@/lib/supabase/client';
 import {
+  readDocumentTags,
+  readDocumentTypeGroups,
+  readDocumentTypes,
+} from '@/lib/catalog/document-reads';
+import {
   DocumentTypeModal,
   TagsModal,
   type CatalogTag,
@@ -99,9 +104,9 @@ export function GeneralSettings() {
     let active = true;
     const supabase = createClient();
     void Promise.all([
-      supabase.from('grupo_tipo_documento').select('id, nombre').order('nombre'),
-      supabase.from('tipo_documento').select('id, nombre, grupo_id').order('nombre'),
-      supabase.from('etiquetas').select('id, nombre, color').order('nombre'),
+      readDocumentTypeGroups(supabase),
+      readDocumentTypes(supabase),
+      readDocumentTags(supabase),
     ]).then(([groupResult, typeResult, tagResult]) => {
       if (!active) return;
       if (groupResult.error || typeResult.error || tagResult.error)
@@ -173,15 +178,19 @@ export function GeneralSettings() {
             />
           </label>
           <div>
-            <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground">
+            <label
+              htmlFor="form-type"
+              className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-foreground"
+            >
               <Layers size={14} className="text-slate-400" />
-              Tipo de formulario <span className="font-normal text-slate-400">(Opcional)</span>
+              Tipo de formulario
             </label>
             <div className="flex gap-2">
               <div className="relative min-w-0 flex-1">
                 <input
+                  id="form-type"
                   readOnly
-                  value={selectedType?.nombre || ''}
+                  value={selectedType?.nombre || settings.documentTypeName || ''}
                   placeholder="Seleccionar tipo de formulario..."
                   className={`${formInputClass} pr-8`}
                 />
@@ -419,6 +428,10 @@ export function GeneralSettings() {
       </aside>
       {picker === 'types' && (
         <DocumentTypeModal
+          catalogKind="form-type"
+          title="Tipo de formulario"
+          searchPlaceholder="Buscar tipo de formulario..."
+          groupItemLabel="tipo"
           types={types}
           groups={groups}
           selectedId={settings.documentTypeId}
@@ -437,6 +450,7 @@ export function GeneralSettings() {
       )}
       {picker === 'tags' && (
         <TagsModal
+          catalogKind="form-tag"
           tags={tags}
           selectedIds={settings.tagIds}
           onConfirm={(ids) => {

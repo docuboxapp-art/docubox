@@ -1,5 +1,6 @@
 'use client';
 
+import { BottomNotice } from '@/components/ui/BottomNotice';
 import React, { useState } from 'react';
 import {
   GitBranch,
@@ -878,16 +879,8 @@ function WorkflowEditorModal({
         </div>
 
         {/* Error / Success feedback */}
-        {saveError && (
-          <div className="mx-6 mb-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-            {saveError}
-          </div>
-        )}
-        {saveSuccess && (
-          <div className="mx-6 mb-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-600">
-            ¡Flujo guardado correctamente!
-          </div>
-        )}
+        {saveError && <BottomNotice message={saveError} tone="critical" onClose={() => setSaveError(null)} />}
+        {saveSuccess && <BottomNotice message="Flujo guardado correctamente." tone="success" onClose={() => setSaveSuccess(false)} />}
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-white rounded-b-xl">

@@ -22,6 +22,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
+import { acceptWorkspaceMembership, joinWorkspaceByCode, loadWorkspaceInvitations } from '@/lib/workspace-invitation';
 import { loadVisibleProfileCards } from '@/lib/profile-privacy/client';
 
 type WorkspaceDocument = {
@@ -131,7 +132,7 @@ export function WorkspaceManagementSection() {
       const profiles = await loadVisibleProfileCards(userIds).catch(() => []);
       setWorkspaceMembers(
         members.map((member) => {
-          const profile = profiles?.find((item) => item.id === member.user_id);
+          const profile = profiles.find((item) => item.id === member.user_id);
           return {
             id: member.id,
             user_id: member.user_id,
@@ -154,42 +155,7 @@ export function WorkspaceManagementSection() {
     setInvitationsLoading(true);
     setInvitationError('');
     try {
-      const supabase = createClient();
-      const { data: pendingInvitations } = await supabase
-        .from('workspace_members')
-        .select('id, workspace_id, created_at')
-        .eq('user_id', user.id)
-        .eq('role', 'invited');
-
-      if (!pendingInvitations?.length) {
-        setInvitations([]);
-        return;
-      }
-
-      const workspaceIds = pendingInvitations.map((invitation) => invitation.workspace_id);
-      const { data: invitationWorkspaces } = await supabase
-        .from('workspaces')
-        .select('id, name, owner_id')
-        .in('id', workspaceIds);
-      const ownerIds = (invitationWorkspaces || []).map((workspace) => workspace.owner_id).filter(Boolean);
-      const ownerProfiles = await loadVisibleProfileCards(ownerIds).catch(() => []);
-
-      setInvitations(
-        pendingInvitations.map((invitation) => {
-          const workspace = invitationWorkspaces?.find(
-            (item) => item.id === invitation.workspace_id
-          );
-          const owner = ownerProfiles?.find((item) => item.id === workspace?.owner_id);
-          return {
-            id: invitation.id,
-            workspace_id: invitation.workspace_id,
-            workspace_name: workspace?.name || 'Espacio desconocido',
-            owner_name: owner?.name || '',
-            owner_email: owner?.email || '',
-            invited_at: invitation.created_at,
-          };
-        })
-      );
+      setInvitations(await loadWorkspaceInvitations());
     } catch {
       setInvitations([]);
       setInvitationError('No fue posible cargar las invitaciones.');
@@ -216,12 +182,7 @@ export function WorkspaceManagementSection() {
     setAcceptingInvitationId(invitation.id);
     setInvitationError('');
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: 'member' })
-        .eq('id', invitation.id);
-      if (error) throw error;
+      await acceptWorkspaceMembership(invitation.id);
       await refreshWorkspaces();
       setInvitations((current) => current.filter((item) => item.id !== invitation.id));
     } catch (error) {
@@ -237,36 +198,8 @@ export function WorkspaceManagementSection() {
     setJoinError('');
     setJoinSuccess('');
     try {
-      const supabase = createClient();
-      const search = joinCode.trim();
-      const { data: matches } = await supabase
-        .from('workspaces')
-        .select('id, name, workspace_type')
-        .or(`invite_code.eq.${search},name.ilike.${search}`);
-      const workspace = matches?.[0];
-      if (!workspace) {
-        setJoinError('No se encontró ningún espacio de trabajo con ese código o nombre.');
-        return;
-      }
-      if (workspace.workspace_type === 'personal') {
-        setJoinError('No puedes unirte a un espacio de trabajo personal.');
-        return;
-      }
-      const { data: membership } = await supabase
-        .from('workspace_members')
-        .select('id')
-        .eq('workspace_id', workspace.id)
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (membership) {
-        setJoinError('Ya eres miembro de este espacio de trabajo.');
-        return;
-      }
-      const { error } = await supabase
-        .from('workspace_members')
-        .insert({ workspace_id: workspace.id, user_id: user.id, role: 'member' });
-      if (error) throw error;
-      setJoinSuccess(`Te has unido a "${workspace.name}" exitosamente.`);
+      const name = await joinWorkspaceByCode(joinCode);
+      setJoinSuccess(`Te has unido a "${name}".`);
       setJoinCode('');
       await refreshWorkspaces();
     } catch (error) {
@@ -462,7 +395,7 @@ export function WorkspaceManagementSection() {
           <section className="flex flex-col gap-4 rounded-xl border border-border bg-white p-5">
             <div>
               <h2 className="flex items-center gap-2 text-sm font-600 text-primary"><UserPlus size={15} /> Unirse a un espacio de trabajo</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Ingresa el código de invitación o el nombre del espacio al que deseas unirte.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Ingresa el código de invitación del espacio.</p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
@@ -470,7 +403,7 @@ export function WorkspaceManagementSection() {
                 value={joinCode}
                 onChange={(event) => setJoinCode(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && void handleJoinWorkspace()}
-                placeholder="Ej. EMPRESA-2024 o nombre del espacio"
+                placeholder="Ej. EMPRESA-2024"
                 className="flex-1 rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-foreground placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
               <button type="button" onClick={() => void handleJoinWorkspace()} disabled={joinLoading || !joinCode.trim()} className="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-600 text-white transition-colors hover:bg-primary/90 disabled:opacity-60">

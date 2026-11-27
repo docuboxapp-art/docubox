@@ -26,6 +26,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -255,7 +256,7 @@ export default function ActivityAuditLog() {
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState<'actividad' | 'alertas'>('actividad');
   const [auditPage, setAuditPage] = useState(1);
-  const [auditPageSize, setAuditPageSize] = useState<10 | 30 | 50 | 100>(10);
+  const [auditPageSize, setAuditPageSize] = useState<10 | 30 | 50 | 100>(DEFAULT_TABLE_PAGE_SIZE);
 
   const loadData = useCallback(async () => {
     if (!userId) return;
@@ -620,7 +621,7 @@ export default function ActivityAuditLog() {
                     );
                   })
                 )}
-                {filteredAuditLog.length > 0 && (
+                {shouldShowTablePagination(filteredAuditLog.length) && (
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
                     <span className="text-xs text-slate-500">
                       Mostrando {auditPageStart + 1}-
