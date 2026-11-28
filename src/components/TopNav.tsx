@@ -61,6 +61,10 @@ import { useWorkspace, type Workspace } from '@/contexts/WorkspaceContext';
 import { createClient } from '@/lib/supabase/client';
 import { joinWorkspaceByCode } from '@/lib/workspace-invitation';
 import { updateNotifications } from '@/lib/notifications/client';
+import {
+  createNotificationRefresh,
+  subscribeToNotificationChanges,
+} from '@/lib/notifications/realtime';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSidebar } from '@/contexts/SidebarContext';
@@ -696,7 +700,7 @@ export default function TopNav() {
     if (!userId) return;
     const supabase = createClient();
 
-    const loadNotifications = async () => {
+    const refresh = createNotificationRefresh(async (signal) => {
       const { data } = await supabase
         .from('notifications')
         .select(
@@ -705,8 +709,9 @@ export default function TopNav() {
         .eq('user_id', userId)
         .is('archived_at', null)
         .order('created_at', { ascending: false })
-        .limit(20);
-      if (data) {
+        .limit(20)
+        .abortSignal(signal);
+      if (data && !signal.aborted) {
         setNotifications(
           data
             .filter((n: any) => !isRetiredNotification(n))
@@ -728,24 +733,15 @@ export default function TopNav() {
             }))
         );
       }
-    };
+    });
 
-    loadNotifications();
-
-    // Realtime subscription for new notifications
-    const channel = supabase
-      .channel('topnav-notifications')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
-        () => {
-          loadNotifications();
-        }
-      )
-      .subscribe();
-
+    refresh.request();
+    const unsubscribe = subscribeToNotificationChanges(supabase, userId, {
+      onChange: refresh.request,
+    });
     return () => {
-      supabase.removeChannel(channel);
+      refresh.dispose();
+      unsubscribe();
     };
   }, [userId]);
 

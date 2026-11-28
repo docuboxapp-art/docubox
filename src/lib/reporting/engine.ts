@@ -122,6 +122,7 @@ export function reportCategoryLabel(value: ReportRow[string], fieldId: string): 
   if (value == null || value === '') return 'Sin dato';
   if (typeof value === 'boolean') return value ? 'Sí' : 'No';
   const text = String(value);
+  if (!technical.has(fieldId)) return text;
   const key = text.toLocaleLowerCase('es');
   if (fieldId === 'estado') {
     if (Object.hasOwn(statusLabels, key)) return statusLabels[key];
@@ -181,45 +182,59 @@ export function displayReportValue(value: ReportRow[string], field: ReportField)
     : displayValue(value, field.type);
 }
 
-function compare(value: ReportRow[string], condition: Condition, type: FieldType) {
-  const actual = value == null ? '' : String(value).trim();
-  const expected = condition.value.trim();
-  const operator = condition.operator;
-  if (operator === 'empty') return !actual;
-  if (operator === 'not_empty') return Boolean(actual);
-  if (!actual || !expected) return false;
-
-  let comparison: number;
-  if (type === 'date' || type === 'number') {
-    const left = type === 'date' ? calendarDay(actual) : Number(actual);
-    const right = type === 'date' ? expected : Number(expected);
-    if (
-      type === 'date'
-        ? !left || !validDay(expected)
-        : !Number.isFinite(left) || !Number.isFinite(right)
-    )
-      return false;
-    comparison = left > right ? 1 : left < right ? -1 : 0;
-  } else {
-    const raw = searchableReportText(actual);
-    const label = searchableReportText(reportCategoryLabel(value, condition.field));
-    const text = searchableReportText(expected);
-    const boolValue = ['si', '1', 'true'].includes(text)
-      ? 'true'
-      : ['no', '0', 'false'].includes(text)
-        ? 'false'
-        : '';
-    if (type === 'boolean' && !boolValue) return false;
-    if (operator === 'contains') return raw.includes(text) || label.includes(text);
-    comparison = (type === 'boolean' ? raw === boolValue : raw === text || label === text) ? 0 : 1;
-  }
-
+function matchesOrder(comparison: number, operator: Condition['operator']) {
   if (operator === 'eq') return comparison === 0;
   if (operator === 'neq') return comparison !== 0;
   if (operator === 'gt') return comparison > 0;
   if (operator === 'gte') return comparison >= 0;
   if (operator === 'lt') return comparison < 0;
   return comparison <= 0;
+}
+
+function compileCondition({ field, operator, value }: Condition, type: FieldType) {
+  const actualText = (row: ReportRow) => String(row[field] ?? '').trim();
+  if (operator === 'empty') return (row: ReportRow) => !actualText(row);
+  if (operator === 'not_empty') return (row: ReportRow) => Boolean(actualText(row));
+
+  const expected = value.trim();
+  if (!expected) return () => false;
+  if (type === 'date') {
+    if (!validDay(expected)) return () => false;
+    return (row: ReportRow) => {
+      const actual = actualText(row);
+      const day = actual && calendarDay(actual);
+      return day !== '' && matchesOrder(day > expected ? 1 : day < expected ? -1 : 0, operator);
+    };
+  }
+  if (type === 'number') {
+    const target = Number(expected);
+    if (!Number.isFinite(target)) return () => false;
+    return (row: ReportRow) => {
+      const actual = actualText(row);
+      const amount = Number(actual);
+      return actual !== '' && Number.isFinite(amount) && matchesOrder(amount - target, operator);
+    };
+  }
+
+  const target = searchableReportText(expected);
+  const booleanTarget = ['si', '1', 'true'].includes(target)
+    ? 'true'
+    : ['no', '0', 'false'].includes(target)
+      ? 'false'
+      : '';
+  if (type === 'boolean' && !booleanTarget) return () => false;
+
+  return (row: ReportRow) => {
+    const actual = actualText(row);
+    if (!actual) return false;
+    const raw = searchableReportText(actual);
+    const label = reportCategoryLabel(row[field], field);
+    const normalizedLabel = label === actual ? raw : searchableReportText(label);
+    if (operator === 'contains') return raw.includes(target) || normalizedLabel.includes(target);
+    const equal =
+      type === 'boolean' ? raw === booleanTarget : raw === target || normalizedLabel === target;
+    return matchesOrder(equal ? 0 : 1, operator);
+  };
 }
 
 const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
@@ -231,39 +246,48 @@ export function runReport(
   fields: ReportField[]
 ): ReportRow[] {
   const types = new Map(fields.map((field) => [field.id, field.type]));
-  const valid = (config.conditions || []).filter((item) => types.has(item.field));
+  const conditions = (config.conditions || []).flatMap((item) => {
+    const type = types.get(item.field);
+    return type ? [compileCondition(item, type)] : [];
+  });
   const days = periodDays[config.period] || 0;
   const now = Date.now();
-  const from = days ? now - days * 86400000 : 0;
-  return rows
-    .filter((row) => {
-      if (from && types.get(config.dateField) === 'date') {
-        const timestamp = Date.parse(String(row[config.dateField] ?? ''));
-        if (!Number.isFinite(timestamp) || timestamp < from || timestamp > now) return false;
-      }
-      const matches = (item: Condition) => compare(row[item.field], item, types.get(item.field)!);
-      return config.match === 'any'
-        ? valid.length === 0 || valid.some(matches)
-        : valid.every(matches);
-    })
-    .sort((a, b) => {
-      const type = types.get(config.sortBy);
-      if (!type) return 0;
-      const left = a[config.sortBy],
-        right = b[config.sortBy];
-      if (left == null || left === '') return right == null || right === '' ? 0 : 1;
-      if (right == null || right === '') return -1;
-      const order =
-        type === 'number'
-          ? Number(left) - Number(right)
-          : type === 'date'
-            ? Date.parse(String(left)) - Date.parse(String(right))
-            : collator.compare(
-                reportCategoryLabel(left, config.sortBy),
-                reportCategoryLabel(right, config.sortBy)
-              );
-      return config.sortDirection === 'asc' ? order : -order;
-    });
+  const from = days && types.get(config.dateField) === 'date' ? now - days * 86400000 : 0;
+  const filtered = rows.filter((row) => {
+    if (from) {
+      const timestamp = Date.parse(String(row[config.dateField] ?? ''));
+      if (!Number.isFinite(timestamp) || timestamp < from || timestamp > now) return false;
+    }
+    return config.match === 'any'
+      ? conditions.length === 0 || conditions.some((matches) => matches(row))
+      : conditions.every((matches) => matches(row));
+  });
+
+  const sortType = types.get(config.sortBy);
+  if (!sortType || filtered.length < 2) return filtered;
+  const direction = config.sortDirection === 'asc' ? 1 : -1;
+  const prepared = filtered.map((row) => {
+    const value = row[config.sortBy];
+    const key =
+      value == null || value === ''
+        ? null
+        : sortType === 'number'
+          ? Number(value)
+          : sortType === 'date'
+            ? Date.parse(String(value))
+            : reportCategoryLabel(value, config.sortBy);
+    return { row, key };
+  });
+  prepared.sort(({ key: left }, { key: right }) => {
+    if (left === null) return right === null ? 0 : 1;
+    if (right === null) return -1;
+    const order =
+      typeof left === 'number' && typeof right === 'number'
+        ? left - right
+        : collator.compare(String(left), String(right));
+    return order * direction;
+  });
+  return prepared.map(({ row }) => row);
 }
 
 export function selectedReportFields(config: ReportConfig, fields: ReportField[]) {

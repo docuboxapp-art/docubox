@@ -24,6 +24,10 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { updateNotifications } from '@/lib/notifications/client';
+import {
+  createNotificationRefresh,
+  subscribeToNotificationChanges,
+} from '@/lib/notifications/realtime';
 import { isRetiredNotification, notificationArea, notificationAreaLabel, notificationDestination, NOTIFICATION_AREAS } from '@/lib/notifications/presentation';
 import { useAuth } from '@/contexts/AuthContext';
 import { DEFAULT_TABLE_PAGE_SIZE, shouldShowTablePagination } from '@/lib/workspaces/table-pagination';
@@ -273,6 +277,7 @@ function NotificationDetailModal({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 function NotificationsContent() {
   const { user } = useAuth();
+  const userId = user?.id;
   const searchParams = useSearchParams();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -294,9 +299,11 @@ function NotificationsContent() {
   const typeRef = useRef<HTMLDivElement>(null);
   const priorityRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const requestRefresh = useRef<(() => void) | null>(null);
+  const retryNotifications = () => requestRefresh.current?.();
 
-  const loadNotifications = useCallback(async () => {
-    if (!user) {
+  const loadNotifications = useCallback(async (signal: AbortSignal, lifetime: AbortSignal) => {
+    if (!userId) {
       setNotifications([]);
       setLoading(false);
       return;
@@ -311,10 +318,12 @@ function NotificationsContent() {
       let { data, error } = await supabase
         .from('notifications')
         .select(fields)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .is('archived_at', null)
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(200)
+        .abortSignal(signal);
+      if (lifetime.aborted) return;
 
       // Older database schemas may not yet include archived_at. The feed remains
       // available while that migration is being applied.
@@ -322,13 +331,15 @@ function NotificationsContent() {
         const fallback = await supabase
           .from('notifications')
           .select(fields)
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .order('created_at', { ascending: false })
-          .limit(200);
+          .limit(200)
+          .abortSignal(signal);
         data = fallback.data;
         error = fallback.error;
       }
 
+      if (lifetime.aborted) return;
       if (error) throw error;
 
       if (!error && data) {
@@ -336,6 +347,7 @@ function NotificationsContent() {
         setTimeFilterAnchor(Date.now());
       }
     } catch (caught) {
+      if (lifetime.aborted) return;
       setNotifications([]);
       setLoadError(
         caught instanceof Error
@@ -343,16 +355,24 @@ function NotificationsContent() {
           : 'No fue posible consultar las notificaciones en este momento.'
       );
     } finally {
-      setLoading(false);
+      if (!lifetime.aborted) setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadNotifications();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadNotifications]);
+    const refresh = createNotificationRefresh(loadNotifications);
+    requestRefresh.current = refresh.request;
+    const timer = window.setTimeout(refresh.request, 0);
+    const unsubscribe = userId
+      ? subscribeToNotificationChanges(createClient(), userId, { onChange: refresh.request })
+      : undefined;
+    return () => {
+      requestRefresh.current = null;
+      window.clearTimeout(timer);
+      refresh.dispose();
+      unsubscribe?.();
+    };
+  }, [loadNotifications, userId]);
 
   // Auto-open detail modal when ?open=<id> is present in URL
   useEffect(() => {
@@ -364,25 +384,6 @@ function NotificationsContent() {
       return () => window.clearTimeout(timer);
     }
   }, [searchParams, notifications]);
-
-  // Realtime subscription
-  useEffect(() => {
-    if (!user) return;
-    const supabase = createClient();
-    const channel = supabase
-      .channel('notifications-page')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        () => {
-          loadNotifications();
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, loadNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -508,7 +509,7 @@ function NotificationsContent() {
               </p>
             </div>
             <button
-              onClick={loadNotifications}
+              onClick={retryNotifications}
               className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3.5 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 sm:w-auto dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
@@ -748,7 +749,7 @@ function NotificationsContent() {
                     Verifica tu conexión e inténtalo de nuevo.
                   </p>
                   <button
-                    onClick={loadNotifications}
+                    onClick={retryNotifications}
                     className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-600 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                   >
                     <RefreshCw size={14} />

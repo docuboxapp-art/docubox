@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { updateNotifications } from '@/lib/notifications/client';
+import { subscribeToNotificationChanges } from '@/lib/notifications/realtime';
 import { createClient } from '@/lib/supabase/client';
 import { profilePrivacy } from './client';
 import type { ContactRequestInbox } from './model';
@@ -63,23 +64,13 @@ export function useContactRequests({
 
   useEffect(() => {
     if (!enabled || !userId) return;
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`contact-request-notices:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
-        ({ new: notice }) => {
-          if ('event_type' in notice && contactRequestEvents.includes(String(notice.event_type)))
-            reload();
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') reload();
-      });
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeToNotificationChanges(createClient(), userId, {
+      onChange: ({ new: notice }) => {
+        if ('event_type' in notice && contactRequestEvents.includes(String(notice.event_type)))
+          reload();
+      },
+      onSubscribed: reload,
+    });
   }, [enabled, userId, reload]);
 
   useEffect(() => {

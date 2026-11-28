@@ -49,6 +49,20 @@ test('conditions accept visible status names, calendar dates, booleans and numbe
   ]) assert.deepEqual(runReport([item], { ...base, conditions: [condition] }, allFields), [item]);
 });
 
+test('report ordering keeps ties stable and keeps empty cells last in both directions', () => {
+  const withDates = [...fields, { id: 'fecha', label: 'Fecha', type: 'date' }];
+  const input = [
+    { nombre: 'Documento 10', fecha: '2026-11-10T06:00:00Z' },
+    { nombre: 'Documento 2', fecha: '2026-11-10T00:00:00-06:00' },
+    { nombre: '', fecha: '' },
+    { nombre: 'Documento 1', fecha: '2026-11-09' },
+    { nombre: null, fecha: null },
+  ];
+  assert.deepEqual(runReport(input, { ...base, sortBy: 'fecha' }, withDates), [input[3], input[0], input[1], input[2], input[4]]);
+  assert.deepEqual(runReport(input, { ...base, sortBy: 'fecha', sortDirection: 'desc' }, withDates), [input[0], input[1], input[3], input[2], input[4]]);
+  assert.deepEqual(runReport(input, base, withDates), [input[3], input[1], input[0], input[2], input[4]]);
+});
+
 test('reports use the configured presentation and order, and reject conditions with stale fields', () => {
   const config = safeConfig({ ...base, visualization: 'kpi', groupBy: '', fields: ['estado', 'nombre'], sortBy: '' }, 'expedientes');
   assert.equal(config.visualization, 'kpi');
