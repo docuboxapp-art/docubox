@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getPublicAppUrl } from '@/lib/publicAppUrl';
+import { getSignatureVerificationUrl } from '@/lib/signatures/verification-link';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
     const { data: responses, error } = await supabaseAdmin
       .from('participation_responses')
       .select(
-        'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, firma_completada_at, signature_method, signature_stamp_style, signature_hash, signature_ip, signature_metadata, aprobacion_completada'
+        'participante_id, participante_email, participante_nombre, campos_completados, firma_data, firma_completada, firma_completada_at, signature_method, signature_stamp_style, signature_hash, signature_ip, signature_metadata, signature_evidence_id, operational_committed_at, aprobacion_completada'
       )
       .eq('documento_id', documentoId);
 
@@ -69,8 +71,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const documentVerificationUrl = `${getPublicAppUrl()}/v/${encodeURIComponent(documentoId)}`;
     const data = (responses || []).map((response) => {
-      const { signature_metadata, ...visibleResponse } = response;
+      const { signature_metadata, signature_evidence_id, operational_committed_at, ...visibleResponse } = response;
       const metadata =
         signature_metadata && typeof signature_metadata === 'object'
           ? (signature_metadata as Record<string, unknown>)
@@ -83,7 +86,9 @@ export async function GET(request: NextRequest) {
           curp: stampText('curp'),
           participant_role: stampText('participant_role'),
           participant_act: stampText('participant_act'),
-          verification_url: stampText('verification_url'),
+          verification_url: visibleResponse.firma_completada
+            ? (operational_committed_at && getSignatureVerificationUrl(signature_evidence_id)) || documentVerificationUrl
+            : null,
           certificate_serial: stampText('certificate_serial'),
           certificate_valid_until: stampText('certificate_valid_until'),
         },

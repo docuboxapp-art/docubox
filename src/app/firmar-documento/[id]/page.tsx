@@ -54,6 +54,7 @@ import ContextHelpLink from '@/components/help/ContextHelpLink';
 import { fitPreviewZoom } from '@/lib/documents/preview-zoom';
 import { FittedSignatureStamp, SignatureStampDisplay, type StampDisplayProps } from '@/components/signatures/SignatureStampDisplay';
 import { getPublicAppUrl } from '@/lib/publicAppUrl';
+import { getSignatureVerificationUrl } from '@/lib/signatures/verification-link';
 import {
   SIGNING_METHOD_LABELS,
   getAvailableSigningMethods,
@@ -4111,6 +4112,7 @@ export default function FirmarDocumentoPage() {
     signatureHash: string;
     timestampSello: string;
     signatureType: string;
+    verificationUrl: string | null;
     documentoEstado: 'completado' | 'firmado' | 'en_progreso';
     efirmaSerial?: string | null;
     efirmaRfc?: string | null;
@@ -6711,6 +6713,7 @@ export default function FirmarDocumentoPage() {
         signatureHash,
         timestampSello: now,
         signatureType: sigTypeLabel,
+        verificationUrl: getSignatureVerificationUrl(commitPayload.data.evidenceId),
         documentoEstado,
         efirmaSerial: isEfirmaSAT ? activeEfirmaSerial || null : null,
         efirmaRfc: isEfirmaSAT ? activeEfirmaRfc || null : null,
@@ -7196,7 +7199,7 @@ export default function FirmarDocumentoPage() {
           : clickSignStampStyle;
     const completedStampProps: StampDisplayProps = {
       stampStyle: completedStampStyle,
-      verificationUrl: `${getPublicAppUrl()}/v/${encodeURIComponent(document.id)}`,
+      verificationUrl: ev?.verificationUrl ?? `${getPublicAppUrl()}/v/${encodeURIComponent(document.id)}`,
       signatureType: completedSigType,
       signatureUrl: displayFirmaData,
       userName: userProfile.nombre_completo,

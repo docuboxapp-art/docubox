@@ -12,14 +12,19 @@ export class PublicRateLimitUnavailableError extends Error {
   }
 }
 
-export async function enforcePublicRateLimit(request: NextRequest, scope: string, limit = 30) {
+export async function enforcePublicRateLimit(
+  request: { headers: Pick<Headers, 'get'> },
+  scope: string,
+  limit = 30,
+  deadline?: AbortSignal
+) {
   const ip =
     request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-real-ip') ||
     'unknown';
   const key = createHash('sha256').update(`public-verification:${scope}:${ip}`).digest('hex');
-  const { data, error } = await createServiceClient().rpc('consume_server_rate_limit', {
+  const { data, error } = await createServiceClient(deadline).rpc('consume_server_rate_limit', {
     p_key_hash: key,
     p_limit: limit,
     p_window_seconds: 60,

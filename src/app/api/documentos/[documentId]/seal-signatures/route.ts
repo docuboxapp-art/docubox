@@ -475,7 +475,7 @@ async function sealSignaturesNow(
     const responsesResult = await service
       .from('participation_responses')
       .select(
-        'participante_id,participant_record_id,participant_reference_id,participante_email,participante_nombre,firma_data,firma_completada_at,consent_accepted,consent_accepted_at,signature_method,signature_stamp_style,signature_hash,signature_ip,signature_metadata'
+        'participante_id,participant_record_id,participant_reference_id,participante_email,participante_nombre,firma_data,firma_completada_at,consent_accepted,consent_accepted_at,signature_method,signature_stamp_style,signature_hash,signature_ip,signature_metadata,signature_evidence_id,operational_committed_at'
       )
       .eq('documento_id', document.id)
       .eq('firma_completada', true)

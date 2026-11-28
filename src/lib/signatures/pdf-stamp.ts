@@ -9,6 +9,7 @@ import {
 } from '@/lib/documents/final-pdf-metadata';
 import { embedDocuboxPdfFonts, type DocuboxPdfFonts } from '@/lib/pdf/embedded-fonts';
 import { getDefaultSignatureStampStyle, getStampSizePreset } from '@/lib/signatures/stamp-sizing';
+import { getSignatureVerificationUrl } from '@/lib/signatures/verification-link';
 import {
   SIGNERS_SHEET_PDF_PAGE_KEY,
   SIGNING_METHOD_LABELS,
@@ -32,6 +33,8 @@ export type SignatureStampResponse = {
   signature_hash?: string | null;
   signature_ip?: string | null;
   signature_metadata?: Record<string, unknown> | null;
+  signature_evidence_id?: string | null;
+  operational_committed_at?: string | null;
 };
 
 export type SignatureStampField = {
@@ -2762,7 +2765,6 @@ async function appendSignersSheet(
           signature_stamp_style: stamp.style,
           signature_metadata: {
             ...details,
-            verification_url: verificationUrl,
             participant_role: stampText(details.participant_role || details.role, 'Firmante'),
             ocsp_status: stampText(details.ocsp_status, 'No disponible'),
             authentication_status: stampText(
@@ -2800,10 +2802,19 @@ export async function createSignedDocumentPdf(params: {
   const fonts = await embedDocuboxPdfFonts(pdf);
   const signatureFields = params.fields.filter(isSignatureStampField);
   const originalPageCount = pdf.getPageCount();
+  const responses: SignatureStampResponse[] = params.responses.map((response) => ({
+    ...response,
+    signature_metadata: {
+      ...response.signature_metadata,
+      verification_url:
+        (response.operational_committed_at && getSignatureVerificationUrl(response.signature_evidence_id)) ||
+        params.verificationUrl,
+    },
+  }));
   let signersStamped = 0;
   let stampsApplied = 0;
 
-  for (const response of params.responses) {
+  for (const response of responses) {
     const assignedFields = signatureFields
       .filter((field) => matchesField(field, response))
       .map((field) => ({ ...field, page: field.page ?? 1, width: field.width ?? 34, height: field.height ?? 12 }))
@@ -2821,8 +2832,8 @@ export async function createSignedDocumentPdf(params: {
     if (positions.length > 0) signersStamped += 1;
   }
 
-  const signatureSheetPages = params.allowSignersSheet && signersStamped < params.responses.length
-    ? await appendSignersSheet(pdf, params.responses, params.technicalMetadata, fonts, params.verificationUrl)
+  const signatureSheetPages = params.allowSignersSheet && signersStamped < responses.length
+    ? await appendSignersSheet(pdf, responses, params.technicalMetadata, fonts, params.verificationUrl)
     : 0;
   const metadataResult = applyFinalPdfMetadata(pdf, params.technicalMetadata);
   const bytes = await pdf.save({ useObjectStreams: false });
@@ -2830,7 +2841,7 @@ export async function createSignedDocumentPdf(params: {
     bytes,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     stampsApplied,
-    signaturesApplied: signatureSheetPages ? params.responses.length : signersStamped,
+    signaturesApplied: signatureSheetPages ? responses.length : signersStamped,
     signatureSheetPages,
     metadataSnapshotSha256: metadataResult.snapshotSha256,
   };
